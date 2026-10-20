@@ -59,6 +59,93 @@ public class CompletionsTests
 	}
 
 	[Fact]
+	public void Complete_enum_flag_value_uses_cli_names()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "enum-value-cmd", "--palette", "");
+		result.ExitCode.Should().Be(0);
+		CliHostRunner.StdoutText(result).Should().Be("fire-red\ngreen\nocean-blue\n");
+	}
+
+	[Fact]
+	public void Complete_enum_flag_value_filters_by_partial()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "enum-value-cmd", "--palette", "f");
+		CliHostRunner.StdoutText(result).Should().Be("fire-red\n");
+	}
+
+	[Fact]
+	public void Complete_enum_flag_value_after_short_alias()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "enum-cmd", "-c", "");
+		CliHostRunner.StdoutText(result).Should().Be("blue\nred\n");
+	}
+
+	[Fact]
+	public void Complete_inline_flag_value_keeps_flag_prefix()
+	{
+		var result = CliHostRunner.Run("__complete", "zsh", "--", "enum-value-cmd", "--palette=o");
+		CliHostRunner.StdoutText(result).Should().Be("--palette=ocean-blue\n");
+	}
+
+	[Fact]
+	public void Complete_flag_value_after_bash_equals_word_break()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "enum-value-cmd", "--palette", "=", "g");
+		CliHostRunner.StdoutText(result).Should().Be("green\n");
+	}
+
+	[Theory]
+	[InlineData("--severity")]
+	[InlineData("hello", "--severity")]
+	[InlineData("storage", "--severity")]
+	[InlineData("storage", "blob", "upload", "--severity")]
+	public void Complete_global_enum_flag_value_in_any_scope(params string[] words)
+	{
+		var result = CliHostRunner.Run(["__complete", "bash", "--", .. words, ""]);
+		CliHostRunner.StdoutText(result).Should().Be("information\ntrace\nwarning\n");
+	}
+
+	[Fact]
+	public void Complete_enum_collection_flag_value()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "color-set", "--colors", "red", "--colors", "");
+		CliHostRunner.StdoutText(result).Should().Be("blue\nred\n");
+	}
+
+	[Fact]
+	public void Complete_allowed_values_flag_value()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "validate-allowed", "--env", "");
+		CliHostRunner.StdoutText(result).Should().Be("dev\nprod\nstaging\n");
+	}
+
+	[Fact]
+	public void Complete_open_ended_flag_value_emits_nothing()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "hello", "--name", "");
+		result.ExitCode.Should().Be(0);
+		CliHostRunner.StdoutText(result).Should().BeEmpty();
+	}
+
+	[Fact]
+	public void Complete_flag_after_enum_flag_lists_flags()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "hello", "--severity", "--n");
+		CliHostRunner.StdoutText(result).Should().Be("--name\n");
+	}
+
+	[Theory]
+	[InlineData("hello")]
+	[InlineData("storage")]
+	public void Complete_command_and_namespace_flags_include_help(string word)
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", word, "-");
+		var stdout = CliHostRunner.StdoutText(result);
+		stdout.Should().Contain("--help\n");
+		stdout.Should().Contain("-h\n");
+	}
+
+	[Fact]
 	public void Complete_unknown_shell_exits_nonzero()
 	{
 		var result = CliHostRunner.Run("__complete", "pwsh", "--");
