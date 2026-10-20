@@ -9,6 +9,24 @@ namespace Nullean.Argh.IntegrationTests.Completions;
 public class SchemaTests
 {
 	[Fact]
+	public void Schema_escapes_non_ascii_xml_doc_text_so_stdout_is_plain_ascii()
+	{
+		var result = CliHostRunner.Run("__schema");
+		result.ExitCode.Should().Be(0);
+		var json = CliHostRunner.StdoutText(result);
+		json.Where(c => c > 0x7E).Should().BeEmpty(@"non-ASCII text must be written as \uXXXX escapes");
+		json.Should().Contain(@"caf\u00e9").And.Contain(@"\ud83d\ude00");
+
+		using var doc = JsonDocument.Parse(json);
+		var cmd = doc.RootElement.GetProperty("commands").EnumerateArray()
+			.Single(c => c.GetProperty("name").GetString() == "unicode-docs");
+		cmd.GetProperty("notes").GetString().Should().Be("Remarks: naïve café, 日本語, 😀. Entities: é 🚀.");
+		var speed = cmd.GetProperty("parameters").EnumerateArray()
+			.Single(p => p.GetProperty("name").GetString() == "speed");
+		speed.GetProperty("summary").GetString().Should().Be("Speed — fast or slow, 速い, 🚀.");
+	}
+
+	[Fact]
 	public void Schema_stdout_is_json_with_expected_shape()
 	{
 		var result = CliHostRunner.Run("__schema");
@@ -110,6 +128,24 @@ public class SchemaTests
 		renamedCmd.ValueKind.Should().Be(JsonValueKind.Object);
 		renamedCmd.GetProperty("aliases").EnumerateArray()
 			.Select(a => a.GetString()).Should().BeEquivalentTo(new[] { "rc" });
+	}
+
+	[Fact]
+	public void Schema_escapes_non_ascii_command_names_and_aliases()
+	{
+		var result = CliHostRunner.Run("__schema");
+		result.ExitCode.Should().Be(0);
+		var json = CliHostRunner.StdoutText(result);
+		json.Should().Contain(@"""name"": ""caf\u00e9""").And.Contain(@"""name"": ""\u65e5\u672c\u8a9e""");
+
+		using var doc = JsonDocument.Parse(json);
+		var ns = doc.RootElement.GetProperty("namespaces").EnumerateArray()
+			.Single(n => n.GetProperty("segment").GetString() == "unicode");
+		var commands = ns.GetProperty("commands").EnumerateArray().ToArray();
+		commands.Select(c => c.GetProperty("name").GetString()).Should().BeEquivalentTo("café", "日本語");
+		commands.Should().OnlyContain(c => c.GetProperty("path").EnumerateArray().Single().GetString() == "unicode");
+		var cafe = commands.Single(c => c.GetProperty("name").GetString() == "café");
+		cafe.GetProperty("aliases").EnumerateArray().Select(a => a.GetString()).Should().Equal("kafé");
 	}
 
 	[Fact]

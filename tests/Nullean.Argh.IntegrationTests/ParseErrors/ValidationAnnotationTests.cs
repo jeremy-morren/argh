@@ -51,7 +51,7 @@ public class ValidationAnnotationTests
 		var r = CliHostRunner.Run(NoColor, "validate-range", "--help");
 		r.ExitCode.Should().Be(0);
 		var text = ConsoleOutput.Normalize(CliHostRunner.StdoutText(r));
-		text.Should().Contain("[range: 1–65535]");
+		text.Should().Contain("[range: 1-65535]");
 	}
 
 	// ── [StringLength] ───────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ public class ValidationAnnotationTests
 	{
 		var r = CliHostRunner.Run(NoColor, "validate-length", "--help");
 		r.ExitCode.Should().Be(0);
-		ConsoleOutput.Normalize(CliHostRunner.StdoutText(r)).Should().Contain("[length: 2–100]");
+		ConsoleOutput.Normalize(CliHostRunner.StdoutText(r)).Should().Contain("[length: 2-100]");
 	}
 
 	// ── [RegularExpression] ──────────────────────────────────────────────────

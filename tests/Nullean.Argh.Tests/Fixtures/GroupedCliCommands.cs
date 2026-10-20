@@ -109,3 +109,17 @@ internal sealed class CommandNameOverrideCommands
 	public static void OriginalMethodName(TestGlobalCliOptions g) =>
 		Console.Out.WriteLine("marker:renamed-cmd");
 }
+
+/// <summary>Commands whose CLI names and aliases are not ASCII, set via <c>[CommandName]</c>.</summary>
+internal sealed class UnicodeNameCommands
+{
+	/// <summary>Accented command name.</summary>
+	[CommandName("café", "kafé")]
+	public static void Cafe(TestGlobalCliOptions g) =>
+		Console.Out.WriteLine("marker:unicode-cafe");
+
+	/// <summary>CJK command name.</summary>
+	[CommandName("日本語")]
+	public static void Nihongo(TestGlobalCliOptions g) =>
+		Console.Out.WriteLine("marker:unicode-nihongo");
+}

@@ -42,6 +42,7 @@ public class RootAndNamespaceHelpTests
 			  storage         Commands under storage. Nested BlobCommands must be registered
 			                  explicitly via MapNamespace<BlobCommands>.
 			  support         Support commands
+			  unicode         Commands with non-ASCII names.
 
 			Commands:
 			  archive-files-variadic                        Variadic positional FileInfo
@@ -146,6 +147,8 @@ public class RootAndNamespaceHelpTests
 			  tags
 			  temporal-cmd
 			  time-only-cmd
+			  unicode-docs                                  XML docs with non-ASCII text in
+			                                                the remarks and parameters.
 			  uri-cmd
 			  validate-allowed                              Validate allowed values on
 			                                                --env.

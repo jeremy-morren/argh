@@ -61,6 +61,35 @@ jobs:
     - name: Validate against cli-schema v1 meta-schema
       run: npx --yes ajv-cli validate -s /tmp/cli-schema.meta-schema.json -d /tmp/argh-schema-output.json --spec=draft2020
 
+  # Runs the test suite on every platform; the build job, which also packages and publishes, still tests on Linux too.
+  # Windows encodes console output in the console code page, so the Windows tests run under the code pages
+  # users commonly have: 437 (US), 850 (Western Europe), 866 (Cyrillic), 932 (Japanese),
+  # 936 (Simplified Chinese) and 65001 (UTF-8). The test CLI host switches its console to the given page.
+  test:
+    name: test (${{ matrix.runner }}${{ matrix.codepage && format(', code page {0}', matrix.codepage) || '' }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+          - runner: macos-latest
+          - { runner: windows-latest, codepage: 437 }
+          - { runner: windows-latest, codepage: 850 }
+          - { runner: windows-latest, codepage: 866 }
+          - { runner: windows-latest, codepage: 932 }
+          - { runner: windows-latest, codepage: 936 }
+          - { runner: windows-latest, codepage: 65001 }
+    env:
+      ARGH_TEST_CONSOLE_CODEPAGE: ${{ matrix.codepage }}
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: ./global.json
+    - run: dotnet test -c Release --logger:GithubActions --logger:pretty
+      name: Test
+
   build:
     runs-on: ubuntu-latest
     steps:

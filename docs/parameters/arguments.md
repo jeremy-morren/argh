@@ -42,7 +42,7 @@ Apply `[MinLength(n)]` or `[MaxLength(n)]` to validate the item count:
 
 ```csharp
 public static void Archive([Argument][MinLength(1)][MaxLength(20)] string[] files) { … }
-// --help: <files...>   [variadic] [count: 1–20]
+// --help: <files...>   [variadic] [count: 1-20]
 ```
 
 ## Ordering rules

@@ -7,6 +7,8 @@
     <LangVersion>preview</LangVersion>
     <MinVerDefaultPreReleaseIdentifiers>canary.0</MinVerDefaultPreReleaseIdentifiers>
     <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+    <!-- Reproducible builds: map source paths in PDBs and packages to /_/. Deterministic is already on by default. -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="all" Condition="'$(ManagePackageVersionsCentrally)' == 'true'" />
