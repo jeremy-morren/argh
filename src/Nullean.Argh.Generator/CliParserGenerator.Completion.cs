@@ -45,13 +45,15 @@ public sealed partial class CliParserGenerator
 				? node.CommandNamespaceOptionsModel.FlattenedMembers
 				: ImmutableArray<ParameterModel>.Empty;
 			var mergedNs = MergeCompletionFlags(globalMembers, nsMembers);
+			mergedNs.AddRange(s_helpFlags);
+			mergedNs.Sort(StringComparer.OrdinalIgnoreCase);
 			EmitCompletionStringArray(sb, $"__c_flags_ns_{key}", mergedNs);
 		}
 
 		foreach (var cmd in app.AllCommands.Where(c => !c.IsRootDefault))
 		{
 			var chain = BuildOptionsInjectionChain(app, cmd);
-			var list = new List<string>();
+			var list = new List<string>(s_helpFlags);
 			list.AddRange(CollectCompletionFlagStrings(globalMembers));
 			foreach (var (_, _, _, _, _, flat, _) in chain)
 				list.AddRange(CollectCompletionFlagStrings(flat));
@@ -61,6 +63,141 @@ public sealed partial class CliParserGenerator
 		}
 
 		EmitCompleteHierarchicalBody(sb, app, globalMembers);
+		EmitFlagValueCompletion(sb, app, globalMembers);
+	}
+
+	private static readonly string[] s_helpFlags = { "--help", "-h" };
+
+	/// <summary>
+	/// Emits value tables for flags with a closed set of values (enums, enum collections, <c>[AllowedValues]</c>) and
+	/// <c>TryWriteFlagValues</c>, which completes them after <c>--flag </c>, <c>--flag=</c> (one word) or <c>--flag = </c> (bash splits at <c>=</c>).
+	/// </summary>
+	private static void EmitFlagValueCompletion(StringBuilder sb, AppEmitModel app, ImmutableArray<ParameterModel> globalMembers)
+	{
+		var tables = new Dictionary<string, string>(StringComparer.Ordinal);
+		var scopes = new List<(string Scope, List<(List<string> Spellings, string Table)> Flags)>();
+
+		void AddScope(string scope, IEnumerable<ParameterModel> members)
+		{
+			var flags = new List<(List<string>, string)>();
+			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var p in members)
+			{
+				var values = CompletionValuesFor(p);
+				if (values is null)
+					continue;
+				var spellings = ExpandFlagStrings(p).Where(s => !s.StartsWith("--no-", StringComparison.Ordinal) && seen.Add(s)).ToList();
+				if (spellings.Count == 0)
+					continue;
+				var key = string.Join("\n", values);
+				if (!tables.TryGetValue(key, out var table))
+				{
+					table = $"__c_values_{tables.Count}";
+					tables.Add(key, table);
+					EmitCompletionStringArray(sb, table, values);
+				}
+
+				flags.Add((spellings, table));
+			}
+
+			if (flags.Count > 0)
+				scopes.Add((scope, flags));
+		}
+
+		// Innermost members first so they win over a global or namespace flag spelled the same way.
+		AddScope("Root", globalMembers);
+		foreach ((var node, var path) in EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty))
+		{
+			var nsMembers = node.CommandNamespaceOptionsModel is { FlattenedMembers.Length: > 0 }
+				? node.CommandNamespaceOptionsModel.FlattenedMembers
+				: ImmutableArray<ParameterModel>.Empty;
+			AddScope(CommandNamespacePathKey(path), nsMembers.Concat(globalMembers));
+		}
+
+		foreach (var cmd in app.AllCommands.Where(c => !c.IsRootDefault))
+		{
+			var members = new List<ParameterModel>(cmd.Parameters);
+			foreach (var (_, _, _, _, _, flat, _) in BuildOptionsInjectionChain(app, cmd).Reverse())
+				members.AddRange(flat);
+			members.AddRange(globalMembers);
+			AddScope("cmd:" + cmd.RunMethodName, members);
+		}
+
+		sb.AppendLine("\t\tprivate static bool TryWriteFlagValues(string scope, string[] committed, int start, string partial)");
+		sb.AppendLine("\t\t{");
+		sb.AppendLine("\t\t\tif (partial.Length > 2 && partial[0] == '-' && partial[1] == '-')");
+		sb.AppendLine("\t\t\t{");
+		sb.AppendLine("\t\t\t\tvar eq = partial.IndexOf('=');");
+		sb.AppendLine("\t\t\t\treturn eq > 2 && WriteFlagValues(scope, partial.Substring(0, eq), partial.Substring(eq + 1), partial.Substring(0, eq + 1));");
+		sb.AppendLine("\t\t\t}");
+		sb.AppendLine("\t\t\tif (partial.Length > 0 && partial[0] == '-')");
+		sb.AppendLine("\t\t\t\treturn false;");
+		sb.AppendLine("\t\t\tvar n = committed.Length;");
+		sb.AppendLine("\t\t\tif (n - start >= 1 && committed[n - 1].Length > 1 && committed[n - 1][0] == '-')");
+		sb.AppendLine("\t\t\t\treturn WriteFlagValues(scope, committed[n - 1], partial, \"\");");
+		sb.AppendLine("\t\t\tif (n - start >= 2 && committed[n - 1] == \"=\" && committed[n - 2].Length > 1 && committed[n - 2][0] == '-')");
+		sb.AppendLine("\t\t\t\treturn WriteFlagValues(scope, committed[n - 2], partial, \"\");");
+		sb.AppendLine("\t\t\treturn false;");
+		sb.AppendLine("\t\t}");
+		sb.AppendLine();
+
+		sb.AppendLine("\t\tprivate static bool WriteFlagValues(string scope, string flag, string partial, string insertPrefix)");
+		sb.AppendLine("\t\t{");
+		if (scopes.Count == 0)
+		{
+			sb.AppendLine("\t\t\t_ = scope; _ = flag; _ = partial; _ = insertPrefix;");
+			sb.AppendLine("\t\t\treturn false;");
+			sb.AppendLine("\t\t}");
+			sb.AppendLine();
+			return;
+		}
+
+		sb.AppendLine("\t\t\tswitch (scope)");
+		sb.AppendLine("\t\t\t{");
+		foreach (var (scope, flags) in scopes)
+		{
+			sb.AppendLine($"\t\t\t\tcase \"{Escape(scope)}\":");
+			foreach (var (spellings, table) in flags)
+			{
+				var conditions = spellings.Select(s =>
+					$"string.Equals(flag, \"{Escape(s)}\", StringComparison.{(s.StartsWith("--", StringComparison.Ordinal) ? "OrdinalIgnoreCase" : "Ordinal")})");
+				sb.AppendLine($"\t\t\t\t\tif ({string.Join(" || ", conditions)})");
+				sb.AppendLine("\t\t\t\t\t{");
+				sb.AppendLine($"\t\t\t\t\t\tCompletionWriter.WriteFiltered({table}, partial, insertPrefix);");
+				sb.AppendLine("\t\t\t\t\t\treturn true;");
+				sb.AppendLine("\t\t\t\t\t}");
+			}
+
+			sb.AppendLine("\t\t\t\t\treturn false;");
+		}
+
+		sb.AppendLine("\t\t\t\tdefault:");
+		sb.AppendLine("\t\t\t\t\treturn false;");
+		sb.AppendLine("\t\t\t}");
+		sb.AppendLine("\t\t}");
+		sb.AppendLine();
+	}
+
+	/// <summary>The closed set of values a flag accepts, or <see langword="null"/> when its values are open-ended.</summary>
+	private static List<string>? CompletionValuesFor(ParameterModel p)
+	{
+		if (p.Kind != ParameterKind.Flag && p.Kind != ParameterKind.OptionsInjected)
+			return null;
+		if (p.ScalarKind == CliScalarKind.Enum && !p.EnumMemberNames.IsDefaultOrEmpty)
+			return p.EnumMemberNames.Select((m, i) => ResolveEnumMemberCliName(p.EnumMemberCliNames, i, m)).ToList();
+		if (p.IsCollection && p.ElementScalarKind == CliScalarKind.Enum && !p.ElementEnumMemberNames.IsDefaultOrEmpty)
+			return p.ElementEnumMemberNames.Select((m, i) => ResolveEnumMemberCliName(p.ElementEnumMemberCliNames, i, m)).ToList();
+		if (!p.Validations.IsDefaultOrEmpty)
+		{
+			foreach (var c in p.Validations)
+			{
+				// Values are C# literals; strip string quotes the same way help's [allowed: ...] does.
+				if (c is AllowedValuesConstraint av)
+					return av.Values.Where(v => v != "null").Select(v => v.Trim('"')).ToList();
+			}
+		}
+
+		return null;
 	}
 
 	private static void EmitCompleteHierarchicalBody(StringBuilder sb, AppEmitModel app, ImmutableArray<ParameterModel> globalMembers)
@@ -87,6 +224,8 @@ public sealed partial class CliParserGenerator
 
 		sb.AppendLine("\t\t\tif (pos == committed.Length)");
 		sb.AppendLine("\t\t\t{");
+		sb.AppendLine("\t\t\t\tif (TryWriteFlagValues(\"Root\", committed, 0, partial))");
+		sb.AppendLine("\t\t\t\t\treturn;");
 		sb.AppendLine("\t\t\t\tif (partial.Length > 0 && partial[0] == '-')");
 		sb.AppendLine("\t\t\t\t\tCompletionWriter.WriteFiltered(MergeSpans(__c_flags_global, __c_meta_root), partial);");
 		sb.AppendLine("\t\t\t\telse");
@@ -98,14 +237,19 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine("\t\t\t{");
 		sb.AppendLine("\t\t\t\tvar tok = committed[pos];");
 		sb.AppendLine("\t\t\t\tif (tok.Length > 0 && tok[0] == '-')");
+		sb.AppendLine("\t\t\t\t{");
+		sb.AppendLine("\t\t\t\t\tTryWriteFlagValues(current, committed, pos, partial);");
 		sb.AppendLine("\t\t\t\t\treturn;");
+		sb.AppendLine("\t\t\t\t}");
 		sb.AppendLine("\t\t\t\tif (TryDescendNamespace(ref current, tok))");
 		sb.AppendLine("\t\t\t\t{");
 		sb.AppendLine("\t\t\t\t\tpos++;");
+		sb.AppendLine("\t\t\t\t\tvar nsStart = pos;");
 		sb.AppendLine("\t\t\t\t\tpos = ConsumeForNamespace(current, committed, pos, committed.Length);");
 		sb.AppendLine("\t\t\t\t\tif (pos == committed.Length)");
 		sb.AppendLine("\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\tWriteAtNamespace(current, partial);");
+		sb.AppendLine("\t\t\t\t\t\tif (!TryWriteFlagValues(current, committed, nsStart, partial))");
+		sb.AppendLine("\t\t\t\t\t\t\tWriteAtNamespace(current, partial);");
 		sb.AppendLine("\t\t\t\t\t\treturn;");
 		sb.AppendLine("\t\t\t\t\t}");
 		sb.AppendLine("\t\t\t\t\tcontinue;");
@@ -113,6 +257,8 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine("\t\t\t\tif (TryMatchCommand(current, tok, out var runName))");
 		sb.AppendLine("\t\t\t\t{");
 		sb.AppendLine("\t\t\t\t\tpos++;");
+		sb.AppendLine("\t\t\t\t\tif (TryWriteFlagValues(\"cmd:\" + runName, committed, pos, partial))");
+		sb.AppendLine("\t\t\t\t\t\treturn;");
 		sb.AppendLine("\t\t\t\t\tpos = ConsumeCommandTail(runName, committed, pos, committed.Length);");
 		sb.AppendLine("\t\t\t\t\tif (partial.Length > 0 && partial[0] == '-')");
 		sb.AppendLine("\t\t\t\t\t\tCompletionWriter.WriteFiltered(FlagsForCommand(runName), partial);");
