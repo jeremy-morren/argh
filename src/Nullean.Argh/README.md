@@ -26,7 +26,7 @@ return await app.RunAsync(args);
 
 - **XML docs become help text** — document your parameters once, get `--help` for free
 - **Source-generated** — no reflection, fully AOT-safe
-- **Shell completions** — bash, zsh, and fish out of the box
+- **Shell completions** — bash, zsh, fish, and PowerShell out of the box
 - **Agent-ready** — JSON schema via `__schema` for LLM/agent integration
 - **DataAnnotations validation** — standard .NET validation attributes just work
 - **Fuzzy matching** — typo-tolerant command and option matching

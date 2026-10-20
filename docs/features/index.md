@@ -12,7 +12,7 @@ Every feature listed here is implemented at compile time by the Roslyn source ge
 
 [**XML docs are your help text**](help.md) - Write `<summary>`, `<param>`, `<remarks>`, and `<example>` once on your handler methods. They appear in `--help` automatically.
 
-[**Shell completions**](completions.md) - Tab completion for commands, namespaces, and flags. One install command for bash, zsh, or fish.
+[**Shell completions**](completions.md) - Tab completion for commands, namespaces, and flags. One install command for bash, zsh, fish, or PowerShell.
 
 [**Fuzzy matching**](fuzzy-matching.md) - Typos produce actionable error messages with the correct qualified command path and a `--help` suggestion.
 

@@ -6,7 +6,7 @@ namespace Nullean.Argh.Help;
 public static class CompletionWriter
 {
 	/// <summary>
-	/// Writes every candidate that matches <paramref name="prefix"/> (prefix filter; empty prefix matches all).
+	/// Writes every candidate that matches <paramref name="prefix"/> (case-insensitive prefix filter, like command routing; empty prefix matches all).
 	/// Candidates are ordered ordinally for stable output.
 	/// </summary>
 	public static void WriteFiltered(ReadOnlySpan<string> candidates, string prefix) =>
@@ -25,7 +25,7 @@ public static class CompletionWriter
 		Array.Sort(arr, StringComparer.Ordinal);
 		foreach (var c in arr)
 		{
-			if (prefix.Length == 0 || c.StartsWith(prefix, StringComparison.Ordinal))
+			if (prefix.Length == 0 || c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
 				Console.Out.WriteLine(insertPrefix + c);
 		}
 	}

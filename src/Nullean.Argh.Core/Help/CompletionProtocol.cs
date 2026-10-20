@@ -38,7 +38,7 @@ public static class CompletionProtocol
 		args is { Length: > 0 } && (args[0] == "__complete" || args[0] == "__completion" || args[0] == "__schema");
 
 	/// <summary>
-	/// Parses <c>__completion bash|zsh|fish</c> for printing install scripts from <see cref="CompletionScriptTemplates"/>.
+	/// Parses <c>__completion bash|zsh|fish|powershell</c> for printing install scripts from <see cref="CompletionScriptTemplates"/>.
 	/// </summary>
 	public static bool TryParseCompletionScriptInvocation(string[] args, out CompletionShell shell)
 	{
@@ -93,6 +93,13 @@ public static class CompletionProtocol
 		if (string.Equals(shellName, "fish", StringComparison.OrdinalIgnoreCase))
 		{
 			shell = CompletionShell.Fish;
+			return true;
+		}
+
+		if (string.Equals(shellName, "powershell", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(shellName, "pwsh", StringComparison.OrdinalIgnoreCase))
+		{
+			shell = CompletionShell.PowerShell;
 			return true;
 		}
 
