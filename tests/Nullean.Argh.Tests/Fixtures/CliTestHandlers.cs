@@ -250,6 +250,12 @@ internal static class CliTestHandlers
 			Console.Out.WriteLine($"{names[i]}={text}");
 		}
 	}
+	/// <summary>XML docs with non-ASCII text in the remarks and parameters.</summary>
+	/// <remarks>Remarks: naïve café, 日本語, 😀. Entities: &#233; &#x1F680;.</remarks>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="speed">Speed — fast or slow, 速い, 🚀.</param>
+	public static void UnicodeDocs(TestGlobalCliOptions g, string speed) =>
+		Console.Out.WriteLine($"speed:{speed}");
 
 	// For custom parser test
 	public static void PointCmd(TestGlobalCliOptions g, [ArgumentParser(typeof(PointParser))] Point point) =>

@@ -478,10 +478,10 @@ public sealed partial class CliParserGenerator
 				switch (v)
 				{
 					case RangeConstraint r:
-						tokens.Add($"[range: {r.MinLiteral.Trim('"')}–{r.MaxLiteral.Trim('"')}]");
+						tokens.Add($"[range: {r.MinLiteral.Trim('"')}-{r.MaxLiteral.Trim('"')}]");
 						break;
 					case CollectionCountConstraint cc when cc.Min.HasValue && cc.Max.HasValue:
-						tokens.Add($"[count: {cc.Min}–{cc.Max}]");
+						tokens.Add($"[count: {cc.Min}-{cc.Max}]");
 						break;
 					case CollectionCountConstraint cc when cc.Min.HasValue:
 						tokens.Add($"[min-count: {cc.Min}]");
@@ -490,7 +490,7 @@ public sealed partial class CliParserGenerator
 						tokens.Add($"[max-count: {cc.Max}]");
 						break;
 					case StringLengthConstraint s when s.Min.HasValue && s.Max.HasValue:
-						tokens.Add($"[length: {s.Min}–{s.Max}]");
+						tokens.Add($"[length: {s.Min}-{s.Max}]");
 						break;
 					case StringLengthConstraint s when s.Min.HasValue:
 						tokens.Add($"[min-length: {s.Min}]");
@@ -529,7 +529,7 @@ public sealed partial class CliParserGenerator
 						tokens.Add("[no symlinks]");
 						break;
 					case TimeSpanRangeConstraint ts:
-						tokens.Add($"[time-span-range: {ts.MinLiteral.Trim('"')}–{ts.MaxLiteral.Trim('"')}]");
+						tokens.Add($"[time-span-range: {ts.MinLiteral.Trim('"')}-{ts.MaxLiteral.Trim('"')}]");
 						break;
 				}
 			}
