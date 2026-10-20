@@ -298,6 +298,51 @@ public class SchemaTests
 		enumParam.GetProperty("enumValues").EnumerateArray().Should().NotBeEmpty();
 	}
 
+	[Theory]
+	[InlineData("enum-cmd", "colour", "flag", new[] { "red", "blue" })]
+	[InlineData("enum-value-cmd", "palette", "flag", new[] { "fire-red", "ocean-blue", "green" })]
+	[InlineData("copy-variadic", "mode", "positional", new[] { "red", "blue" })]
+	[InlineData("hello", "severity", "flag", new[] { "trace", "information", "warning" })]
+	[InlineData("as-params-referenced-dto", "source", "flag", new[] { "file", "remote" })]
+	public void Schema_enum_parameter_lists_cli_values_in_declaration_order(string command, string parameter, string role, string[] expected)
+	{
+		var param = SchemaParameter(command, parameter);
+		param.GetProperty("role").GetString().Should().Be(role);
+		param.GetProperty("type").GetString().Should().Be("enum");
+		param.GetProperty("enumValues").EnumerateArray().Select(v => v.GetString())
+			.Should().Equal(expected);
+	}
+
+	[Fact]
+	public void Schema_enum_default_value_uses_cli_name()
+	{
+		var param = SchemaParameter("hello", "severity");
+		param.GetProperty("defaultValue").GetString().Should().Be("information");
+		param.GetProperty("required").GetBoolean().Should().BeFalse();
+	}
+
+	[Fact]
+	public void Schema_nullable_cross_assembly_enum_is_optional_without_default()
+	{
+		var param = SchemaParameter("as-params-referenced-dto", "source");
+		param.GetProperty("required").GetBoolean().Should().BeFalse();
+		param.TryGetProperty("defaultValue", out _).Should().BeFalse();
+	}
+
+	private static JsonElement SchemaParameter(string command, string parameter)
+	{
+		var result = CliHostRunner.Run("__schema");
+		result.ExitCode.Should().Be(0);
+		using var doc = JsonDocument.Parse(CliHostRunner.StdoutText(result));
+		var cmd = doc.RootElement.GetProperty("commands").EnumerateArray()
+			.FirstOrDefault(c => c.GetProperty("name").GetString() == command);
+		cmd.ValueKind.Should().Be(JsonValueKind.Object, $"command '{command}' should be in the schema");
+		var param = cmd.GetProperty("parameters").EnumerateArray()
+			.FirstOrDefault(p => p.GetProperty("name").GetString() == parameter);
+		param.ValueKind.Should().Be(JsonValueKind.Object, $"parameter '{parameter}' should be on '{command}'");
+		return param.Clone();
+	}
+
 	[Fact]
 	public void Schema_deprecated_command_without_message_emits_deprecated_true()
 	{
