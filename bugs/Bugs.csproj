@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Scratch app that exercises the bugs listed in Bugs.md: one bugNN.cs per bug.
+
+      dotnet build bugs -c Release
+      .artifacts/bin/Bugs/release/Bugs.exe bug01 ...
+
+    Bugs whose generated code doesn't compile are wrapped in #if BUGNN. Enable one at a time:
+
+      dotnet build bugs -c Release -p:DefineConstants=BUG10
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Bugs</AssemblyName>
+    <RootNamespace>Bugs</RootNamespace>
+    <!-- AGH0035: a plain bool bound to an env var (bug06 needs one). -->
+    <NoWarn>$(NoWarn);AGH0035;CS4014</NoWarn>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(ArtifactsPath)/obj/Bugs/generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="lib/**;hosted/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\Nullean.Argh\Nullean.Argh.csproj" />
+    <ProjectReference Include="..\src\Nullean.Argh.Generator\Nullean.Argh.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer"
+                      PrivateAssets="all" />
+    <ProjectReference Include="lib\Bugs.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,141 @@
+using System.Runtime.CompilerServices;
+using Nullean.Argh;
+using Nullean.Argh.Builder;
+
+namespace Bugs;
+
+/// <summary>Severity levels (global option).</summary>
+public enum Severity
+{
+	/// <summary>Everything.</summary>
+	Trace,
+	/// <summary>Normal.</summary>
+	Information,
+	/// <summary>Problems only.</summary>
+	Warning,
+}
+
+/// <summary>Global options shared by every bug command. Namespace option types derive from it.</summary>
+public class GlobalOpts
+{
+	/// <summary>API URL; falls back to BUGS_API_URL (bug01).</summary>
+	[Env("BUGS_API_URL")]
+	public string? ApiUrl { get; set; }
+
+	/// <summary>Severity (bug03).</summary>
+	public Severity Severity { get; set; } = Severity.Information;
+}
+
+internal static class Registration
+{
+	[ModuleInitializer]
+	internal static void Register()
+	{
+		IArghRootBuilder app = new ArghBuilder();
+		app.UseGlobalOptions<GlobalOpts>();
+		app.UseMiddleware<Bug27Middleware>();
+
+		// A. Parsing and binding
+		Bug01.Register(app);
+		Bug02.Register(app);
+		Bug03.Register(app);
+		Bug04.Register(app);
+		Bug05.Register(app);
+		Bug06.Register(app);
+		Bug07.Register(app);
+		Bug08.Register(app);
+		Bug09.Register(app);
+
+		// B. Generator: uncompilable output and missing diagnostics.
+		// The #if'd ones break the build on purpose: dotnet build bugs -p:DefineConstants=BUG10 etc.
+#if BUG10
+		Bug10.Register(app);
+#endif
+#if BUG11
+		Bug11.Register(app);
+#endif
+#if BUG12
+		Bug12.Register(app);
+#endif
+#if BUG13
+		Bug13.Register(app);
+#endif
+#if BUG14
+		Bug14.Register(app);
+#endif
+#if BUG15
+		Bug15.Register(app);
+#endif
+#if BUG16
+		Bug16.Register(app);
+#endif
+		Bug17.Register(app);
+		Bug18.Register(app);
+		Bug19.Register(app);
+		Bug20.Register(app);
+#if BUG21
+		Bug21.Register(app);
+#endif
+#if BUG55
+		Bug55.Register(app);
+#endif
+#if BUG58
+		Bug58.Register(app);
+#endif
+#if BUG59
+		Bug59.Register(app);
+#endif
+#if BUG60
+		Bug60.Register(app);
+#endif
+		Bug61.Register(app);
+#if BUG70
+		Bug70.Register(app);
+#endif
+
+		// C. Runtime, dispatch and hosting (bug22 and bug25 live in bugs/hosted)
+		Bug23.Register(app);
+		Bug24.Register(app);
+		Bug26.Register(app);
+		Bug28.Register(app);
+		Bug29.Register(app);
+		Bug30.Register(app);
+
+		// D. Help and XML docs
+		Bug42.Register(app);
+		Bug43.Register(app);
+		Bug44.Register(app);
+		Bug45.Register(app);
+		Bug46.Register(app);
+		Bug47.Register(app);
+		Bug48.Register(app);
+		Bug49.Register(app);
+		Bug50.Register(app);
+		Bug51.Register(app);
+		Bug52.Register(app);
+		Bug54.Register(app);
+		Bug56.Register(app);
+		Bug57.Register(app);
+#if BUG64
+		Bug64.Register(app);
+#endif
+
+		// E. Completion and __schema (bug31, bug32, bug40 and bug41 are comment-only)
+		Bug33.Register(app);
+		Bug34.Register(app);
+		Bug35.Register(app);
+		Bug36.Register(app);
+		Bug37.Register(app);
+#if BUG38
+		Bug38.Register(app);
+#endif
+		Bug39.Register(app);
+		Bug62.Register(app);
+		Bug63.Register(app);
+
+		// Found on other branches
+		Bug67.Register(app);
+		Bug68.Register(app);
+		Bug69.Register(app);
+	}
+}
