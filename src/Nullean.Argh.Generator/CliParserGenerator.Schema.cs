@@ -546,10 +546,10 @@ public sealed partial class CliParserGenerator
 						parts.Add($"new CliConstraintSchema(\"regex\", Pattern: \"{Escape(re.Pattern)}\")");
 						break;
 					case AllowedValuesConstraint av:
-						parts.Add($"new CliConstraintSchema(\"allowed\", Values: new string[] {{ {string.Join(", ", av.Values.Select(val => $"\"{Escape(val)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"allowed\", Values: new string[] {{ {string.Join(", ", av.DisplayValues.Select(val => $"\"{Escape(val)}\""))} }})");
 						break;
 					case DeniedValuesConstraint dv:
-						parts.Add($"new CliConstraintSchema(\"denied\", Values: new string[] {{ {string.Join(", ", dv.Values.Select(val => $"\"{Escape(val)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"denied\", Values: new string[] {{ {string.Join(", ", dv.DisplayValues.Select(val => $"\"{Escape(val)}\""))} }})");
 						break;
 					case EmailConstraint:
 						parts.Add("new CliConstraintSchema(\"email\")");
