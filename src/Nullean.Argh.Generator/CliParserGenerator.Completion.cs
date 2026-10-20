@@ -12,7 +12,7 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine(indent + "{");
 		sb.AppendLine(indent + "\tif (!CompletionProtocol.TryParseCompleteInvocation(args, out var __shell, out var __words))");
 		sb.AppendLine(indent + "\t{");
-		sb.AppendLine(indent + "\t\tConsole.Error.WriteLine(\"Error: expected '__complete <bash|zsh|fish> -- [words...]'\");");
+		sb.AppendLine(indent + "\t\tConsole.Error.WriteLine(\"Error: expected '__complete <bash|zsh|fish|powershell> -- [words...]'\");");
 		sb.AppendLine(indent + "\t\treturn 2;");
 		sb.AppendLine(indent + "\t}");
 		sb.AppendLine(indent + "\tComplete(__shell, __words);");

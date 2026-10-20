@@ -75,7 +75,7 @@ public sealed partial class CliParserGenerator
 
 			namespace Nullean.Argh
 			{
-				/// <summary>Source-generated CLI entry point from <c>ArghApp</c> registrations. At the root, <c>__completion bash|zsh|fish</c> prints a shell script from <see cref="global::Nullean.Argh.Help.CompletionScriptTemplates"/>.</summary>
+				/// <summary>Source-generated CLI entry point from <c>ArghApp</c> registrations. At the root, <c>__completion bash|zsh|fish|powershell</c> prints a shell script from <see cref="global::Nullean.Argh.Help.CompletionScriptTemplates"/>.</summary>
 				public static class ArghGenerated
 				{
 					public static Task<int> RunAsync(string[] args) =>
@@ -104,7 +104,7 @@ public sealed partial class CliParserGenerator
 						{
 							if (!CompletionProtocol.TryParseCompletionScriptInvocation(args, out var __scriptShell))
 							{
-								System.Console.Error.WriteLine("Error: expected '__completion bash|zsh|fish'");
+								System.Console.Error.WriteLine("Error: expected '__completion bash|zsh|fish|powershell'");
 								return 2;
 							}
 							var appName = "__ARGH_EMBED_ASM_NAME__";
@@ -119,6 +119,9 @@ public sealed partial class CliParserGenerator
 								case CompletionShell.Fish:
 									System.Console.Out.Write(CompletionScriptTemplates.GetFish().Replace("{0}", appName));
 									return 0;
+								case CompletionShell.PowerShell:
+									System.Console.Out.Write(CompletionScriptTemplates.GetPowerShell().Replace("{0}", appName));
+									return 0;
 								default:
 									return 2;
 							}
@@ -128,7 +131,7 @@ public sealed partial class CliParserGenerator
 						{
 							if (!CompletionProtocol.TryParseCompleteInvocation(args, out _, out var __words))
 							{
-								System.Console.Error.WriteLine("Error: expected '__complete <bash|zsh|fish> -- [words...]'");
+								System.Console.Error.WriteLine("Error: expected '__complete <bash|zsh|fish|powershell> -- [words...]'");
 								return 2;
 							}
 							Complete(default, __words);
@@ -231,7 +234,7 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine(indent + "{");
 		sb.AppendLine(indent + "\tif (!CompletionProtocol.TryParseCompletionScriptInvocation(args, out var __scriptShell))");
 		sb.AppendLine(indent + "\t{");
-		sb.AppendLine(indent + "\t\tConsole.Error.WriteLine(\"Error: expected '__completion bash|zsh|fish'\");");
+		sb.AppendLine(indent + "\t\tConsole.Error.WriteLine(\"Error: expected '__completion bash|zsh|fish|powershell'\");");
 		sb.AppendLine(indent + "\t\treturn 2;");
 		sb.AppendLine(indent + "\t}");
 		sb.AppendLine(indent + "\tvar __entry = \"" + Escape(entryAssemblyName) + "\";");
@@ -245,6 +248,9 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine(indent + "\t\t\treturn 0;");
 		sb.AppendLine(indent + "\t\tcase CompletionShell.Fish:");
 		sb.AppendLine(indent + "\t\t\tConsole.Out.Write(CompletionScriptTemplates.GetFish().Replace(\"{0}\", __entry));");
+		sb.AppendLine(indent + "\t\t\treturn 0;");
+		sb.AppendLine(indent + "\t\tcase CompletionShell.PowerShell:");
+		sb.AppendLine(indent + "\t\t\tConsole.Out.Write(CompletionScriptTemplates.GetPowerShell().Replace(\"{0}\", __entry));");
 		sb.AppendLine(indent + "\t\t\treturn 0;");
 		sb.AppendLine(indent + "\t\tdefault:");
 		sb.AppendLine(indent + "\t\t\treturn 2;");
@@ -439,7 +445,7 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine();
 		sb.AppendLine("namespace Nullean.Argh");
 		sb.AppendLine("{");
-		sb.AppendLine("\t/// <summary>Source-generated CLI entry point from <c>ArghApp</c> registrations. At the root, <c>__completion bash|zsh|fish</c> prints a shell script from <see cref=\"global::Nullean.Argh.Help.CompletionScriptTemplates\"/>; each <c>{0}</c> in the template is replaced with the entry assembly name (same effect as <c>string.Format</c>, but substitution uses <c>Replace</c> so shell scripts can contain literal braces).</summary>");
+		sb.AppendLine("\t/// <summary>Source-generated CLI entry point from <c>ArghApp</c> registrations. At the root, <c>__completion bash|zsh|fish|powershell</c> prints a shell script from <see cref=\"global::Nullean.Argh.Help.CompletionScriptTemplates\"/>; each <c>{0}</c> in the template is replaced with the entry assembly name (same effect as <c>string.Format</c>, but substitution uses <c>Replace</c> so shell scripts can contain literal braces).</summary>");
 		sb.AppendLine("\tpublic static class " + arghGeneratedRootTypeName);
 		sb.AppendLine("\t{");
 

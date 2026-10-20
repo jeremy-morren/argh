@@ -38,6 +38,19 @@ public class CompletionsTests
 		CliHostRunner.StdoutText(result).Should().Contain("complete");
 	}
 
+	[Theory]
+	[InlineData("powershell")]
+	[InlineData("pwsh")]
+	public void PowerShell_registers_native_completer(string shell)
+	{
+		var result = CliHostRunner.Run("__completion", shell);
+		result.ExitCode.Should().Be(0);
+		var stdout = CliHostRunner.StdoutText(result);
+		stdout.Should().Contain("Register-ArgumentCompleter -Native");
+		stdout.Should().Contain("__complete powershell");
+		stdout.Should().NotContain("{0}");
+	}
+
 	[Fact]
 	public void Complete_bash_root_emits_command_names()
 	{
@@ -56,6 +69,36 @@ public class CompletionsTests
 		var stdout = CliHostRunner.StdoutText(result);
 		stdout.Should().Contain("blob");
 		stdout.Should().Contain("list");
+	}
+
+	[Theory]
+	[InlineData("powershell")]
+	[InlineData("pwsh")]
+	public void Complete_powershell_after_storage_namespace_emits_subcommands(string shell)
+	{
+		var result = CliHostRunner.Run("__complete", shell, "--", "storage", "");
+		result.ExitCode.Should().Be(0);
+		var stdout = CliHostRunner.StdoutText(result);
+		stdout.Should().Contain("blob");
+		stdout.Should().Contain("list");
+	}
+
+	[Fact]
+	public void Complete_powershell_filters_by_partial_word()
+	{
+		var result = CliHostRunner.Run("__complete", "powershell", "--", "sto");
+		result.ExitCode.Should().Be(0);
+		var stdout = CliHostRunner.StdoutText(result);
+		stdout.Should().Contain("storage");
+		stdout.Should().NotContain("hello");
+	}
+
+	[Fact]
+	public void Complete_filters_by_partial_word_ignoring_case()
+	{
+		var result = CliHostRunner.Run("__complete", "powershell", "--", "STO");
+		result.ExitCode.Should().Be(0);
+		CliHostRunner.StdoutText(result).Should().Be("storage\n");
 	}
 
 	[Fact]
@@ -155,7 +198,7 @@ public class CompletionsTests
 	[Fact]
 	public void Complete_unknown_shell_exits_nonzero()
 	{
-		var result = CliHostRunner.Run("__complete", "pwsh", "--");
+		var result = CliHostRunner.Run("__complete", "tcsh", "--");
 		result.ExitCode.Should().Be(2);
 	}
 }

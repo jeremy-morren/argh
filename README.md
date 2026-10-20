@@ -16,7 +16,7 @@ Build full-featured .NET CLIs without writing a parser.
 
 Methods become commands, XML docs become help text, records become option sets. A Roslyn source generator emits parsing, routing, dispatch, and help into your assembly at build time — no reflection, no runtime overhead, trimming- and AOT-safe by default.
 
-Write vanilla C# and get a fully functional CLI in return: rich `--help` output, shell tab-completions for bash, zsh, and fish, and a machine-readable JSON schema ready for agentic use cases — all without writing a single line of plumbing code for any of it.
+Write vanilla C# and get a fully functional CLI in return: rich `--help` output, shell tab-completions for bash, zsh, fish, and PowerShell, and a machine-readable JSON schema ready for agentic use cases — all without writing a single line of plumbing code for any of it.
 
 ***Heavily** Inspired by [ConsoleAppFramework](https://github.com/Cysharp/ConsoleAppFramework) (Cysharp) — rewritten from scratch with a different feature set, but ConsoleAppFramework laid out the path for source-generated CLI's in .NET.*
 
@@ -32,7 +32,7 @@ Write vanilla C# and get a fully functional CLI in return: rich `--help` output,
 - **Everything is generated C#** — typed dispatch tree, option parsers, and help printers emitted directly into your assembly
 - **`MapGroup`-style namespaces** — nested command groups with their own help pages and scoped option types
 - **DTO binding with `[AsParameters]`** — records and classes expand into flags without a custom bind loop
-- **Shell completions built-in** — bash, zsh, fish; one install command per shell
+- **Shell completions built-in** — bash, zsh, fish, PowerShell; one install command per shell
 - **Agent-ready schema** — `myapp __schema` emits full JSON; conforms to [cli-schema v1](https://github.com/cli-schema/cli-schema)
 - **Fuzzy matching** — typos produce actionable errors with suggestions
 - **DataAnnotations validation** — `[Range]`, `[StringLength]`, `[AllowedValues]`, `[Existing]`, and more — constraints in `--help`, failures exit 2
@@ -137,6 +137,7 @@ public static void Run(
 eval "$(myapp __completion bash)"    # bash
 source <(myapp __completion zsh)     # zsh
 myapp __completion fish > ~/.config/fish/completions/myapp.fish  # fish
+myapp __completion powershell | Add-Content $PROFILE.CurrentUserAllHosts  # PowerShell
 ```
 
 ## Schema
