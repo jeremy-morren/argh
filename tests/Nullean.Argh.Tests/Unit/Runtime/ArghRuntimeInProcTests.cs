@@ -40,6 +40,28 @@ public class ArghRuntimeInProcTests
 		}
 	}
 
+	// In-process so the text is checked before any console encoding: on Windows, a subprocess's stdout
+	// goes through the console code page, which cannot represent characters such as 日本語.
+	[Fact]
+	public async Task RunAsync_command_help_keeps_non_ascii_xml_doc_text()
+	{
+		var prev = Console.Out;
+		var sw = new StringWriter();
+		try
+		{
+			Console.SetOut(sw);
+			var code = await ArghRuntime.RunAsync(["unicode-docs", "--help"]);
+			code.Should().Be(0);
+			var help = sw.ToString();
+			help.Should().Contain("Speed — fast or slow, 速い, 🚀.");
+			help.Should().Contain("Remarks: naïve café, 日本語, 😀. Entities: é 🚀.");
+		}
+		finally
+		{
+			Console.SetOut(prev);
+		}
+	}
+
 	[Fact]
 	public async Task RunAsync_parses_enum_flags()
 	{
@@ -288,6 +310,47 @@ public class ArghRuntimeInProcTests
 			var code = await ArghRuntime.RunAsync(["renamed-cmd"]);
 			code.Should().Be(0);
 			sw.ToString().Trim().Should().Be("marker:renamed-cmd");
+		}
+		finally
+		{
+			Console.SetOut(prev);
+		}
+	}
+
+	[Theory]
+	[InlineData("café", "marker:unicode-cafe")]
+	[InlineData("CAFÉ", "marker:unicode-cafe")]
+	[InlineData("日本語", "marker:unicode-nihongo")]
+	public async Task CommandName_attribute_with_non_ascii_name_routes(string command, string marker)
+	{
+		var prev = Console.Out;
+		var sw = new StringWriter();
+		try
+		{
+			Console.SetOut(sw);
+			var code = await ArghRuntime.RunAsync(["unicode", command]);
+			code.Should().Be(0);
+			sw.ToString().Trim().Should().Be(marker);
+		}
+		finally
+		{
+			Console.SetOut(prev);
+		}
+	}
+
+	[Fact]
+	public async Task Namespace_help_lists_non_ascii_command_names()
+	{
+		var prev = Console.Out;
+		var sw = new StringWriter();
+		try
+		{
+			Console.SetOut(sw);
+			var code = await ArghRuntime.RunAsync(["unicode", "--help"]);
+			code.Should().Be(0);
+			var help = sw.ToString();
+			help.Should().Contain("unicode café").And.Contain("Accented command name.");
+			help.Should().Contain("unicode 日本語").And.Contain("CJK command name.");
 		}
 		finally
 		{

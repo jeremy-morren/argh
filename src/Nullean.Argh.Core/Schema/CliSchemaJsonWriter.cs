@@ -9,7 +9,8 @@ namespace Nullean.Argh.Schema;
 /// so a full serializer (reflection-based or source-generated) is unnecessary weight for AOT-published
 /// apps: <c>System.Text.Json</c> alone adds several megabytes to a trimmed Native AOT binary even when
 /// only a source-generated context is referenced. This writer produces the same 2-space indented,
-/// camelCase JSON shape the previous <c>System.Text.Json</c>-based implementation did.
+/// camelCase JSON shape the previous <c>System.Text.Json</c>-based implementation did. Like that
+/// implementation, it escapes every non-ASCII character as <c>\uXXXX</c>, so the output is plain ASCII.
 /// </summary>
 internal sealed class CliSchemaJsonWriter
 {
@@ -315,7 +316,9 @@ internal sealed class CliSchemaJsonWriter
 				case '\r': _sb.Append("\\r"); break;
 				case '\t': _sb.Append("\\t"); break;
 				default:
-					if (c < 0x20)
+					// Escape non-ASCII too, as System.Text.Json's default encoder did: Windows encodes stdout in the
+					// console code page, so raw non-ASCII text would reach the file or pipe mangled.
+					if (c < 0x20 || c > 0x7E)
 						_sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
 					else
 						_sb.Append(c);

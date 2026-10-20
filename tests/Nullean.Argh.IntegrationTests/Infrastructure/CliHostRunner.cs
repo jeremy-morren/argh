@@ -27,7 +27,8 @@ internal static class CliHostRunner
 		for (var i = 0; i < cliArgs.Length; i++)
 			allArgs[2 + i] = cliArgs[i];
 
-		var start = new StartArguments("dotnet", allArgs) { Timeout = s_timeout };
+		// The default 10-second wait for the output readers to drain is too short when many tests run in parallel on Windows.
+		var start = new StartArguments("dotnet", allArgs) { Timeout = s_timeout, WaitForStreamReadersTimeout = s_timeout };
 		if (environment is { Count: > 0 })
 			start.Environment = MergeProcessEnvironment(environment);
 

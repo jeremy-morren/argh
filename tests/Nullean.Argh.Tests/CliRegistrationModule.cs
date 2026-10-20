@@ -44,6 +44,7 @@ internal static class CliRegistrationModule
 		app.Map("uri-cmd", CliTestHandlers.UriCmd);
 		app.Map("temporal-cmd", CliTestHandlers.TemporalCmd);
 		app.Map("time-only-cmd", CliTestHandlers.TimeOnlyCmd);
+		app.Map("unicode-docs", CliTestHandlers.UnicodeDocs);
 		app.Map("point-cmd", CliTestHandlers.PointCmd);
 		app.Map("point-as-params-cmd", CliTestHandlers.PointAsParamsCmd);
 		app.Map("local-names", CliTestHandlers.LocalNames);
@@ -124,6 +125,8 @@ internal static class CliRegistrationModule
 		app.Map("ext-ns-as-params-echo", CrossAssemblyHandlers.ExternalNsEcho);
 		app.MapNamespace("billing", "Billing commands", g => g.MapNamespace("tools", "Shared tools segment", h => h.Map("status", BillingToolsHandlers.Status)));
 		app.MapNamespace("support", "Support commands", g => g.MapNamespace("tools", "Shared tools segment", h => h.Map("status", SupportToolsHandlers.Status)));
+		// ASCII segment and summary keep the root help listing ASCII; the command names inside are not.
+		app.MapNamespace("unicode", "Commands with non-ASCII names.", g => g.Map<UnicodeNameCommands>());
 		// MapAndRootAlias: multi-command class; Build is [DefaultCommand] and also the root alias for this namespace.
 		app.MapNamespace("alias-scope", "Root-alias integration test namespace.", g => g.MapAndRootAlias<RootAliasTestCommands>());
 		app.MapNamespace("alias-followed", "Root alias followed by additional mapped command classes.", g =>
