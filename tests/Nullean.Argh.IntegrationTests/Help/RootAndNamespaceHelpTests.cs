@@ -127,6 +127,9 @@ public class RootAndNamespaceHelpTests
 			  schema-intent-read                            Lists resources safely.
 			  schema-output-formats                         Reports status in multiple
 			                                                formats.
+			  schema-quoted-values                          Schema test: allowed and denied
+			                                                values containing quotes, a
+			                                                backslash and an apostrophe.
 			  schema-separator-list                         Schema test: command with a
 			                                                separator-based collection on
 			                                                --ids.

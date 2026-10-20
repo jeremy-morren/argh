@@ -135,6 +135,45 @@ public class ValidationAnnotationTests
 		ConsoleOutput.Normalize(CliHostRunner.StdoutText(r)).Should().Contain("[allowed: dev|staging|prod]");
 	}
 
+	[Theory]
+	[InlineData("say \"hi\"")]
+	[InlineData(@"C:\temp\")]
+	[InlineData("it's")]
+	public void AllowedValues_value_with_quotes_or_backslashes_succeeds(string value)
+	{
+		var r = CliHostRunner.Run(NoColor, "schema-quoted-values", "--quote", value);
+		r.ExitCode.Should().Be(0);
+		ConsoleOutput.Normalize(CliHostRunner.StdoutText(r)).Should().Contain($"quote:{value}");
+	}
+
+	[Fact]
+	public void AllowedValues_error_lists_values_as_typed()
+	{
+		var r = CliHostRunner.Run(NoColor, "schema-quoted-values", "--quote", "nope");
+		r.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(r))
+			.Should().Contain(@"Error: --quote: value must be one of: plain, say ""hi"", C:\temp\, it's.");
+	}
+
+	[Fact]
+	public void DeniedValues_error_lists_values_as_typed()
+	{
+		var r = CliHostRunner.Run(NoColor, "schema-quoted-values", "--quote", "plain", "--other", "\"quoted\"");
+		r.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(r))
+			.Should().Contain(@"Error: --other: value must not be: ""quoted"".");
+	}
+
+	[Fact]
+	public void AllowedValues_and_DeniedValues_help_shows_values_as_typed()
+	{
+		var r = CliHostRunner.Run(NoColor, "schema-quoted-values", "--help");
+		r.ExitCode.Should().Be(0);
+		var help = ConsoleOutput.Normalize(CliHostRunner.StdoutText(r));
+		help.Should().Contain(@"[allowed: plain|say ""hi""|C:\temp\|it's]");
+		help.Should().Contain(@"[denied: ""quoted""]");
+	}
+
 	// ── [EmailAddress] ───────────────────────────────────────────────────────
 
 	[Fact]

@@ -95,6 +95,7 @@ internal static class CliRegistrationModule
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);
+		app.Map("schema-quoted-values", SchemaSpecificHandlers.SchemaQuotedValues);
 		app.Map<SchemaHiddenCommands>();
 		app.Map("schema-deprecated-simple", SchemaDeprecatedHandlers.SchemaDeprecatedSimple);
 		app.Map("schema-deprecated-with-message", SchemaDeprecatedHandlers.SchemaDeprecatedWithMessage);

@@ -335,15 +335,21 @@ public sealed partial class CliParserGenerator
 				case "global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute":
 					if (attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
 					{
-						var vals = attr.ConstructorArguments[0].Values.Select(v => v.ToCSharpString()).ToImmutableArray();
-						if (!vals.IsEmpty) builder.Add(new AllowedValuesConstraint(vals));
+						var args = attr.ConstructorArguments[0].Values;
+						if (!args.IsEmpty)
+							builder.Add(new AllowedValuesConstraint(
+								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
+								args.Select(ConstantDisplayValue).ToImmutableArray()));
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.DeniedValuesAttribute":
 					if (attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
 					{
-						var vals = attr.ConstructorArguments[0].Values.Select(v => v.ToCSharpString()).ToImmutableArray();
-						if (!vals.IsEmpty) builder.Add(new DeniedValuesConstraint(vals));
+						var args = attr.ConstructorArguments[0].Values;
+						if (!args.IsEmpty)
+							builder.Add(new DeniedValuesConstraint(
+								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
+								args.Select(ConstantDisplayValue).ToImmutableArray()));
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.EmailAddressAttribute":
@@ -502,10 +508,10 @@ public sealed partial class CliParserGenerator
 						tokens.Add($"[pattern: {rx.Pattern}]");
 						break;
 					case AllowedValuesConstraint av:
-						tokens.Add("[allowed: " + string.Join("|", av.Values.Select(val => val.Trim('"'))) + "]");
+						tokens.Add("[allowed: " + string.Join("|", av.DisplayValues) + "]");
 						break;
 					case DeniedValuesConstraint dv:
-						tokens.Add("[denied: " + string.Join("|", dv.Values.Select(val => val.Trim('"'))) + "]");
+						tokens.Add("[denied: " + string.Join("|", dv.DisplayValues) + "]");
 						break;
 					case EmailConstraint:
 						tokens.Add("[email]");
@@ -547,8 +553,26 @@ public sealed partial class CliParserGenerator
 	private sealed record TimeSpanRangeConstraint(string MinLiteral, string MaxLiteral) : ValidationConstraint;
 	private sealed record StringLengthConstraint(int? Min, int? Max) : ValidationConstraint;
 	private sealed record RegexConstraint(string Pattern) : ValidationConstraint;
-	private sealed record AllowedValuesConstraint(ImmutableArray<string> Values) : ValidationConstraint;
-	private sealed record DeniedValuesConstraint(ImmutableArray<string> Values) : ValidationConstraint;
+	/// <param name="Values">C# literals, for the emitted equality checks (e.g. <c>"dev"</c> with its quotes).</param>
+	/// <param name="DisplayValues">The values as the user types them, for help, errors, completion and <c>__schema</c>.</param>
+	private sealed record AllowedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues) : ValidationConstraint;
+	/// <inheritdoc cref="AllowedValuesConstraint"/>
+	private sealed record DeniedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues) : ValidationConstraint;
+
+	/// <summary>The value of an attribute argument as the user types it on the command line.</summary>
+	private static string ConstantDisplayValue(TypedConstant v)
+	{
+		if (v.IsNull)
+			return "null";
+		return v.Value switch
+		{
+			string s => s,
+			char c => c.ToString(),
+			bool b => b ? "true" : "false",
+			IFormattable f when v.Type?.TypeKind != TypeKind.Enum => f.ToString(null, CultureInfo.InvariantCulture),
+			_ => v.ToCSharpString(),
+		};
+	}
 	private sealed record EmailConstraint : ValidationConstraint;
 	private sealed record UrlConstraint : ValidationConstraint;
 	private sealed record UriSchemeConstraint(ImmutableArray<string> Schemes) : ValidationConstraint;

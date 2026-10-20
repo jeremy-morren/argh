@@ -191,9 +191,11 @@ public sealed partial class CliParserGenerator
 		{
 			foreach (var c in p.Validations)
 			{
-				// Values are C# literals; strip string quotes the same way help's [allowed: ...] does.
 				if (c is AllowedValuesConstraint av)
-					return av.Values.Where(v => v != "null").Select(v => v.Trim('"')).ToList();
+					return av.Values.Zip(av.DisplayValues, (literal, value) => (literal, value))
+						.Where(x => x.literal != "null")
+						.Select(x => x.value)
+						.ToList();
 			}
 		}
 
