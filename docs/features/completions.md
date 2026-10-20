@@ -56,5 +56,5 @@ The generator emits completion lookup tables alongside routing and help printers
 Completions cover:
 
 - Subcommand and namespace names
-- Flag names (including aliases)
-- Enum values for typed parameters
+- Flag names (including aliases and `--help`)
+- Flag values with a fixed set of choices: enums (using `[EnumValue]` names), collections of enums, and `[AllowedValues]`. Values complete after `--flag ` and inside `--flag=`.
