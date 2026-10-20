@@ -34,6 +34,7 @@ internal static class CliRegistrationModule
 		app.Map("as-params-collection-syntax", CliTestHandlers.AsParamsCollectionSyntax);
 		app.Map("as-params-optional-collection-syntax", CliTestHandlers.AsParamsOptionalCollectionSyntax);
 		app.Map("as-params-referenced-dto", CliTestHandlers.AsParamsReferencedDto);
+		app.Map("as-params-scalars", CliTestHandlers.AsParamsScalars);
 		app.Map("brace-doc", CliTestHandlers.BraceDoc);
 		app.Map("severity-cmd", CliTestHandlers.SeverityCmd);
 		app.Map("dry-run-cmd", CliTestHandlers.DryRunCmd);
@@ -42,8 +43,11 @@ internal static class CliRegistrationModule
 		app.Map("dir-cmd", CliTestHandlers.DirCmd);
 		app.Map("uri-cmd", CliTestHandlers.UriCmd);
 		app.Map("temporal-cmd", CliTestHandlers.TemporalCmd);
+		app.Map("time-only-cmd", CliTestHandlers.TimeOnlyCmd);
 		app.Map("point-cmd", CliTestHandlers.PointCmd);
 		app.Map("point-as-params-cmd", CliTestHandlers.PointAsParamsCmd);
+		app.Map("local-names", CliTestHandlers.LocalNames);
+		app.Map("local-names-dto", CliTestHandlers.LocalNamesDto);
 		app.Map("tag-set-parser", CliTestHandlers.TagSetParser);
 		app.Map("tag-set-parser-opt", CliTestHandlers.TagSetParserOpt);
 		app.Map("doc-lambda", DocLambdaEcho);
@@ -91,6 +95,11 @@ internal static class CliRegistrationModule
 		{
 			g.UseNamespaceOptions<EnvTestNamespaceOptions>();
 			g.Map("key", EnvBindingHandlers.EnvNs);
+		});
+		app.MapNamespace("scalars-ns", "Special scalar types as namespace options.", g =>
+		{
+			g.UseNamespaceOptions<ScalarNamespaceOptions>();
+			g.Map("show", CliTestHandlers.ScalarsNsShow);
 		});
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);

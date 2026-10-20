@@ -709,10 +709,12 @@ public sealed partial class CliParserGenerator
 			"DateTimeOffset" => "global::System.DateTimeOffset",
 			"TimeSpan" => "global::System.TimeSpan",
 			"DateOnly" => "global::System.DateOnly",
+			"TimeOnly" => "global::System.TimeOnly",
 			"DateTime?" => "global::System.DateTime?",
 			"DateTimeOffset?" => "global::System.DateTimeOffset?",
 			"TimeSpan?" => "global::System.TimeSpan?",
 			"DateOnly?" => "global::System.DateOnly?",
+			"TimeOnly?" => "global::System.TimeOnly?",
 			_ => "string"
 		};
 	}
@@ -742,8 +744,8 @@ public sealed partial class CliParserGenerator
 		string? parseFailureRunHint)
 	{
 		var argName = Escape(p.CliLongName);
-		var countVar = "__varCount_" + p.LocalVarName;
-		var arrVar = "__arr_" + p.LocalVarName;
+		var countVar = ParamTemp(p, "varCount");
+		var arrVar = ParamTemp(p, "arr");
 		var elemModel = ForElementParsing(p);
 		var elemCsharpType = GetCSharpCliType(elemModel);
 
@@ -763,18 +765,18 @@ public sealed partial class CliParserGenerator
 
 		sb.AppendLine($"\t\t\tvar {countVar} = positionals.Count > {startIndex} ? positionals.Count - {startIndex} : 0;");
 		sb.AppendLine($"\t\t\tvar {arrVar} = new {elemCsharpType}[{countVar}];");
-		sb.AppendLine($"\t\t\tfor (var __vi_{p.LocalVarName} = 0; __vi_{p.LocalVarName} < {countVar}; __vi_{p.LocalVarName}++)");
+		sb.AppendLine($"\t\t\tfor (var {ParamTemp(p, "vi")} = 0; {ParamTemp(p, "vi")} < {countVar}; {ParamTemp(p, "vi")}++)");
 		sb.AppendLine("\t\t\t{");
 
 		if (p.ElementScalarKind == CliScalarKind.Primitive && p.ElementTypeName == "string")
 		{
-			sb.AppendLine($"\t\t\t\t{arrVar}[__vi_{p.LocalVarName}] = positionals[{startIndex} + __vi_{p.LocalVarName}];");
+			sb.AppendLine($"\t\t\t\t{arrVar}[{ParamTemp(p, "vi")}] = positionals[{startIndex} + {ParamTemp(p, "vi")}];");
 		}
 		else
 		{
 			EmitParseFromString(sb, elemModel,
-				$"positionals[{startIndex} + __vi_{p.LocalVarName}]",
-				$"{arrVar}[__vi_{p.LocalVarName}]",
+				$"positionals[{startIndex} + {ParamTemp(p, "vi")}]",
+				$"{arrVar}[{ParamTemp(p, "vi")}]",
 				indentExtra: "\t",
 				outVarKeyword: false,
 				failureExit: failureExit,
@@ -838,6 +840,8 @@ public sealed partial class CliParserGenerator
 			"TimeSpan?" => "global::System.TimeSpan?",
 			"DateOnly" => "global::System.DateOnly",
 			"DateOnly?" => "global::System.DateOnly?",
+			"TimeOnly" => "global::System.TimeOnly",
+			"TimeOnly?" => "global::System.TimeOnly?",
 			_ => "string?"
 		};
 	}
@@ -1145,7 +1149,7 @@ public sealed partial class CliParserGenerator
 			return;
 		}
 
-		if (p.Special == BoolSpecialKind.None && p.TypeName is "DateTime?" or "DateTimeOffset?" or "TimeSpan?" or "DateOnly?")
+		if (p.Special == BoolSpecialKind.None && p.TypeName is "DateTime?" or "DateTimeOffset?" or "TimeSpan?" or "DateOnly?" or "TimeOnly?")
 		{
 			EmitNullableTemporalParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 			return;
@@ -1160,8 +1164,8 @@ public sealed partial class CliParserGenerator
 	{
 		var e = Escape(p.CliLongName);
 		string Out(string name) => outVarKeyword ? "out var " + name : "out " + name;
-var evVar = "__ev_" + p.LocalVarName;
-var evParsed = "__evp_" + p.LocalVarName;
+var evVar = ParamTemp(p, "ev");
+var evParsed = ParamTemp(p, "evp");
 sb.AppendLine($"{ind}var {evParsed} = false;");
 sb.AppendLine($"{ind}{p.EnumTypeFq} {evVar} = default;");
 sb.AppendLine($"{ind}switch (({rawExpr} ?? \"\").ToLowerInvariant())");
@@ -1192,7 +1196,7 @@ return;
 if (!p.IsRequired)
 {
 	var csharpNullableFi = GetCSharpCliType(p);
-	var tmpFi = "__nullableFileInfo_" + Naming.SanitizeIdentifier(p.LocalVarName);
+	var tmpFi = ParamTemp(p, "nullableFileInfo");
 	sb.AppendLine($"{ind}{csharpNullableFi} {tmpFi} = null;");
 	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
 	sb.AppendLine($"{ind}{{");
@@ -1200,7 +1204,7 @@ if (!p.IsRequired)
 	string pathSrcOpt = $"{rawExpr}!";
 	if (p.ExpandUserProfileBeforeBind)
 	{
-		var expandedOpt = "__path_" + Naming.SanitizeIdentifier(p.LocalVarName);
+		var expandedOpt = ParamTemp(p, "path");
 		sb.AppendLine($"{innerFi}var {expandedOpt} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
 		pathSrcOpt = expandedOpt;
 	}
@@ -1217,7 +1221,7 @@ if (!p.IsRequired)
 string pathSrc = $"{rawExpr}!";
 if (p.ExpandUserProfileBeforeBind)
 {
-	var expandedName = "__path_" + Naming.SanitizeIdentifier(p.LocalVarName);
+	var expandedName = ParamTemp(p, "path");
 	sb.AppendLine($"{ind}var {expandedName} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
 	pathSrc = expandedName;
 }
@@ -1235,7 +1239,7 @@ return;
 if (!p.IsRequired)
 {
 	var csharpNullableDi = GetCSharpCliType(p);
-	var tmpDi = "__nullableDirectoryInfo_" + Naming.SanitizeIdentifier(p.LocalVarName);
+	var tmpDi = ParamTemp(p, "nullableDirectoryInfo");
 	sb.AppendLine($"{ind}{csharpNullableDi} {tmpDi} = null;");
 	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
 	sb.AppendLine($"{ind}{{");
@@ -1243,7 +1247,7 @@ if (!p.IsRequired)
 	string pathSrcDirOpt = $"{rawExpr}!";
 	if (p.ExpandUserProfileBeforeBind)
 	{
-		var expandedOptDir = "__dir_" + Naming.SanitizeIdentifier(p.LocalVarName);
+		var expandedOptDir = ParamTemp(p, "dir");
 		sb.AppendLine($"{innerDi}var {expandedOptDir} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
 		pathSrcDirOpt = expandedOptDir;
 	}
@@ -1260,7 +1264,7 @@ if (!p.IsRequired)
 string pathSrcDir = $"{rawExpr}!";
 if (p.ExpandUserProfileBeforeBind)
 {
-	var expandedDir = "__dir_" + Naming.SanitizeIdentifier(p.LocalVarName);
+	var expandedDir = ParamTemp(p, "dir");
 	sb.AppendLine($"{ind}var {expandedDir} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
 	pathSrcDir = expandedDir;
 }
@@ -1275,22 +1279,24 @@ return;
 	private static void EmitUriParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var e = Escape(p.CliLongName);
+		// Per-parameter name: two Uri parameters in one method must not both declare the same local.
+		var uriOut = ParamTemp(p, "uri");
 // Optional Uri? must treat omitted flags as null (raw text is null), not run Uri.TryCreate on null/whitespace.
 if (!p.IsRequired)
 {
 	var csharpNullableUri = GetCSharpCliType(p);
-	var tmpUri = "__nullableUriParsed_" + Naming.SanitizeIdentifier(p.LocalVarName);
+	var tmpUri = ParamTemp(p, "nullableUriParsed");
 	sb.AppendLine($"{ind}{csharpNullableUri} {tmpUri} = null;");
 	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
 	sb.AppendLine($"{ind}{{");
 	sb.AppendLine(
-		$"{ind}\tif (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var __uri))");
+		$"{ind}\tif (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut}))");
 	sb.AppendLine($"{ind}\t{{");
 	sb.AppendLine($"{ind}\t\tConsole.Error.WriteLine($\"Error: invalid URI for --{e}: '{{{rawExpr}}}'.\");");
 	EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 	sb.AppendLine($"{ind}\t\t{failureExit};");
 	sb.AppendLine($"{ind}\t}}");
-	sb.AppendLine($"{ind}\t{tmpUri} = __uri;");
+	sb.AppendLine($"{ind}\t{tmpUri} = {uriOut};");
 	sb.AppendLine($"{ind}}}");
 	if (outVarKeyword)
 		sb.AppendLine($"{ind}var {targetVar} = {tmpUri};");
@@ -1299,33 +1305,35 @@ if (!p.IsRequired)
 	return;
 }
 
-sb.AppendLine($"{ind}if (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var __uri))");
+sb.AppendLine($"{ind}if (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut}))");
 sb.AppendLine($"{ind}{{");
 sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid URI for --{e}: '{{{rawExpr}}}'.\");");
 EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 sb.AppendLine($"{ind}\t{failureExit};");
 sb.AppendLine($"{ind}}}");
 if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = __uri;");
+	sb.AppendLine($"{ind}var {targetVar} = {uriOut};");
 else
-	sb.AppendLine($"{ind}{targetVar} = __uri;");
+	sb.AppendLine($"{ind}{targetVar} = {uriOut};");
 return;
 	}
 
 	private static void EmitCustomParserFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var e = Escape(p.CliLongName);
-sb.AppendLine($"{ind}var __parser = new {p.ParserTypeFq}();");
-sb.AppendLine($"{ind}if (!__parser.TryParse({rawExpr}!, out var __pv))");
+var parser = ParamTemp(p, "parser");
+var parsed = ParamTemp(p, "pv");
+sb.AppendLine($"{ind}var {parser} = new {p.ParserTypeFq}();");
+sb.AppendLine($"{ind}if (!{parser}.TryParse({rawExpr}!, out var {parsed}))");
 sb.AppendLine($"{ind}{{");
 sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid value for --{e}.\");");
 EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 sb.AppendLine($"{ind}\t{failureExit};");
 sb.AppendLine($"{ind}}}");
 if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = __pv;");
+	sb.AppendLine($"{ind}var {targetVar} = {parsed};");
 else
-	sb.AppendLine($"{ind}{targetVar} = __pv;");
+	sb.AppendLine($"{ind}{targetVar} = {parsed};");
 return;
 	}
 
@@ -1394,7 +1402,7 @@ switch (p.Special)
 		break;
 	case BoolSpecialKind.None when p.TypeName == "DateTime":
 	{
-		var tmp = "__dt_" + p.LocalVarName;
+		var tmp = ParamTemp(p, "dt");
 		sb.AppendLine(
 			$"{ind}if (!global::System.DateTime.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmp}))");
 		sb.AppendLine($"{ind}{{");
@@ -1410,7 +1418,7 @@ switch (p.Special)
 	}
 	case BoolSpecialKind.None when p.TypeName == "DateTimeOffset":
 	{
-		var tmp = "__dto_" + p.LocalVarName;
+		var tmp = ParamTemp(p, "dto");
 		sb.AppendLine(
 			$"{ind}if (!global::System.DateTimeOffset.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmp}))");
 		sb.AppendLine($"{ind}{{");
@@ -1426,7 +1434,7 @@ switch (p.Special)
 	}
 	case BoolSpecialKind.None when p.TypeName == "TimeSpan":
 	{
-		var tmp = "__ts_" + p.LocalVarName;
+		var tmp = ParamTemp(p, "ts");
 		sb.AppendLine($"{ind}if (!global::Nullean.Argh.ArghTimeSpan.TryParse({rawExpr}, out var {tmp}))");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeSpan for --{e}: '{{{rawExpr}}}'.\");");
@@ -1441,7 +1449,7 @@ switch (p.Special)
 	}
 	case BoolSpecialKind.None when p.TypeName == "DateOnly":
 	{
-		var tmp = "__do_" + p.LocalVarName;
+		var tmp = ParamTemp(p, "do");
 		sb.AppendLine(
 			$"{ind}if (!global::System.DateOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmp}))");
 		sb.AppendLine($"{ind}{{");
@@ -1455,13 +1463,32 @@ switch (p.Special)
 			sb.AppendLine($"{ind}{targetVar} = {tmp};");
 		break;
 	}
+	case BoolSpecialKind.None when p.TypeName == "TimeOnly":
+	{
+		var tmp = ParamTemp(p, "to");
+		sb.AppendLine(
+			$"{ind}if (!global::System.TimeOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmp}))");
+		sb.AppendLine($"{ind}{{");
+		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeOnly for --{e}: '{{{rawExpr}}}'.\");");
+		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		sb.AppendLine($"{ind}\t{failureExit};");
+		sb.AppendLine($"{ind}}}");
+		if (outVarKeyword)
+			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
+		else
+			sb.AppendLine($"{ind}{targetVar} = {tmp};");
+		break;
+	}
 	case BoolSpecialKind.None when p.TypeName == "bool":
+	{
+		var tmp = ParamTemp(p, "bool");
 		if (outVarKeyword)
 			sb.AppendLine(
-				$"{ind}var {targetVar} = bool.TryParse({rawExpr}, out var tmpBool) ? tmpBool : true;");
+				$"{ind}var {targetVar} = bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true;");
 		else
-			sb.AppendLine($"{ind}{targetVar} = bool.TryParse({rawExpr}, out var tmpBool) ? tmpBool : true;");
+			sb.AppendLine($"{ind}{targetVar} = bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true;");
 		break;
+	}
 	default:
 		if (outVarKeyword)
 			sb.AppendLine($"{ind}var {targetVar} = {rawExpr};");
@@ -1475,8 +1502,8 @@ switch (p.Special)
 		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
 	{
 		var e = Escape(p.CliLongName);
-		var tmpVar = "__nullableNumericParsed_" + p.LocalVarName;
-		var parsedOut = "__nv_" + p.LocalVarName;
+		var tmpVar = ParamTemp(p, "nullableNumericParsed");
+		var parsedOut = ParamTemp(p, "nv");
 		var csharpNullable = GetCSharpCliType(p);
 
 		sb.AppendLine($"{ind}{csharpNullable} {tmpVar} = null;");
@@ -1527,8 +1554,8 @@ switch (p.Special)
 		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
 	{
 		var e = Escape(p.CliLongName);
-		var tmpVar = "__nullableTemporalParsed_" + p.LocalVarName;
-		var parsedOut = "__nt_" + p.LocalVarName;
+		var tmpVar = ParamTemp(p, "nullableTemporalParsed");
+		var parsedOut = ParamTemp(p, "nt");
 		var csharpNullable = GetCSharpCliType(p);
 
 		sb.AppendLine($"{ind}{csharpNullable} {tmpVar} = null;");
@@ -1551,6 +1578,10 @@ switch (p.Special)
 			case "DateOnly?":
 				sb.AppendLine(
 					$"{ind}\tif (!global::System.DateOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {parsedOut}))");
+				break;
+			case "TimeOnly?":
+				sb.AppendLine(
+					$"{ind}\tif (!global::System.TimeOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {parsedOut}))");
 				break;
 			default:
 				throw new InvalidOperationException($"Unexpected nullable temporal type '{p.TypeName}'.");

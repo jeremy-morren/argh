@@ -39,6 +39,7 @@ public class RootHelpFullTextTests
 			  alias-scope     Root-alias integration test namespace.
 			  billing         Billing commands
 			  env-ns          Env binding namespace options tests.
+			  scalars-ns      Special scalar types as namespace options.
 			  storage         Commands under storage. Nested BlobCommands must be registered
 			                  explicitly via MapNamespace<BlobCommands>.
 			  support         Support commands
@@ -53,6 +54,7 @@ public class RootHelpFullTextTests
 			  as-params-collection-syntax
 			  as-params-optional-collection-syntax
 			  as-params-referenced-dto
+			  as-params-scalars
 			  as-params-tag-set
 			  as-params-with-ct
 			  brace-doc                                     Regression: braces in XML docs
@@ -94,6 +96,11 @@ public class RootHelpFullTextTests
 			  file-cmd
 			  hello                                         Greet someone by name.
 			  lambda-cmd
+			  local-names                                   Parameters named like generated
+			                                                locals, and two of each parse
+			                                                kind in one method.
+			  local-names-dto                               Two members of one DTO that use
+			                                                the same custom parser.
 			  long-name-override                            Long name override: param is
 			                                                named 'tags' but flag is --tag.
 			  mixed-variadic                                Mixed: scalar positional then
@@ -137,6 +144,7 @@ public class RootHelpFullTextTests
 			  tag-set-parser-opt
 			  tags
 			  temporal-cmd
+			  time-only-cmd
 			  uri-cmd
 			  validate-allowed                              Validate allowed values on
 			                                                --env.
