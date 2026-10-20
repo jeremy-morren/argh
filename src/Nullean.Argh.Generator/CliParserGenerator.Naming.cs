@@ -219,6 +219,7 @@ public sealed partial class CliParserGenerator
 				"DateTimeOffset" or "DateTimeOffset?" => "<dateTimeOffset>",
 				"TimeSpan" or "TimeSpan?" => "<timeSpan>",
 				"DateOnly" or "DateOnly?" => "<dateOnly>",
+				"TimeOnly" or "TimeOnly?" => "<timeOnly>",
 				_ => "<value>"
 			};
 		}

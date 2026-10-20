@@ -427,7 +427,7 @@ public sealed partial class CliParserGenerator
 			if (IsInjectedType(cp.Type))
 			{
 				var injCli = namePrefix + Naming.ToCliLongName(cp.Name);
-				var injLocal = SafeLocalName(methodParamName + "_" + cp.Name);
+				var injLocal = SafeMemberLocalName(methodParamName, cp.Name);
 				return new ParameterModel(
 					cp.Name,
 					injLocal,
@@ -456,7 +456,7 @@ public sealed partial class CliParserGenerator
 			var kind = isArg ? ParameterKind.Positional : ParameterKind.Flag;
 			var bs = ClassifyBool(cp.Type);
 			var cli = namePrefix + Naming.ToCliLongName(cp.Name);
-			var local = SafeLocalName(methodParamName + "_" + cp.Name);
+			var local = SafeMemberLocalName(methodParamName, cp.Name);
 			var desc = Documentation.GetParamDocFromType(containingType, cp.Name, compilation, TryExtractFullDocumentationFromTypeTrivia(containingType));
 			if (string.IsNullOrWhiteSpace(desc))
 			{
@@ -548,7 +548,7 @@ public sealed partial class CliParserGenerator
 			if (IsInjectedType(prop.Type))
 			{
 				var injCli = namePrefix + Naming.ToCliLongName(prop.Name);
-				var injLocal = SafeLocalName(methodParamName + "_" + prop.Name);
+				var injLocal = SafeMemberLocalName(methodParamName, prop.Name);
 				return new ParameterModel(
 					prop.Name,
 					injLocal,
@@ -576,7 +576,7 @@ public sealed partial class CliParserGenerator
 			var isArg = HasArgumentAttribute(prop);
 			var kind = isArg ? ParameterKind.Positional : ParameterKind.Flag;
 			var bs = ClassifyBool(prop.Type);
-			var local = SafeLocalName(methodParamName + "_" + prop.Name);
+			var local = SafeMemberLocalName(methodParamName, prop.Name);
 			var rawSummary = Documentation.GetPropertySummaryLine(prop, compilation, TryExtractFullDocumentationFromPropertyTrivia(prop));
 			var doc = ParseOptionsFlagDocumentation(rawSummary);
 			var derivedCli = namePrefix + Naming.ToCliLongName(prop.Name);
@@ -945,6 +945,8 @@ public sealed partial class CliParserGenerator
 						return "TimeSpan";
 					case "global::System.DateOnly":
 						return "DateOnly";
+					case "global::System.TimeOnly":
+						return "TimeOnly";
 				}
 			}
 
@@ -996,30 +998,30 @@ public sealed partial class CliParserGenerator
 			};
 		}
 
-		private static string SafeLocalName(string name)
-		{
-			var k = Naming.ToCliLongName(name).Replace("-", "_");
-			if (k.Length == 0)
-				return "arg";
-			if (!char.IsLetter(k[0]) && k[0] != '_')
-				return "v_" + k;
-			if (CSharpKeywords.Contains(k))
-				return "@" + k;
-			return k;
-		}
+		/// <summary>
+		/// The generated local for a user parameter or member: <see cref="UserLocalPrefix"/> plus its C# name. The prefix
+		/// keeps it apart from the generator's own locals (<c>args</c>, <c>flags</c>, <c>i</c>, ...) and from keywords, and
+		/// the unchanged C# name keeps distinct names distinct (<c>fooBar</c> and <c>foo_bar</c>). Temporaries for a
+		/// parameter are named with <see cref="ParamTemp"/>.
+		/// </summary>
+		private static string SafeLocalName(string name) => UserLocalPrefix + name;
 
-		private static readonly HashSet<string> CSharpKeywords = new HashSet<string>(StringComparer.Ordinal)
-		{
-			"abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-			"class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-			"enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-			"foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-			"long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-			"private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-			"sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-			"try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-			"void", "volatile", "while"
-		};
+		/// <summary>The local for member <paramref name="memberName"/> of an expanded parameter (DTO or options type).</summary>
+		private static string SafeMemberLocalName(string methodParamName, string memberName) =>
+			SafeLocalName(methodParamName + "__" + memberName);
 	}
+
+	/// <summary>
+	/// Prefix of every generated local that holds a user parameter or member. The generator's own locals never start
+	/// with it, so a user name can't collide with them.
+	/// </summary>
+	private const string UserLocalPrefix = "__p_";
+
+	/// <summary>
+	/// A temporary local the parse code needs for <paramref name="p"/>, such as a parser instance or a <c>TryParse</c>
+	/// out value. The name includes the parameter's local, so two parameters never share a temporary, and it can't
+	/// collide with a user local because it doesn't start with <see cref="UserLocalPrefix"/>.
+	/// </summary>
+	private static string ParamTemp(ParameterModel p, string role) => "__" + role + "_" + p.LocalVarName;
 
 }

@@ -392,7 +392,7 @@ public sealed partial class CliParserGenerator
 			foreach (var m in flatMembers)
 			{
 				var fallback = fallbackMap.TryGetValue(m.CliLongName, out var fb) ? fb : "default";
-				var tmpName = "__ropt_" + m.LocalVarName;
+				var tmpName = ParamTemp(m, "ropt");
 				// Skip if already emitted by a parent type in the chain (inherited members appear in multiple flat lists).
 				if (!emittedTmpVars.Add(tmpName)) continue;
 				if (m.Special == BoolSpecialKind.Bool)
@@ -470,6 +470,10 @@ public sealed partial class CliParserGenerator
 								$"global::System.DateOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? {tmpName}P : {tmpName}",
 							"DateOnly?" =>
 								$"global::System.DateOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? (global::System.DateOnly?){tmpName}P : {tmpName}",
+							"TimeOnly" =>
+								$"global::System.TimeOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? {tmpName}P : {tmpName}",
+							"TimeOnly?" =>
+								$"global::System.TimeOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? (global::System.TimeOnly?){tmpName}P : {tmpName}",
 							"string" or "string?" => $"{tmpName}Txt ?? {tmpName}",
 							_ => $"{tmpName}Txt != null ? {tmpName}Txt : {tmpName}"
 						};
@@ -552,7 +556,7 @@ public sealed partial class CliParserGenerator
 			{
 				sb.AppendLine($"\t\t\tvar {localVar} = new {typeFq}();");
 				foreach (var m in flatMembers)
-					sb.AppendLine($"\t\t\t{localVar}.{m.SymbolName} = __ropt_{m.LocalVarName};");
+					sb.AppendLine($"\t\t\t{localVar}.{m.SymbolName} = {ParamTemp(m, "ropt")};");
 			}
 		}
 	}
@@ -581,22 +585,22 @@ public sealed partial class CliParserGenerator
 
 			sb.AppendLine($"\t\t\tif (!string.IsNullOrEmpty({p.LocalVarName}Joined))");
 			sb.AppendLine("\t\t\t{");
-			sb.AppendLine($"\t\t\t\tvar __sep_{p.LocalVarName} = \"{Escape(sep)}\";");
-			sb.AppendLine($"\t\t\t\tforeach (var __part in {p.LocalVarName}Joined.Split(__sep_{p.LocalVarName}, StringSplitOptions.None))");
+			sb.AppendLine($"\t\t\t\tvar {ParamTemp(p, "sep")} = \"{Escape(sep)}\";");
+			sb.AppendLine($"\t\t\t\tforeach (var __part in {p.LocalVarName}Joined.Split({ParamTemp(p, "sep")}, StringSplitOptions.None))");
 			sb.AppendLine("\t\t\t\t{");
 			sb.AppendLine("\t\t\t\t\tif (string.IsNullOrEmpty(__part)) continue;");
-			EmitParseFromString(sb, elemModel, "__part", "__ce_" + p.LocalVarName, indentExtra: "\t\t", outVarKeyword: true, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
+			EmitParseFromString(sb, elemModel, "__part", ParamTemp(p, "ce"), indentExtra: "\t\t", outVarKeyword: true, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
 			if (p.CollectionTargetIsReadOnlySet)
 			{
-				sb.AppendLine($"\t\t\t\t\tif (!{acc}.Add(__ce_{p.LocalVarName}))");
+				sb.AppendLine($"\t\t\t\t\tif (!{acc}.Add({ParamTemp(p, "ce")}))");
 				sb.AppendLine("\t\t\t\t\t{");
-				sb.AppendLine($"\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: duplicate value '{{__ce_{p.LocalVarName}}}' for --{flagKey}.\");");
+				sb.AppendLine($"\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: duplicate value '{{{ParamTemp(p, "ce")}}}' for --{flagKey}.\");");
 				sb.AppendLine($"\t\t\t\t\t\t{failureExit};");
 				sb.AppendLine("\t\t\t\t\t}");
 			}
 			else
 			{
-				sb.AppendLine($"\t\t\t\t\t{acc}.Add(__ce_{p.LocalVarName});");
+				sb.AppendLine($"\t\t\t\t\t{acc}.Add({ParamTemp(p, "ce")});");
 			}
 			sb.AppendLine("\t\t\t\t}");
 			sb.AppendLine("\t\t\t}");
@@ -606,22 +610,22 @@ public sealed partial class CliParserGenerator
 			if (!multiFlagsAvailable)
 				return;
 
-			sb.AppendLine($"\t\t\tif (!multiFlags.TryGetValue(\"{flagKey}\", out var __rawList_{p.LocalVarName}))");
-			sb.AppendLine($"\t\t\t\t__rawList_{p.LocalVarName} = new List<string>();");
-			sb.AppendLine($"\t\t\tforeach (var __raw in __rawList_{p.LocalVarName})");
+			sb.AppendLine($"\t\t\tif (!multiFlags.TryGetValue(\"{flagKey}\", out var {ParamTemp(p, "rawList")}))");
+			sb.AppendLine($"\t\t\t\t{ParamTemp(p, "rawList")} = new List<string>();");
+			sb.AppendLine($"\t\t\tforeach (var __raw in {ParamTemp(p, "rawList")})");
 			sb.AppendLine("\t\t\t{");
-			EmitParseFromString(sb, elemModel, "__raw", "__ce_" + p.LocalVarName, indentExtra: "\t", outVarKeyword: true, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
+			EmitParseFromString(sb, elemModel, "__raw", ParamTemp(p, "ce"), indentExtra: "\t", outVarKeyword: true, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
 			if (p.CollectionTargetIsReadOnlySet)
 			{
-				sb.AppendLine($"\t\t\t\tif (!{acc}.Add(__ce_{p.LocalVarName}))");
+				sb.AppendLine($"\t\t\t\tif (!{acc}.Add({ParamTemp(p, "ce")}))");
 				sb.AppendLine("\t\t\t\t{");
-				sb.AppendLine($"\t\t\t\t\tConsole.Error.WriteLine($\"Error: duplicate value '{{__ce_{p.LocalVarName}}}' for --{flagKey}.\");");
+				sb.AppendLine($"\t\t\t\t\tConsole.Error.WriteLine($\"Error: duplicate value '{{{ParamTemp(p, "ce")}}}' for --{flagKey}.\");");
 				sb.AppendLine($"\t\t\t\t\t{failureExit};");
 				sb.AppendLine("\t\t\t\t}");
 			}
 			else
 			{
-				sb.AppendLine($"\t\t\t\t{acc}.Add(__ce_{p.LocalVarName});");
+				sb.AppendLine($"\t\t\t\t{acc}.Add({ParamTemp(p, "ce")});");
 			}
 			sb.AppendLine("\t\t\t}");
 			if (p.IsRequired)
@@ -1214,9 +1218,9 @@ public sealed partial class CliParserGenerator
 			return;
 
 		var isDir = p.ElementScalarKind == CliScalarKind.DirectoryInfo;
-		var failuresVar = "__fsFailures_" + p.LocalVarName;
-		var itemVar = "__fsItem_" + p.LocalVarName;
-		var msgVar = "__fsMsg_" + p.LocalVarName;
+		var failuresVar = ParamTemp(p, "fsFailures");
+		var itemVar = ParamTemp(p, "fsItem");
+		var msgVar = ParamTemp(p, "fsMsg");
 		var argToken = p.Kind == ParameterKind.Positional ? $"<{Escape(cliName)}>" : $"--{Escape(cliName)}";
 		var nullGuard = !p.IsRequired && p.DeclaredNullableAnnotated;
 		const string outerIndent = "\t\t\t";

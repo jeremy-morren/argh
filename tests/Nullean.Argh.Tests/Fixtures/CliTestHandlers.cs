@@ -75,6 +75,37 @@ internal sealed class PointAsParamsArgs
 	public CliTestHandlers.Point Point { get; init; }
 }
 
+/// <summary>[AsParameters] DTO with two members that use the same custom parser.</summary>
+internal sealed class TwoPointsArgs
+{
+	[ArgumentParser(typeof(CliTestHandlers.PointParser))]
+	public CliTestHandlers.Point From { get; init; }
+
+	[ArgumentParser(typeof(CliTestHandlers.PointParser))]
+	public CliTestHandlers.Point To { get; init; }
+}
+
+/// <summary>Init-property [AsParameters] DTO with each special scalar type, plain (required) and nullable.</summary>
+internal sealed class ScalarAsParamsArgs
+{
+	public TimeSpan Span { get; init; }
+	public TimeSpan? SpanOpt { get; init; }
+	public DateTime Stamp { get; init; }
+	public DateTime? StampOpt { get; init; }
+	public DateTimeOffset Offset { get; init; }
+	public DateTimeOffset? OffsetOpt { get; init; }
+	public DateOnly Day { get; init; }
+	public DateOnly? DayOpt { get; init; }
+	public TimeOnly Clock { get; init; }
+	public TimeOnly? ClockOpt { get; init; }
+	public Uri Link { get; init; } = null!;
+	public Uri? LinkOpt { get; init; }
+	public FileInfo Doc { get; init; } = null!;
+	public FileInfo? DocOpt { get; init; }
+	public DirectoryInfo Folder { get; init; } = null!;
+	public DirectoryInfo? FolderOpt { get; init; }
+}
+
 /// <summary>Init-only bound object for XML documentation in help output.</summary>
 internal sealed class PropDocBoundArgs
 {
@@ -184,9 +215,59 @@ internal static class CliTestHandlers
 	public static void TemporalCmd(TestGlobalCliOptions g, TimeSpan duration, DateOnly on) =>
 		Console.Out.WriteLine($"temporal:{duration.TotalSeconds}:{on:yyyy-MM-dd}");
 
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="at">A time of day.</param>
+	/// <param name="until">An optional time of day.</param>
+	public static void TimeOnlyCmd(TestGlobalCliOptions g, TimeOnly at, TimeOnly? until = null) =>
+		Console.Out.WriteLine($"time-only:{at:HH:mm:ss}:{(until is { } u ? u.ToString("HH:mm:ss") : "none")}");
+
+	public static void AsParamsScalars(TestGlobalCliOptions g, [AsParameters] ScalarAsParamsArgs a) =>
+		WriteScalars(a.Span, a.SpanOpt, a.Stamp, a.StampOpt, a.Offset, a.OffsetOpt, a.Day, a.DayOpt,
+			a.Clock, a.ClockOpt, a.Link, a.LinkOpt, a.Doc, a.DocOpt, a.Folder, a.FolderOpt);
+
+	public static void ScalarsNsShow(ScalarNamespaceOptions o) =>
+		WriteScalars(o.Span, o.SpanOpt, o.Stamp, o.StampOpt, o.Offset, o.OffsetOpt, o.Day, o.DayOpt,
+			o.Clock, o.ClockOpt, o.Link, o.LinkOpt, o.Doc, o.DocOpt, o.Folder, o.FolderOpt);
+
+	// One "name=value" line per member, in a culture-independent form; null prints "none".
+	private static void WriteScalars(params object?[] values)
+	{
+		string[] names = ["span", "span-opt", "stamp", "stamp-opt", "offset", "offset-opt", "day", "day-opt",
+			"clock", "clock-opt", "link", "link-opt", "doc", "doc-opt", "folder", "folder-opt"];
+		for (var i = 0; i < names.Length; i++)
+		{
+			var text = values[i] switch
+			{
+				null => "none",
+				TimeSpan t => t.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+				DateTime d => d.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+				DateTimeOffset d => d.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+				DateOnly d => d.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+				TimeOnly t => t.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+				FileSystemInfo f => f.Name,
+				var v => v.ToString(),
+			};
+			Console.Out.WriteLine($"{names[i]}={text}");
+		}
+	}
+
 	// For custom parser test
 	public static void PointCmd(TestGlobalCliOptions g, [ArgumentParser(typeof(PointParser))] Point point) =>
 		Console.Out.WriteLine($"point:{point.X},{point.Y}");
+
+	/// <summary>Parameters named like generated locals, and two of each parse kind in one method.</summary>
+	public static void LocalNames(TestGlobalCliOptions g,
+		[ArgumentParser(typeof(PointParser))] Point start, [ArgumentParser(typeof(PointParser))] Point end,
+		string? args = null, string? flags = null, string? positionals = null, string? i = null, string? a = null,
+		string? eq = null, string? ct = null, string? fooBar = null, string? foo_bar = null,
+		TimeSpan? wait = null, TimeSpan? delay = null, Uri? home = null, Uri? mirror = null) =>
+		Console.Out.WriteLine(string.Join("|",
+			$"{start.X},{start.Y}", $"{end.X},{end.Y}", args, flags, positionals, i, a, eq, ct, fooBar, foo_bar,
+			wait?.TotalSeconds, delay?.TotalSeconds, home?.Host, mirror?.Host));
+
+	/// <summary>Two members of one DTO that use the same custom parser.</summary>
+	public static void LocalNamesDto(TestGlobalCliOptions g, [AsParameters] TwoPointsArgs args) =>
+		Console.Out.WriteLine($"{args.From.X},{args.From.Y}|{args.To.X},{args.To.Y}");
 
 	public static void PointAsParamsCmd(TestGlobalCliOptions g, [AsParameters] PointAsParamsArgs args) =>
 		Console.Out.WriteLine($"point-as-params:{args.Point.X},{args.Point.Y}");

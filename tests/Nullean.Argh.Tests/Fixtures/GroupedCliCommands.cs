@@ -49,6 +49,27 @@ internal sealed class EnvTestNamespaceOptions : TestGlobalCliOptions
 	public string? Key { get; set; }
 }
 
+/// <summary>Namespace options with each special scalar type, plain (required) and nullable.</summary>
+internal sealed class ScalarNamespaceOptions : TestGlobalCliOptions
+{
+	public TimeSpan Span { get; set; }
+	public TimeSpan? SpanOpt { get; set; }
+	public DateTime Stamp { get; set; }
+	public DateTime? StampOpt { get; set; }
+	public DateTimeOffset Offset { get; set; }
+	public DateTimeOffset? OffsetOpt { get; set; }
+	public DateOnly Day { get; set; }
+	public DateOnly? DayOpt { get; set; }
+	public TimeOnly Clock { get; set; }
+	public TimeOnly? ClockOpt { get; set; }
+	public Uri Link { get; set; } = null!;
+	public Uri? LinkOpt { get; set; }
+	public FileInfo Doc { get; set; } = null!;
+	public FileInfo? DocOpt { get; set; }
+	public DirectoryInfo Folder { get; set; } = null!;
+	public DirectoryInfo? FolderOpt { get; set; }
+}
+
 /// <summary>Commands under <c>storage</c>. Nested <see cref="BlobCommands"/> must be registered explicitly via <c>MapNamespace&lt;BlobCommands&gt;</c>.</summary>
 internal sealed class StorageCliCommands
 {
