@@ -94,7 +94,7 @@ Every feature below is generated at compile time. Nothing runs via reflection.
 
 - **[XML docs are your help text](features/help.md)** - `<summary>`, `<param>`, `<remarks>`, and `<example>` flow directly into `--help`
 - **[Source-generated](features/source-generated.md)** - typed dispatch, parsers, and help printers emitted into your assembly
-- **[Shell completions](features/completions.md)** - bash, zsh, fish; one install command per shell
+- **[Shell completions](features/completions.md)** - bash, zsh, fish, PowerShell; one install command per shell
 - **[Agent-ready JSON schema](features/schema.md)** - `__schema` emits a full CLI description conforming to [cli-schema v1](https://github.com/cli-schema/cli-schema)
 - **[DataAnnotations validation](features/validation.md)** - `[Range]`, `[StringLength]`, `[Existing]`, and more; constraints shown in help
 - **[Fuzzy matching](features/fuzzy-matching.md)** - typos produce suggestions with the correct qualified path
