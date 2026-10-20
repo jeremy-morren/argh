@@ -105,6 +105,7 @@ internal static class CliRegistrationModule
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);
+		app.Map("schema-quoted-values", SchemaSpecificHandlers.SchemaQuotedValues);
 		app.Map<SchemaHiddenCommands>();
 		// These commands and the --old-name member are [Obsolete] on purpose: the schema tests read them as deprecated.
 		// CS0612/CS0618 are the compiler's warnings for the handlers; AGH0036 is Argh's for the member the generated code binds.
