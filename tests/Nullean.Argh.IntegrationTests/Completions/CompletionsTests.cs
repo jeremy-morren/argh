@@ -120,6 +120,13 @@ public class CompletionsTests
 	}
 
 	[Fact]
+	public void Complete_allowed_values_with_quotes_are_written_as_typed()
+	{
+		var result = CliHostRunner.Run("__complete", "bash", "--", "schema-quoted-values", "--quote", "");
+		CliHostRunner.StdoutText(result).Should().Be("C:\\temp\\\nit's\nplain\nsay \"hi\"\n");
+	}
+
+	[Fact]
 	public void Complete_open_ended_flag_value_emits_nothing()
 	{
 		var result = CliHostRunner.Run("__complete", "bash", "--", "hello", "--name", "");

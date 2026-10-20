@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Nullean.Argh;
 using Nullean.Argh.Documentation;
 
@@ -24,6 +25,15 @@ internal static class SchemaSpecificHandlers
 	[NoOptionsInjection]
 	public static void SchemaHiddenParam(string name, [Hidden(Schema = true)] string? internalId = null) =>
 		Console.Out.WriteLine($"name:{name}");
+
+	/// <summary>Schema test: allowed and denied values containing quotes, a backslash and an apostrophe.</summary>
+	/// <param name="quote">One of a fixed list.</param>
+	/// <param name="other">Anything but a quoted word.</param>
+	[NoOptionsInjection]
+	public static void SchemaQuotedValues(
+		[AllowedValues("plain", "say \"hi\"", @"C:\temp\", "it's")] string quote,
+		[DeniedValues("\"quoted\"")] string? other = null) =>
+		Console.Out.WriteLine($"quote:{quote}");
 }
 
 /// <summary>Schema test: hidden command.</summary>

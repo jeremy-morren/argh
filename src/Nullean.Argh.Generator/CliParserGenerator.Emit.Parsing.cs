@@ -1018,7 +1018,7 @@ public sealed partial class CliParserGenerator
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
 			cond = $"{nullGuard}({string.Join(" && ", checks.Select(c => c.Replace(varName, access)))})";
 		}
-		var displayVals = string.Join(", ", av.Values.Select(v => v.Trim('"')));
+		var displayVals = string.Join(", ", av.DisplayValues);
 		sb.AppendLine($"\t\t\tif ({cond})");
 		sb.AppendLine("\t\t\t{");
 		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: value must be one of: {Escape(displayVals)}.\");");
@@ -1053,7 +1053,7 @@ public sealed partial class CliParserGenerator
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
 			cond = $"{nullGuard}({string.Join(" || ", checks.Select(c => c.Replace(varName, access)))})";
 		}
-		var displayVals = string.Join(", ", dv.Values.Select(v => v.Trim('"')));
+		var displayVals = string.Join(", ", dv.DisplayValues);
 		sb.AppendLine($"\t\t\tif ({cond})");
 		sb.AppendLine("\t\t\t{");
 		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: value must not be: {Escape(displayVals)}.\");");

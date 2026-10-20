@@ -111,7 +111,25 @@ public class SchemaTests
 		var constraint = envParam.GetProperty("validations").EnumerateArray().First();
 		constraint.GetProperty("kind").GetString().Should().Be("allowed");
 		constraint.GetProperty("values").EnumerateArray().Select(v => v.GetString())
-			.Should().BeEquivalentTo(new[] { "\"dev\"", "\"staging\"", "\"prod\"" });
+			.Should().Equal("dev", "staging", "prod");
+	}
+
+	[Fact]
+	public void Schema_allowed_values_are_the_strings_a_user_types()
+	{
+		var constraint = SchemaParameter("schema-quoted-values", "quote").GetProperty("validations").EnumerateArray().Single();
+		constraint.GetProperty("kind").GetString().Should().Be("allowed");
+		constraint.GetProperty("values").EnumerateArray().Select(v => v.GetString())
+			.Should().Equal("plain", "say \"hi\"", @"C:\temp\", "it's");
+	}
+
+	[Fact]
+	public void Schema_denied_values_are_the_strings_a_user_types()
+	{
+		var constraint = SchemaParameter("schema-quoted-values", "other").GetProperty("validations").EnumerateArray().Single();
+		constraint.GetProperty("kind").GetString().Should().Be("denied");
+		constraint.GetProperty("values").EnumerateArray().Select(v => v.GetString())
+			.Should().Equal("\"quoted\"");
 	}
 
 	[Fact]
