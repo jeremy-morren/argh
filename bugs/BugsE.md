@@ -12,7 +12,7 @@ The shell scripts, the `__complete` engine, and the cli-schema JSON that agents 
 | 37 | [`__argh_root` leaks into schema usage strings](#37-__argh_root-leaks-into-schema-usage-strings) | Minor | `bug37.cs` |
 | 38 | [Root and namespace default handlers are missing from the schema when registered by alias](#38-root-and-namespace-default-handlers-are-missing-from-the-schema-when-registered-by-alias) | Wrong result | `bug38.cs` (build break, `#if BUG38`) |
 | 39 | [`[Hidden(Schema = true)]` on a namespace is silently dropped](#39-hiddenschema--true-on-a-namespace-is-silently-dropped) | Minor | `bug39.cs` |
-| 40 | [Global and namespace options are duplicated into every command's `parameters`](#40-global-and-namespace-options-are-duplicated-into-every-commands-parameters) | Design | `bug40.cs` |
+| 40 | [Global and namespace options are duplicated into every command's `parameters`](#40-global-and-namespace-options-are-duplicated-into-every-commands-parameters) | Wrong result | `bug40.cs` |
 | 41 | [A committed `--flag=value` breaks bash completion](#41-a-committed---flagvalue-breaks-bash-completion) | Minor | `bug41.cs` |
 | 62 | [Completion lists flags inconsistently after a value flag, `--`, an unknown flag or a positional](#62-completion-lists-flags-inconsistently-after-a-value-flag----an-unknown-flag-or-a-positional) | Wrong result | `bug62.cs` |
 | 63 | [Enum collections lose their member names in `__schema`](#63-enum-collections-lose-their-member-names-in-__schema) | Wrong result | `bug63.cs` |
@@ -100,7 +100,9 @@ The attribute docs promise `hidden: true` in the schema, but `CliNamespaceSchema
 
 ### 40. Global and namespace options are duplicated into every command's `parameters`
 
-`hello` lists `verbose`, `severity`, `mode` and `api-url`, which are also in `globalOptions`; `storage list` repeats `prefix`. The spec defines `globalOptions` as "available on every command", so consumers see every flag twice. A design choice, but worth a decision.
+`hello` lists `verbose`, `severity`, `mode` and `api-url`, which are also in `globalOptions`; `storage list` repeats `prefix`. The spec defines `globalOptions` as "available on every command", so consumers see every flag twice.
+
+**Expected (cli-schema v1):** each option listed once, at the level where it's declared. The spec defines root `globalOptions` as "Flags available on every command" ([README.md#L103](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/README.md#L103)), a namespace's `options` as "Flags available on all commands within this namespace" ([#L259](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/README.md#L259)), and a command's `parameters` as "Command-specific flags and positionals" ([#L231](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/README.md#L231)). Its examples never repeat a global option in a command: git's `C`, `no-pager`, `version` and `help` are only in `globalOptions` ([git.cli-schema.json#L62-L93](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/examples/git.cli-schema.json#L62-L93)), not in `commit`'s `parameters` ([#L105-L137](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/examples/git.cli-schema.json#L105-L137)); gh's `repo` and `help` are only in `globalOptions` ([gh.cli-schema.json#L49-L65](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/examples/gh.cli-schema.json#L49-L65)), not in `repo clone` ([#L173-L188](https://github.com/cli-schema/cli-schema/blob/7842ac913f2c5b117fa7e9709514fe688c7bce58/spec/v1/examples/gh.cli-schema.json#L173-L188)).
 
 ### 41. A committed `--flag=value` breaks bash completion
 
