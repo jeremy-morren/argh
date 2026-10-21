@@ -68,3 +68,5 @@ The project includes an `aot-validate` CI job that publishes with Native AOT on 
 ## Generated code target
 
 Generated code targets `netstandard2.0` (no `System.Linq`, no pattern features beyond what that TFM allows). The static extension methods in `ArghTypeBindingExtensions.g.cs` require C# 14 preview (`static extension` members).
+
+Where a newer API is better, such as index and range syntax, the generated code uses it behind `#if` and falls back to a `netstandard2.0` equivalent. The generator also writes `ArghPolyfills.g.cs` with internal `ModuleInitializerAttribute` and `NotNullWhenAttribute` definitions, but only when the project can't already use them. A project that defines its own, as PolySharp-style polyfills do, keeps its own.

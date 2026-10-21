@@ -30,4 +30,13 @@
     <PackageReference Include="Nullean.VsTest.Pretty.TestLogger" PrivateAssets="All" />
   </ItemGroup>
 
+  <!-- netstandard2.0 reference assembly for the polyfill tests, which compile code the way a netstandard2.0 project does. -->
+  <ItemGroup>
+    <PackageReference Include="NETStandard.Library" VersionOverride="2.0.3" GeneratePathProperty="true" ExcludeAssets="all" PrivateAssets="all" />
+    <None Include="$(PkgNETStandard_Library)\build\netstandard2.0\ref\netstandard.dll"
+          Link="refs\netstandard2.0\netstandard.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
 </Project>

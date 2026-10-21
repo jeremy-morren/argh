@@ -73,8 +73,14 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine("\t\t\t\tCompletionWriter.WriteFiltered(__c_next_Root, \"\");");
 		sb.AppendLine("\t\t\t\treturn;");
 		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t\tvar committed = words.Length > 1 ? words[..(words.Length - 1)].ToArray() : Array.Empty<string>();");
+		// Index and Range need System.Index/System.Range (.NET Core 3.0, .NET Standard 2.1); Slice works everywhere.
+		sb.AppendLine("#if NETCOREAPP3_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER");
+		sb.AppendLine("\t\t\tvar committed = words.Length > 1 ? words[..^1].ToArray() : Array.Empty<string>();");
 		sb.AppendLine("\t\t\tvar partial = words[^1];");
+		sb.AppendLine("#else");
+		sb.AppendLine("\t\t\tvar committed = words.Length > 1 ? words.Slice(0, words.Length - 1).ToArray() : Array.Empty<string>();");
+		sb.AppendLine("\t\t\tvar partial = words[words.Length - 1];");
+		sb.AppendLine("#endif");
 		sb.AppendLine("\t\t\tvar pos = 0;");
 		if (globalMembers.Length > 0)
 			sb.AppendLine("\t\t\tpos = ConsumeForComplete_Global(committed, pos, committed.Length);");

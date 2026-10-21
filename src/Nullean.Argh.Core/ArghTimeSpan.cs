@@ -35,7 +35,12 @@ public static class ArghTimeSpan
 				return TimeSpan.TryParse(trimmed, formatProvider, out value);
 		}
 
+		// The span overload (.NET Core 2.1, .NET Standard 2.1) parses the digits without allocating a substring.
+#if NETCOREAPP2_1_OR_GREATER || NETSTANDARD2_1_OR_GREATER
+		var numPart = trimmed.AsSpan(0, trimmed.Length - 1);
+#else
 		var numPart = trimmed.Substring(0, trimmed.Length - 1);
+#endif
 		if (!ulong.TryParse(numPart, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
 			return TimeSpan.TryParse(trimmed, formatProvider, out value);
 
