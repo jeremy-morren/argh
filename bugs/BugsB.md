@@ -6,16 +6,12 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 
 | # | Bug | Severity | Scratch file |
 |---|---|---|---|
-| 10 | [An enum parameter with a non-zero default doesn't compile](#10-an-enum-parameter-with-a-non-zero-default-doesnt-compile) | Build break | `bug10.cs` (build break, `#if BUG10`) |
-| 11 | [`float`, `decimal`, `char`, `NaN` and `Infinity` defaults don't compile](#11-float-decimal-char-nan-and-infinity-defaults-dont-compile) | Build break | `bug11.cs` (build break, `#if BUG11`) |
 | 12 | [Unsupported scalar types are treated as `string` and don't compile](#12-unsupported-scalar-types-are-treated-as-string-and-dont-compile) | Build break | `bug12.cs` (build break, `#if BUG12`) |
 | 14 | [A command and a namespace with the same name don't compile](#14-a-command-and-a-namespace-with-the-same-name-dont-compile) | Build break | `bug14.cs` (build break, `#if BUG14`) |
 | 16 | [A cross-assembly `[AsParameters]` DTO with `required` members doesn't compile](#16-a-cross-assembly-asparameters-dto-with-required-members-doesnt-compile) | Build break | `bug16.cs` + `lib/bug16.cs` (build break, `#if BUG16`) |
-| 17 | [A nullable enum parameter loses its nullability](#17-a-nullable-enum-parameter-loses-its-nullability) | Wrong result | `bug17.cs` |
 | 18 | [Duplicate CLI names created by `<param>` overrides aren't diagnosed](#18-duplicate-cli-names-created-by-param-overrides-arent-diagnosed) | Wrong result | `bug18.cs` |
 | 21 | [Literal command names aren't validated](#21-literal-command-names-arent-validated) | Minor | `bug21.cs` (build break, `#if BUG21`) |
 | 55 | [Generator errors don't halt emission](#55-generator-errors-dont-halt-emission) | Misleading message | `bug55.cs` (build break, `#if BUG55`) |
-| 58 | [`[Range(typeof(decimal), "1", "2")]` doesn't compile](#58-rangetypeofdecimal-1-2-doesnt-compile) | Build break | `bug58.cs` (build break, `#if BUG58`) |
 | 59 | [A namespace name containing `{` or `}` doesn't compile](#59-a-namespace-name-containing--or--doesnt-compile) | Build break | `bug59.cs` (build break, `#if BUG59`) |
 | 60 | [Reserved meta-command names can be mapped as commands](#60-reserved-meta-command-names-can-be-mapped-as-commands) | Wrong result | `bug60.cs` (build break, `#if BUG60`) |
 | 61 | [`[NamespaceSegment]` is silently ignored by `MapNamespace<T>("literal")`](#61-namespacesegment-is-silently-ignored-by-mapnamespacetliteral) | Minor | `bug61.cs` |
@@ -24,6 +20,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 82 | [AGH0003 fires when injected options precede an `[Argument]` parameter](#82-agh0003-fires-when-injected-options-precede-an-argument-parameter) | Wrong diagnostic | `bug82.cs` (build break, `#if BUG82`) |
 | 84 | [Moved to feature F1](#84-moved-to-feature-f1) | See Feature requests |  |
 | 85 | [The incremental generator's cache never hits, so every edit re-runs the whole emit](#85-the-incremental-generators-cache-never-hits-so-every-edit-re-runs-the-whole-emit) | Performance | `bug85.cs` (comment only) |
+| 90 | [A bad `[Range(typeof(T), ...)]` on an options-type member gets no AGH0038, and the check is dropped](#90-a-bad-rangetypeoft--on-an-options-type-member-gets-no-agh0038-and-the-check-is-dropped) | Wrong diagnostic | `bug90.cs` |
 | F1 | [Support the common collection shapes, and lift the `IReadOnlySet<T>` value-type restriction](#f1-support-the-common-collection-shapes) | Feature request | `feat01.cs` (build break, `#if FEAT01`) |
 | F2 | [Dictionary parameters](#f2-dictionary-parameters) | Feature request | `feat02.cs` (comment only) |
 
@@ -35,11 +32,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Each of these was reproduced with a small console project referencing the framework. "Doesn't compile" means the generated `ArghGenerated.g.cs` fails to compile, with no Argh diagnostic to explain why.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `parsable-types` ([#89](https://github.com/nullean/argh/pull/89), which carries #81 to #88), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90), which carries #81 to #89), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -59,36 +56,6 @@ dotnet build bugs -c Release -p:DefineConstants=BUG10
 `lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_RUN_TWICE` (bug77) and `BUGS_CULTURE`. `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
 
 ## Bugs
-
-### 10. An enum parameter with a non-zero default doesn't compile
-
-```csharp
-public enum Level { Low = 0, Mid = 5, High = 10 }
-static void Cmd(Level level = Level.High) { }
-```
-
-Generated: `global::Level level = 10;` → four `CS0266: Cannot implicitly convert type 'int' to 'Level'`. `Level.Low` compiles only because `0` converts. This is open issue [#75](https://github.com/nullean/argh/issues/75).
-
-Cause: `TryGetDefaultLiteral` in `src/Nullean.Argh.Generator/CliParserGenerator.ParameterModel.cs:977-996` formats `ExplicitDefaultValue` (the underlying integer) through `IFormattable`. Options-type properties go through `QualifyOptionsEnumDefaultLiteral`, which looks the member up; method parameters don't.
-
-**Fix:** never emit a bare number for a typed default. An enum default is emitted as its qualified member, `global::Level.High`, or as a cast, `(global::Level)10`, when the value isn't a named member (flags combinations). The same rule applies to every constant the generator writes into typed code (see [bug 11](#11-float-decimal-char-nan-and-infinity-defaults-dont-compile)).
-
-### 11. `float`, `decimal`, `char`, `NaN` and `Infinity` defaults don't compile
-
-| Declared | Generated | Error |
-|---|---|---|
-| `decimal r = 1.5m` | `decimal r = 1.5;` | CS0664 |
-| `float f = 1.5f` | `float f = 1.5;` | CS0664 |
-| `float? f = 2.5f` | `float? f = 2.5;` | CS0266 |
-| `double d = double.NaN` | `double d = NaN;` | CS0103 |
-| `double d = double.PositiveInfinity` | `double d = Infinity;` | CS0103 |
-| `char c = 'x'` | `string? c = 'x';` | CS0029 |
-
-Same cause as [bug 10](#10-an-enum-parameter-with-a-non-zero-default-doesnt-compile): `TryGetDefaultLiteral` drops the type suffix. `long.MinValue`, `1e-7`, and strings with quotes or braces are fine.
-
-Options-type properties have the same problem through a different path: `decimal Money { get; set; } = 1.25m`, `double Ratio = 0.5` and `float Scale = 0.5f` on a global options class generate `decimal money = 1.25;` and fail with CS0664. `TryFormatInitializerOperation` (`src/Nullean.Argh.Generator/CliParserGenerator.SymbolReaders.cs:403`) formats the literal's constant value without its `m`/`f` suffix, and `Emit.Runner.cs:387` emits it.
-
-**Fix:** every constant the generator emits must carry its C# type, either as the literal's suffix or as an explicit type, so the compiler never has to guess: `1.5m` for `decimal`, `1.5f` for `float`, `1.5d` for `double`, `5L`/`5UL`/`5U` for the wide integers, `'x'` (escaped) for `char`, and the named constants `double.NaN`, `double.PositiveInfinity`, `float.NegativeInfinity`, `decimal.MaxValue` and so on, which have no literal form. Where no suffix exists, write the type: `(global::Level)10`, `(byte)200`. Use the `R` round-trip format for floating-point values so the emitted literal equals the declared one. This covers both paths, `TryGetDefaultLiteral` (method parameters) and `TryFormatInitializerOperation` (options properties), and the `[Range]` bounds of [bug 58](#58-rangetypeofdecimal-1-2-doesnt-compile), which are spliced into comparisons the same way.
 
 ### 12. Unsupported scalar types are treated as `string` and don't compile
 
@@ -125,18 +92,6 @@ Generated: `var __rt_default_P07Lib_ExtReq = new global::P07Lib.ExtReq();` → t
 
 Cause: `isCrossAssemblyDefault = defaultValueLiteral is null && DeclaringSyntaxReferences.IsEmpty` (`ParameterModel.cs:316, 604`) ignores `IPropertySymbol.IsRequired`; the emit at `Emit.Runner.cs:636-645` then instantiates the type to read its defaults.
 
-### 17. A nullable enum parameter loses its nullability
-
-```csharp
-static void NEnum(Level? level = null) => Console.WriteLine(level?.ToString() ?? "null");
-```
-
-Running `nenum` with no arguments prints `Low`, not `null`. Generated: `global::Level level = default;`. The schema reports `defaultValue: "default"` ([bug 36](BugsE.md#36-defaultvalue-default-for-nullable-value-types)).
-
-Cause: `IsNullableAnnotated` is set only on the options-property paths (`ParameterModel.cs:349, 410, 639`), never on the method-parameter path (`:253`, `:495`), so `GetCSharpCliType` (`Emit.Runner.cs:797-803`) returns the non-nullable enum because `DefaultValueLiteral` is `"default"`.
-
-**Expected (clap/cobra):** an optional value that isn't given is absent. clap's `Option<Level>` is `None`; Argh should bind `null`.
-
 ### 18. Duplicate CLI names created by `<param>` overrides aren't diagnosed
 
 ```csharp
@@ -163,12 +118,6 @@ Cause: `ReportDuplicateCliNamesAcc` runs on the raw models (`CliParserGenerator.
 Cause: `TryBuildAppEmitModel` (`Analysis.cs:368-470`) reports the diagnostics but never checks their severity; `Execute` (`CliParserGenerator.cs:214-218`) emits nothing only when no commands exist.
 
 **Expected (clap/cobra):** n/a. A generator error should be the only error.
-
-### 58. `[Range(typeof(decimal), "1", "2")]` doesn't compile
-
-Generated: `if (d < typeof(decimal) || d > "1")` → two `CS0019`, and the error message text reads "between typeof(decimal) and 1".
-
-Cause: `Validation.cs:283` reads constructor arguments 0 and 1 regardless of which `RangeAttribute` constructor was used; the `(Type, string, string)` form puts the bounds at 1 and 2. `[Range(1.5, 2.5)]` works on both `int` and `double` parameters.
 
 ### 59. A namespace name containing `{` or `}` doesn't compile
 
@@ -237,6 +186,18 @@ With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` aft
 Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
+
+### 90. A bad `[Range(typeof(T), ...)]` on an options-type member gets no AGH0038, and the check is dropped
+
+```csharp
+public sealed class Bug90NsOpts : GlobalOpts
+{
+    [Range(typeof(decimal), "1", "lots")]
+    public decimal Amount { get; set; } = 1m;
+}
+```
+
+This compiles with no diagnostic, and `Bugs.exe bug90 --amount 999 show` prints `amount:999`: there is no range check at all. On a method parameter, [#90](https://github.com/nullean/argh/pull/90) parses `[Range(typeof(T), "min", "max")]` at build time and reports the new AGH0038 on the bad argument; the options-member path has no diagnostic accumulator, so the error is lost and the check silently dropped. Reported by session `argh-a5`; reproduced in `bugs/bug90.cs`.
 
 ### Checked and refuted
 

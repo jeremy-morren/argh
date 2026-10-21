@@ -25,6 +25,7 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 76 | [A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete](#76-a-bare-number-is-a-timespan-in-days-and-the-compact-format-is-undocumented-and-incomplete) | Misleading | `bug76.cs` |
 | 81 | [Combined short flags are rejected, and the limitation isn't documented](#81-combined-short-flags-are-rejected-and-the-limitation-isnt-documented) | Minor | `bug81.cs` |
 | 83 | [Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position](#83-command-names-are-case-insensitive-but-flags-arent-and-the-unknown--v-message-depends-on-position) | Minor | `bug83.cs` |
+| 89 | [`[Range]` and `[AllowedValues]` on namespace or global options members are shown in help but never checked](#89-range-and-allowedvalues-on-namespace-or-global-options-members-are-shown-in-help-but-never-checked) | Wrong result | `bug89.cs` |
 
 ## Background
 
@@ -34,11 +35,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Bugs 71 to 83: these started as suspicions and were confirmed with a repro app that has a global options class (`int Port = 80`, `long Big`, `double Ratio`, `float? Scale`, `decimal Money`, `DateTime? When`, `TimeSpan? Span`) and commands for each value type, in every binding path: method parameter, `[AsParameters]` DTO, environment variable, positional, and leading or trailing global.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `parsable-types` ([#89](https://github.com/nullean/argh/pull/89), which carries #81 to #88), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90), which carries #81 to #89), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -56,6 +57,13 @@ dotnet build bugs -c Release -p:DefineConstants=BUG10
 ```
 
 `lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_RUN_TWICE` (bug77) and `BUGS_CULTURE`. `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
+
+## DEV NOTE
+
+When working: 
+- Move as much code as possible into core rather than generated code, but take any opportunity to use Spans, Range etc (which have to be done in generated code). The reason is that we want generated code to be compilable on multiple platforms e.g. a project targeting .net472, .net5, .net10 at the same time.
+- Base each branch/PR on previous ones, so that maintainer never has to deal with merge conflicts.
+- Keep looking for any opportunity to simplify code or make a solution more general
 
 ## Bugs
 
@@ -75,6 +83,8 @@ Cause: `EmitOptionsReconstructLocals` in `src/Nullean.Argh.Generator/CliParserGe
 
 **Expected (clap/cobra):** the command line always wins. clap applies environment values after parsing and skips any argument already matched ([parser.rs#L1414-L1422](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L1414-L1422)). cobra has no env support; viper's order is explicit `Set`, then flags, then env, then config, then defaults ([README](https://github.com/spf13/viper/blob/528f741/README.md#L75-L82)), and it reads a flag only when `HasChanged()` ([viper.go#L1222-L1223](https://github.com/spf13/viper/blob/528f741/viper.go#L1222-L1223)).
 
+Dev note: command line wins. Use command line, then env var.
+
 ### 2. `--flag=false` on a plain `bool` sets it to `true`
 
 ```
@@ -90,6 +100,8 @@ EXE -v=false severity-cmd         → verbose set
 Cause: binding tests `flags.ContainsKey(...)` and ignores the stored value. `src/Nullean.Argh.Generator/CliParserGenerator.Emit.Runner.cs:298` and `:301`; `CliParserGenerator.Emit.Parsing.cs:277` and `:404-407`.
 
 **Expected (clap/cobra):** they differ, but neither ignores the value. pflag's `bool` has `NoOptDefVal = "true"` and parses an attached value with `strconv.ParseBool`, so `--verbose=false`, `=0` and `=F` set it to false and `=no` is an error ([bool.go#L20-L24](https://github.com/spf13/pflag/blob/v1.0.10/bool.go#L20-L24), [#L56](https://github.com/spf13/pflag/blob/v1.0.10/bool.go#L56)). clap's `ArgAction::SetTrue` takes no value, so `--verbose=false` is `error: unexpected value 'false' for '--verbose' found; no more were expected`, exit 2 ([parser.rs#L829-L850](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L829-L850)); accepting a value needs `num_args(0..=1)`, and then only `true`/`false` parse.
+
+Dev note: Create separate PR: match clap's `BoolishValueParser` for flags and `FalseyValueParser` for environment variables.
 
 ### 3. A global enum flag, or a namespace option of any special type, after the command accepts any value silently
 
@@ -124,6 +136,8 @@ EXE scalars-ns P show --day-opt nope   → day-opt=none                         
 
 **Expected (clap/cobra):** an error naming the value and the choices, at any position. clap: `error: invalid value 'bogus' for '--severity <SEVERITY>'` followed by `[possible values: trace, information, warning]`, exit 2 ([format.rs#L323](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/error/format.rs#L323)); its `PossibleValuesParser` compares strings only, so no numeric index ([possible_value.rs#L221-L228](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/possible_value.rs#L221-L228)). cobra has no enum type; a custom `pflag.Value` error is wrapped as `invalid argument "bogus" for "--severity" flag: ...` ([errors.go#L108-L117](https://github.com/spf13/pflag/blob/v1.0.10/errors.go#L108-L117)) and printed as `Error: ...`, exit 1.
 
+Dev note: Create a separate PR: handle additional unmatched parameters. Match clap/cobra behavoiur.
+
 ### 4. Extra positional arguments are ignored
 
 ```
@@ -135,6 +149,8 @@ EXE build extra                   → the root default command runs
 Cause: `Emit.Runner.cs:279` adds every non-dash token to `positionals`, and nothing after binding (`:358-397`) checks `positionals.Count` against the declared positionals.
 
 **Expected (clap/cobra):** clap, whose positionals are declared like Argh's, rejects them: `error: unexpected argument 'extra' found`, exit 2 ([parser.rs#L574-L580](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L574-L580)). cobra's default `legacyArgs` errors with `unknown command "extra" for "app"` only on a root that has subcommands; a subcommand or leaf accepts extras unless `cobra.NoArgs` or `ExactArgs` is set ([args.go#L28-L47](https://github.com/spf13/cobra/blob/v1.10.2/args.go#L28-L47)). Follow clap.
+
+Dev note: follow clap: reject unparsed arguments. To work around this, however, ensure the user has a way to accept unmatched parameters (i.e. splat, should be possible to build `ls`). Combine with bug #3.
 
 ### 5. An empty value for a required `FileInfo` or `DirectoryInfo` crashes
 
@@ -151,6 +167,8 @@ Cause: `Emit.Runner.cs:1217-1228` (required `FileInfo`) and `:1260-1271` (requir
 
 **Expected (clap/cobra):** never a stack trace. clap's `PathBufValueParser` rejects an empty value: `a value is required for '--file <FILE>' but none was supplied`, exit 2 ([value_parser.rs#L1022-L1028](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/value_parser.rs#L1022-L1028)). pflag has no path type; its `string` accepts `""`. Follow clap: a parse error, exit 2.
 
+Dev note: Separeate PR: handle invalid `FileInfo`/`DirectoryInfo` input. Parse error on empty, allow whitespace: a file/directory named as a space is a valid (if silly) file. After that, do `new FileInfo()` or `new DirectoryInfo()`, catch any exception thrown and reject with the error message.
+
 ### 6. Boolean environment variables are parsed case-sensitively
 
 ```
@@ -164,7 +182,7 @@ Cause: `Emit.Runner.cs:298` tests `EnvRaw != "0" && EnvRaw != "false"`; the same
 
 **Expected (clap/cobra):** case-insensitive. clap's `FalseyValueParser` and `BoolishValueParser` lowercase the value and match `y`, `yes`, `t`, `true`, `on`, `1` or `n`, `no`, `f`, `false`, `off`, `0` ([str_to_bool.rs#L1-L22](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/util/str_to_bool.rs#L1-L22)); `Falsey` treats an empty value as false and anything unknown as true, `Boolish` rejects unknown values. Go's `strconv.ParseBool` accepts `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`, `false`, `False`.
 
-Dev note: follow stvconv.ParseBool i.e. error if input isn't what we were expecting.
+Dev note: combine with Bug #2.
 
 ### 7. `--` isn't a terminator
 
@@ -185,6 +203,8 @@ Cause: `Emit.Runner.cs:114-119` takes `a.Substring(2)`, gets `""`, and calls `Fa
 
 **Expected (clap/cobra):** both treat `--` as the end of options; everything after it is a positional, including `-5` and `--help` (clap [parser.rs#L130-L146](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L130-L146); pflag [flag.go#L1145-L1150](https://github.com/spf13/pflag/blob/v1.0.10/flag.go#L1145-L1150)). Without `--`, pflag reports `unknown shorthand flag: '5' in -5`, and clap accepts `-5` only for arguments with `allow_negative_numbers` or `allow_hyphen_values` ([#L693-L695](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L693-L695)).
 
+Combine with bug #4. 
+
 ### 8. `bool?` with an unparseable value becomes `true`
 
 ```
@@ -195,6 +215,8 @@ EXE dry-run-cmd --dry-run=no      → dry-run:true
 Cause: `ParseNullableBool` in `Emit.Dispatch.cs:537-539` returns `fromYesSwitch` when `bool.TryParse` fails.
 
 **Expected (clap/cobra):** an error. clap: `error: invalid value 'bogus' for '--dry-run [<DRY_RUN>]'` with `[possible values: true, false]` ([value_parser.rs#L1706-L1715](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/value_parser.rs#L1706-L1715)). pflag: `invalid argument "bogus" for "--dry-run" flag: strconv.ParseBool: parsing "bogus": invalid syntax` ([errors.go#L117](https://github.com/spf13/pflag/blob/v1.0.10/errors.go#L117)).
+
+Combime with #2.
 
 ### 9. A required separator collection accepts zero items
 
@@ -295,23 +317,41 @@ The fixture's `deploy --app-env prod --app-port 1 --app-env dev` gives `deploy:d
 
 **Expected (clap/cobra):** they differ. clap errors with `the argument '--name <NAME>' cannot be used multiple times` unless `ArgAction::Append` or `args_override_self` is set; pflag takes the last value silently. A design decision, but a deliberate one.
 
+Separate PR: Handle repeated scalar flags explicitly. Add RepeatedScalarBehaviour enum and option: `Reject` (default), `AllowIdentical` (if the same value is passed twice, use this) and `TakeLast` (uses the last value provided). This should also be overridable for a specific flag, which takes precedence over global options.
+
 ### 76. A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete
 
 `ArghTimeSpan` (`src/Nullean.Argh.Core/ArghTimeSpan.cs`) accepts `10s`, `90m`, `1d`, `00:30`, `1:2` (1 h 2 min) and `1.00:00:00`, and rejects `1.5h`, `1h30m`, `-5m`, `10ms`, `1w`, `0.5s`, `+5s` and `PT10S`. A bare `10` falls back to `TimeSpan.TryParse`, which reads it as 10 days: `temporal-cmd --duration 10` → 864000 seconds. Help shows only `<timeSpan>`, and `docs/` never mentions the compact form.
 
 **Expected (clap/cobra):** Go's `time.ParseDuration` and Rust's `humantime` both reject a bare number and accept compound values such as `1h30m`, `1.5h`, `-5m` and `10ms`. Reject bare numbers (or document them), accept compound values, and document the format in help.
 
+Separate PR: Implement feature-equivalent to `humantime` or `time.ParseDuration` (whichever is more popular or understood): Expose as a public method `HumanTime.Parse/TryParse(CultureInfo)`, with the same feature set (so that users could use just this part of the library, and document this in documentation). Then use that in parsing TimeSpan.
+
 ### 81. Combined short flags are rejected, and the limitation isn't documented
 
 `-vn foo`, `-nfoo`, `-c1` and `-vv` all fail with `Error: combined short flags (e.g. -abc) are not supported.` followed by the full help. `-n=foo` works. `docs/` never states the limitation.
 
-**Expected (clap/cobra):** both accept `-vn foo` and `-nfoo`. Either support clustering or document that it isn't.
+**Expected (clap/cobra):** both accept `-vn foo` and `-nfoo`. Create this as a separate PR: support combined short flags.
 
 ### 83. Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position
 
 `HELLO` routes to `hello`, but `--NAME` is an unknown option. `-V` before the command gives `unknown short option '-V'`; after it, `missing value for short flag '-V'`, which is misleading.
 
 **Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
+
+Dev note: add StringComparer to parser options, default to StringComparer.Ordinal. Ensure parser options are documented, including the dateonly and timeonly parts.
+
+### 89. `[Range]` and `[AllowedValues]` on namespace or global options members are shown in help but never checked
+
+```
+Bugs.exe bug89 --retries 99 show    → retries:99, exit 0      (the member has [Range(1, 10)])
+Bugs.exe bug89 --mode bogus show    → accepted                (the member has [AllowedValues("fast", "slow")])
+Bugs.exe bug89 show --retries 99    → accepted in either position
+```
+
+`bug89 show --help` prints `[range: 1-10]` and `[allowed: fast|slow]`, so the user is told a rule that isn't enforced. The same attributes on a method parameter are checked. Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug89.cs`.
+
+**Expected (clap/cobra):** clap runs an argument's value parser wherever the argument is defined, including `global(true)` arguments. Validate options members exactly like parameters.
 
 ### By design, after checking
 

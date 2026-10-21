@@ -1,16 +1,16 @@
-// Bug 57 - Enum member docs are never shown, and enum defaults print as [default: 0]
+// Bug 57 - Enum member docs are never shown
 // Group D: help and XML docs
 //
 // Run:      Bugs.exe bug57 --help
-// Actual:   --color <enum>  The colour. [default: 0]
+// Actual:   --color <enum>  The colour. [default: red]
 //                           One of: <red|blue>
-// Expected: [default: red] and the member docs:  One of: <red|blue> (red: Warm red.; blue: Deep blue.)
-//           (clap's ValueEnum shows each variant's doc comment under "Possible values:" and prints the default by name)
+// Expected: the member docs too:  One of: <red|blue> (red: Warm red.; blue: Deep blue.)
+//           (clap's ValueEnum shows each variant's doc comment under "Possible values:")
 //
+// Partly fixed on range-unbounded (#90): the default used to print as [default: 0] and now prints the CLI name.
 // Cause: GetEnumMemberDocs (ParameterModel.cs:887) reads doc.Root?.Element("summary"), which misses the
 //        <member> wrapper, so EnumMemberDocs is always empty. Unwrapping <member> makes same-assembly enums
 //        render; cross-assembly enums also need the metadata-XML fallback.
-// (A non-zero enum default is bug10, a compile break; Red = 0 is used here so the file compiles.)
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;

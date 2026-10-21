@@ -51,12 +51,6 @@ internal static class Registration
 
 		// B. Generator: uncompilable output and missing diagnostics.
 		// The #if'd ones break the build on purpose: dotnet build bugs -p:DefineConstants=BUG10 etc.
-#if BUG10
-		Bug10.Register(app);
-#endif
-#if BUG11
-		Bug11.Register(app);
-#endif
 #if BUG12
 		Bug12.Register(app);
 #endif
@@ -66,7 +60,6 @@ internal static class Registration
 #if BUG16
 		Bug16.Register(app);
 #endif
-		Bug17.Register(app);
 		Bug18.Register(app);
 		Bug19.Register(app);
 		Bug20.Register(app);
@@ -75,9 +68,6 @@ internal static class Registration
 #endif
 #if BUG55
 		Bug55.Register(app);
-#endif
-#if BUG58
-		Bug58.Register(app);
 #endif
 #if BUG59
 		Bug59.Register(app);
@@ -121,7 +111,6 @@ internal static class Registration
 		Bug33.Register(app);
 		Bug34.Register(app);
 		Bug35.Register(app);
-		Bug36.Register(app);
 		Bug37.Register(app);
 #if BUG38
 		Bug38.Register(app);
@@ -148,6 +137,12 @@ internal static class Registration
 		Bug82.Register(app);
 #endif
 		Bug83.Register(app);
+
+		// Found while building range-unbounded (#90)
+		Bug88.Register(app);
+		Bug89.Register(app);
+		Bug90.Register(app);
+		Bug91.Register(app);
 
 		// Feature requests (see the Feature requests section of BugsB.md)
 #if FEAT01

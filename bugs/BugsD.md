@@ -19,9 +19,11 @@ What `--help` prints: rendering of XML doc tags, defaults, layout and colour.
 | 52 | [Trailing spaces in `Usage:` and listing rows](#52-trailing-spaces-in-usage-and-listing-rows) | Cosmetic | `bug52.cs` |
 | 54 | [`<inheritdoc/>` produces no docs and loses the inherited short options](#54-inheritdoc-produces-no-docs-and-loses-the-inherited-short-options) | Wrong output | `bug54.cs` |
 | 56 | [Handlers in a referenced assembly get no documentation at all](#56-handlers-in-a-referenced-assembly-get-no-documentation-at-all) | Wrong output | `bug56.cs` + `lib/bug56.cs` |
-| 57 | [Enum member docs are never shown, and enum defaults print as `[default: 0]`](#57-enum-member-docs-are-never-shown-and-enum-defaults-print-as-default-0) | Wrong output | `bug57.cs` |
+| 57 | [Enum member docs are never shown](#57-enum-member-docs-are-never-shown) | Wrong output | `bug57.cs` |
 | 64 | [A very long command name widens the listing column without a cap](#64-a-very-long-command-name-widens-the-listing-column-without-a-cap) | Cosmetic | `bug64.cs` (build break, `#if BUG64`) |
 | 69 | [Help pads columns by UTF-16 length, so CJK command names misalign](#69-help-pads-columns-by-utf-16-length-so-cjk-command-names-misalign) | Cosmetic | `bug69.cs` |
+| 88 | [`[AllowedValues]` with enum arguments shows C# member names in help](#88-allowedvalues-with-enum-arguments-shows-c-member-names-in-help) | Wrong output | `bug88.cs` |
+| 91 | [Negative range bounds render ambiguously in help: `[range: -5-5]`](#91-negative-range-bounds-render-ambiguously-in-help-range--5-5) | Cosmetic | `bug91.cs` |
 
 ## Background
 
@@ -31,11 +33,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 These were reproduced with a probe project whose handlers use each XML tag; colour output was captured through a ConPTY so the app saw a real console.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `parsable-types` ([#89](https://github.com/nullean/argh/pull/89), which carries #81 to #88), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90), which carries #81 to #89), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -141,7 +143,7 @@ A handler class in a referenced library, with XML docs and a generated doc file,
 
 The compiled-XML path in `Documentation.ParseMethod` is dead for in-source handlers too: the document root is the `<member>` wrapper, so `root.Element("summary")` at `:388` is always null and the trivia path always runs. (Proven by patching `:383` to unwrap `<member>`: no change for in-source handlers, whose trivia path already works.)
 
-### 57. Enum member docs are never shown, and enum defaults print as `[default: 0]`
+### 57. Enum member docs are never shown
 
 The fixtures document their enum members (`TestColor`, `TestPalette` in `tests/Nullean.Argh.Tests/Fixtures/CliTestHandlers.cs`), but help only prints `One of: <red|blue>`. With the enum in the same file, another file, another assembly, or inside `IReadOnlySet<E>`, the result is the same.
 
@@ -151,6 +153,7 @@ A related output bug: an enum parameter with a default prints `[default: 0]` rat
 
 **Expected (clap/cobra):** clap's `ValueEnum` shows each variant's doc comment under `Possible values:` and prints the default as its name, `[default: red]`.
 
+**Partly fixed on `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)):** enum defaults now print the CLI member name (`[default: red]`); the member docs are still never shown.
 ### 64. A very long command name widens the listing column without a cap
 
 A 97-character command name makes the listing column 97 wide at every width tried (redirected 80 columns and a 40, 60 or 80-column console), so every summary wraps into 12-character slivers. No exception and no negative width: `Emit.Dispatch.cs:653, 749` take the longest name, `CliHelpFormatting.cs:137` widens further at runtime, and `:152` clamps the summary column to at least 12.
@@ -170,6 +173,28 @@ Commands:
 Cause: `WriteHelpListNameAndDescription` (`src/Nullean.Argh.Core/Help/CliHelpFormatting.cs:137-141`) pads with `name.Length`.
 
 **Expected (clap/cobra):** clap measures display width, using `unicode-width` when its `unicode` feature is on. cobra pads by byte length and misaligns too.
+
+### 88. `[AllowedValues]` with enum arguments shows C# member names in help
+
+```
+Bugs.exe bug88 --help
+  --level <enum>  ... [allowed: Bugs.Severity.Trace|Bugs.Severity.Warning]       (expected: [allowed: trace|warning])
+```
+
+The hint is built from `TypedConstant.ToCSharpString()`, which for an enum argument is the qualified C# member, not the CLI name that `One of: <...>` already shows. Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug88.cs`.
+
+**Expected (clap/cobra):** clap lists possible values by their CLI names (`[possible values: trace, warning]`). Show the values the user types.
+
+### 91. Negative range bounds render ambiguously in help: `[range: -5-5]`
+
+```
+Bugs.exe bug91 --help
+  --offset <int>  ... [range: -5-5]
+```
+
+The error message is unambiguous (`value must be between -5 and 5`); only the help hint is. Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug91.cs`.
+
+**Expected (clap/cobra):** clap writes ranges in Rust's notation in its range errors (`-5..=5`). Use an unambiguous form such as `[range: -5..5]` or `[range: -5 to 5]`.
 
 ### Checked and refuted
 

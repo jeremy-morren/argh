@@ -9,7 +9,6 @@
 // int rejects 1,000, so the types disagree. +5, " 5 " and (float/double) 1e3, NaN, Infinity are accepted too.
 // Cause: NumberStyles.Float | NumberStyles.AllowThousands at Emit.Runner.cs:1370, 1379 and :1498-1506;
 //        NumberStyles.Number for decimal at :1388; Emit.Parsing.cs:448, 452, 454, 456.
-// (Fractional defaults don't compile, bug11, so the parameters are nullable here.)
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;
