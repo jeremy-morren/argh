@@ -140,9 +140,8 @@ internal static class Registration
 
 		// Found while building range-unbounded (#90)
 		Bug88.Register(app);
-		Bug89.Register(app);
-		Bug90.Register(app);
 		Bug91.Register(app);
+		Bug92.Register(app);
 
 		// Feature requests (see the Feature requests section of BugsB.md)
 #if FEAT01

@@ -25,7 +25,7 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 76 | [A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete](#76-a-bare-number-is-a-timespan-in-days-and-the-compact-format-is-undocumented-and-incomplete) | Misleading | `bug76.cs` |
 | 81 | [Combined short flags are rejected, and the limitation isn't documented](#81-combined-short-flags-are-rejected-and-the-limitation-isnt-documented) | Minor | `bug81.cs` |
 | 83 | [Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position](#83-command-names-are-case-insensitive-but-flags-arent-and-the-unknown--v-message-depends-on-position) | Minor | `bug83.cs` |
-| 89 | [`[Range]` and `[AllowedValues]` on namespace or global options members are shown in help but never checked](#89-range-and-allowedvalues-on-namespace-or-global-options-members-are-shown-in-help-but-never-checked) | Wrong result | `bug89.cs` |
+| 92 | [A global option written after the namespace segment is silently dropped](#92-a-global-option-written-after-the-namespace-segment-is-silently-dropped) | Wrong result | `bug92.cs` |
 
 ## Background
 
@@ -35,7 +35,7 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Bugs 71 to 83: these started as suspicions and were confirmed with a repro app that has a global options class (`int Port = 80`, `long Big`, `double Ratio`, `float? Scale`, `decimal Money`, `DateTime? When`, `TimeSpan? Span`) and commands for each value type, in every binding path: method parameter, `[AsParameters]` DTO, environment variable, positional, and leading or trailing global.
 
@@ -302,7 +302,7 @@ Cause: `Emit.Runner.cs:1284` has an `IsNullOrWhiteSpace` guard for the optional 
 
 **Expected (clap/cobra):** clap's `PathBufValueParser` rejects an empty value, and a `value_parser!(Url)` rejects a non-URL. Reject empty and whitespace; decide whether relative URIs are intended.
 
-Dev note: separate pr: add UriOptionsAttribute(UriKind). If not provided use UriKind.Absolute. Reject empty string.
+Dev note: Combine with #5. add UriOptionsAttribute(UriKind). If not provided use UriKind.Absolute. Reject empty string.
 
 ### 74. `--help` anywhere in the arguments wins
 
@@ -346,7 +346,9 @@ Separate PR: Implement feature-equivalent to `humantime` or `time.ParseDuration`
 
 `-vn foo`, `-nfoo`, `-c1` and `-vv` all fail with `Error: combined short flags (e.g. -abc) are not supported.` followed by the full help. `-n=foo` works. `docs/` never states the limitation.
 
-**Expected (clap/cobra):** both accept `-vn foo` and `-nfoo`. Create this as a separate PR: support combined short flags.
+**Expected (clap/cobra):** both accept `-vn foo` and `-nfoo`. 
+
+Dev note: support combined short flags, PR combine with #75.
 
 ### 83. Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position
 
@@ -354,19 +356,24 @@ Separate PR: Implement feature-equivalent to `humantime` or `time.ParseDuration`
 
 **Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
 
-Dev note: add StringComparer to parser options, default to StringComparer.Ordinal. Ensure parser options are documented, including the dateonly and timeonly parts.
+Dev note: separate PR: add CommandStringComparer (default to OrdinalIgnoreCase) and ArgumentStringComparer (default to Ordinal) to parser options. These should be used for all matching. Analyzer warning if 2 commands are defined that are case-insensitive equal. Ensure parser options are documented in docs/, including the dateonly and timeonly parts.
 
-### 89. `[Range]` and `[AllowedValues]` on namespace or global options members are shown in help but never checked
+### 92. A global option written after the namespace segment is silently dropped
 
 ```
-Bugs.exe bug89 --retries 99 show    → retries:99, exit 0      (the member has [Range(1, 10)])
-Bugs.exe bug89 --mode bogus show    → accepted                (the member has [AllowedValues("fast", "slow")])
-Bugs.exe bug89 show --retries 99    → accepted in either position
+Bugs.exe bug92 --port 5 show              → port:80, exit 0                    (expected port:5)
+Bugs.exe bug92 --severity warning show    → severity:Information, exit 0       (expected Warning)
+Bugs.exe --port 5 bug92 show              → port:5
+Bugs.exe bug92 show --port 5              → port:5
+EXE numeric-ns --zone EU show             → runs, zone none, exit 0            (Zone has [AllowedValues("eu", "us")])
+EXE --zone EU numeric-ns show             → Error: --zone: value must be one of: eu, us.   exit 2
 ```
 
-`bug89 show --help` prints `[range: 1-10]` and `[allowed: fast|slow]`, so the user is told a rule that isn't enforced. The same attributes on a method parameter are checked. Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug89.cs`.
+`Port`, `Severity` and the fixture's `Zone` are members of the global options type, which the namespace options type inherits. Written between the namespace and the command, the value is parsed (`bug92 --severity bogus show` is rejected) but never reaches the handler, so validation attributes on it are skipped as well. Members declared on the namespace options type itself work in that position (`bug92 --region eu show`). Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug92.cs`.
 
-**Expected (clap/cobra):** clap runs an argument's value parser wherever the argument is defined, including `global(true)` arguments. Validate options members exactly like parameters.
+Cause: the namespace pre-parse stores the value only on the namespace options' static (`s_opts_Bugs_Bug92NsOpts.Port`), but the command runner takes each member from the first static in the options chain that declares it (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:371-381`), which for an inherited global member is the global static (`s_opts_Bugs_GlobalOpts.Port`). The runner should read the static that saw the flag.
+
+**Expected (clap/cobra):** a global argument can be used at any level: clap's [`Arg::global`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/arg.rs#L877-L885) ("it doesn't matter where the user *uses* the global argument"), and cobra adds every parent's persistent flags to each subcommand's flag set ([`mergePersistentFlags`](https://github.com/spf13/cobra/blob/v1.10.2/command.go#L1896-L1923)). Bind `bug92 --port 5 show` exactly like `--port 5 bug92 show`.
 
 ### By design, after checking
 
