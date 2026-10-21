@@ -70,7 +70,6 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 68 | A non-constant initializer on an options property doesn't make it optional | `bug68.cs` |
 | 70 | A positional `bool` parameter doesn't compile | `bug70.cs` (build break, `#if BUG70`) |
 | 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | `bug82.cs` (build break, `#if BUG82`) |
-| 84 | `HashSet<T>` parameters aren't recognised as collections and don't compile | `bug84.cs` (build break, `#if BUG84`) |
 | 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | `bug85.cs` (comment only) |
 
 ### Issue C: Runtime, dispatch and hosting
@@ -231,7 +230,7 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 81 | Combined short flags (`-vn foo`, `-nfoo`) are rejected, and the limitation isn't documented | Parsing | Minor |
 | 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | Generator | Wrong diagnostic |
 | 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | Parsing | Minor |
-| 84 | `HashSet<T>` parameters aren't recognised as collections and don't compile | Generator | Build break |
+| 84 | Moved to feature F1: `HashSet<T>` and the other collection shapes | Generator | See Feature requests |
 | 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | Generator | Performance |
 | 86 | The bash completion script needs bash 4 (`mapfile`), so macOS's system bash can't complete anything | Completion | Wrong result |
 | 87 | On Windows every completion candidate ends in `\r`, so Git Bash never matches one | Completion | Wrong result |
@@ -423,6 +422,7 @@ Options-type properties have the same problem through a different path: `decimal
 A parameter of type `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`, `Guid`, or a user struct implementing `IParsable<T>` without `[ArgumentParser]`, produces dozens of CS0029/CS1503 errors, for example `string? b = 18446744073709551615;`.
 
 Cause: `GetSimpleTypeName` in `ParameterModel.cs:910-951` falls through to `return "string"`, and `ClassifyScalar` (`:824`) has no "unsupported type" diagnostic.
+Unrecognised collection shapes (`IList<T>`, `HashSet<T>`, `ImmutableArray<T>`, dictionaries, ...) fall through the same way and fail with CS1503; supporting them is feature F1/F2 below, but the missing diagnostic is this bug.
 
 **Expected:** either support the type or report an Argh diagnostic naming the parameter and type. clap's derive macro fails at compile time with a message naming the type.
 
@@ -1020,15 +1020,9 @@ Session `argh-a5` hit the same check from the other side: `[Argument]` parameter
 
 **Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
 
-### 84. `HashSet<T>` parameters aren't recognised as collections and don't compile
+### 84. Moved to feature F1
 
-```csharp
-static void Run(HashSet<string> tags) { }
-```
-
-Generated code fails with `CS1503: Argument 1: cannot convert from 'string' to 'System.Collections.Generic.HashSet<string>'`, with no Argh diagnostic. The generator classifies `IEnumerable<T>`, `IReadOnlyList<T>`, `IReadOnlySet<T>`, `List<T>` and arrays as collections (`src/Nullean.Argh.Generator/CliParserGenerator.ParameterModel.cs:186` and around); `HashSet<T>` falls through to the scalar path and then to `string` (bug 12). Reported by session `argh-a5`; reproduced in `bugs/bug84.cs`.
-
-**Expected (clap/cobra):** clap binds any `FromIterator` collection (`Vec`, `HashSet`, `BTreeSet`) for a multi-value argument. Support `HashSet<T>` and `ISet<T>`, or report a diagnostic for unsupported collection types (same answer as bug 12).
+`HashSet<T>` and the other unrecognised collection shapes are recorded under Feature requests, F1. The number stays reserved.
 
 ### 85. The incremental generator's cache never hits, so every edit re-runs the whole emit
 
@@ -1064,3 +1058,39 @@ Checked and refuted:
 
 - Explicit option names, aliases and command names containing `{`, `}`, `"` or `\` compile, render and parse correctly. `Escape(left)` at `Emit.Help.cs:167, 555, 585` sits inside a nested plain string literal, so the braces are inert. Only namespace names are affected (bug 59).
 - `[Hidden]` items are excluded from listings but `hidden-cmd --help` still prints; cobra and clap behave the same for hidden subcommands, so this is intended.
+
+## Feature requests
+
+Not defects, but gaps found while bug hunting that the user wants recorded. Confirmed on `main` at `45954b6` by session `argh-a5` with a probe app (one command per type, built and run with `c --v 1 --v 2`) and by the `feat01.cs` build here.
+
+| # | Feature | Scratch file |
+|---|---|---|
+| F1 | Support the common collection shapes, and lift the `IReadOnlySet<T>` value-type restriction | `feat01.cs` (build break, `#if FEAT01`) |
+| F2 | Dictionary parameters | `feat02.cs` (comment only) |
+
+### F1. Support the common collection shapes
+
+Supported today (build, and bind `1,2` correctly): `T[]`, `IEnumerable<T>`, `IReadOnlyList<T>`, `List<T>`, `IReadOnlySet<T>` with value-type or enum elements.
+
+Not supported:
+
+- `IReadOnlySet<string>`: rejected with `AGH0028: IReadOnlySet<T> only supports value-type or enum element types; 'string' is not allowed` (`src/Nullean.Argh.Generator/CliParserGenerator.Diagnostics.cs:245-246`).
+- `IList<T>`, `ICollection<T>`, `IReadOnlyCollection<T>`, `ISet<T>`, `HashSet<T>` (formerly bug 84), `ImmutableArray<T>`, `ImmutableList<T>`: fall through to the scalar path and fail with `CS1503: cannot convert from 'string' to '<type>'`, with no Argh diagnostic (that missing diagnostic is bug 12).
+
+The recognised generic definitions are listed at `src/Nullean.Argh.Generator/CliParserGenerator.SymbolReaders.cs:679-682`; arrays come through `IArrayTypeSymbol` in `ParameterModel.cs`.
+
+Wanted: `IReadOnlyList`, `IList`, `IReadOnlyCollection`, `ICollection`, `IReadOnlySet`, `ISet`, `List`, `HashSet`, `ImmutableArray` and `ImmutableList`, with any supported element type. Each must also work with `[CollectionSyntax(Separator = ...)]` and the repeatable form, completion of enum element values, `__schema` (`array` + `elementType`), default values, nullable collections, and `[AsParameters]`/options-class members as well as method parameters.
+
+**Prior art (clap/cobra):** clap binds a multi-value argument into any `FromIterator` collection (`Vec`, `HashSet`, `BTreeSet`); pflag offers `StringSlice`, `IntSlice`, `StringArray` and friends.
+
+### F2. Dictionary parameters
+
+`IReadOnlyDictionary<string, int>`, `Dictionary<string, int>` and `ImmutableDictionary<string, int>` all fail like F1's types (CS1503, no diagnostic). Supporting them needs:
+
+- a CLI syntax: repeated `--label key=value`, and a separator form `--label a=1,b=2`;
+- key and value parsing for every supported scalar type, including enums and `[ArgumentParser]` types;
+- a duplicate-key policy: error, last wins, or merge;
+- help text (`--label <key=value>`), completion of enum keys and values, defaults, nullable, `[AsParameters]` members;
+- a `__schema` shape: cli-schema v1 has no map type, so an array of strings with a pattern, or a vendor extension.
+
+**Prior art (clap/cobra):** pflag has `StringToString` and `StringToInt` (`--labels a=1,b=2`, repeatable); clap does it with a custom value parser that splits on `=`.
