@@ -310,14 +310,6 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
-	private static readonly DiagnosticDescriptor EnvOnNonNullableBool = new(
-		"AGH0035",
-		"[Env] on non-nullable bool cannot be overridden from CLI",
-		"'{0}': [Env] on a plain bool flag means the env var can enable it but CLI has no way to override it back to false. Use bool? to generate --{1} / --no-{1} and allow full CLI override.",
-		"Argh",
-		DiagnosticSeverity.Warning,
-		isEnabledByDefault: true);
-
 	private sealed class DiagnosticAccumulator
 	{
 		private List<PendingDiagnostic>? _diagnostics;
@@ -366,7 +358,6 @@ public sealed partial class CliParserGenerator
 		"AGH0030" => PathExistenceAttributesConflict,
 		"AGH0032" => FilesystemPathAttributeTypeMismatch,
 		"AGH0033" => DuplicateShortOption,
-		"AGH0035" => EnvOnNonNullableBool,
 		"AGH0038" => InvalidRangeBounds,
 		_ => throw new ArgumentException($"Unknown diagnostic id: {id}")
 	};

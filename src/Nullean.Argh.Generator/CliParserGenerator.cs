@@ -50,6 +50,7 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 		{
 			case "UseCliDescription":
 			case "UseSchemaVersion":
+			case "UseEnvironmentPrefix":
 			case "DocumentEnvironmentVariables":
 			case "MapNamespace":
 			case "MapRoot":

@@ -1,6 +1,6 @@
 # Flags (named options)
 
-Parameters without `[Argument]` become `--kebab-case` long flags. A `bool` flag defaults to `false`; pass `--flag` to set it.
+Parameters without `[Argument]` become `--kebab-case` long flags. A `bool` flag defaults to `false` (or the parameter's default); pass `--flag` to set it, or `--flag=<value>` to give its value.
 
 ```csharp
 public static Task<int> Build(string outputDir, bool release = false) { … }
@@ -61,6 +61,18 @@ public static Task<int> Deploy(string env, bool? dryRun = null) { … }
 // myapp deploy staging --dry-run     → dryRun is true
 // myapp deploy staging --no-dry-run  → dryRun is false
 ```
+
+## Boolean values
+
+A boolean value on the command line, such as `--flag=<value>`, `-f=<value>` or a `bool` argument, is one of these, ignoring case. Anything else is an error.
+
+| `true` | `false` |
+|---|---|
+| `y`, `yes`, `t`, `true`, `on`, `1` | `n`, `no`, `f`, `false`, `off`, `0` |
+
+`--no-flag` takes no value, like git: `--no-flag=true`, `--no-flag=false` and `--no-flag=` are errors. A boolean environment variable (`[Env]`) is `false` when it's one of the `false` spellings and `true` for anything else; an empty one is unset, or `false` with `TreatEmptyAsUnset = false`. These are clap's `BoolishValueParser` and `FalseyValueParser`.
+
+The command line wins over the environment variable, wherever the flag is given; the environment variable wins over the default.
 
 ## Required vs optional
 

@@ -20,7 +20,7 @@ public sealed partial class CliParserGenerator
 	{
 		if (!string.IsNullOrEmpty(p.EnvVarName))
 			return p.EnvVarName;
-		if (!string.IsNullOrEmpty(environmentPrefix) && p.Kind == ParameterKind.Flag && p.Special != BoolSpecialKind.NullableBool)
+		if (!string.IsNullOrEmpty(environmentPrefix) && p.Kind == ParameterKind.Flag)
 		{
 			// "--my-flag" → strip leading "--", replace "-" with "_", uppercase, prepend prefix
 			var flagName = p.CliLongName.TrimStart('-').Replace('-', '_').ToUpperInvariant();
@@ -146,7 +146,8 @@ public sealed partial class CliParserGenerator
 						w.Line("var flagName = CanonFlagName(a.Substring(2));");
 						using (w.If("IsBoolSwitchName(flagName)"))
 						{
-							w.Line("flags[flagName] = IsBoolSwitchNoName(flagName) ? null : \"true\";");
+							// A bare switch has no value, unlike --flag=true: --no-flag=true is an error.
+							w.Line("flags[flagName] = null;");
 							w.Line("i++;");
 						}
 
@@ -278,23 +279,11 @@ public sealed partial class CliParserGenerator
 				if (p.Kind is ParameterKind.Injected or ParameterKind.OptionsInjected or ParameterKind.Positional)
 					continue;
 
-				if (p.Special == BoolSpecialKind.Bool)
+				// The command line wins, then the environment variable, then the default the local starts with.
+				if (p.Special != BoolSpecialKind.None)
 				{
-					if (ComputeEffectiveEnvVarName(p, environmentPrefix) is { } boolEnvVar)
-					{
-						var raw = p.LocalVarName + "EnvRaw";
-						w.Line($"var {raw} = global::System.Environment.GetEnvironmentVariable({Quote(boolEnvVar)});");
-						w.Line($"var {p.LocalVarName} = flags.ContainsKey({Quote(p.CliLongName)}) || ({raw} != null && {raw} != \"0\" && {raw} != \"false\" && {raw}.Length > 0);");
-					}
-					else
-						w.Line($"var {p.LocalVarName} = flags.ContainsKey({Quote(p.CliLongName)});");
-					continue;
-				}
-
-				if (p.Special == BoolSpecialKind.NullableBool)
-				{
-					w.Line($"bool? {p.LocalVarName} = null;");
-					EmitNullableBoolFromFlags(w, p, p.LocalVarName, "_yesVal", "_noVal");
+					var boolEnvVar = ComputeEffectiveEnvVarName(p, environmentPrefix);
+					EmitBoolFlagBinding(w, p, p.LocalVarName, failure, boolEnvVar is null ? null : BoolFromEnvironmentCall(p, boolEnvVar));
 					continue;
 				}
 
@@ -389,16 +378,18 @@ public sealed partial class CliParserGenerator
 		w.Line();
 	}
 
-	/// <summary>A <c>bool?</c> set from the <c>--name</c> and <c>--no-name</c> spellings of a nullable bool flag.</summary>
-	private static void EmitNullableBoolFromFlags(CodeWriter w, ParameterModel p, string target, string yesSuffix, string noSuffix)
-	{
-		w.If($"flags.TryGetValue({Quote(p.CliLongName)}, out var {target}{yesSuffix})", $"{target} = ParseNullableBool({target}{yesSuffix}, true);");
-		w.If($"flags.TryGetValue(\"no-{Escape(p.CliLongName)}\", out var {target}{noSuffix})", $"{target} = ParseNullableBool({target}{noSuffix}, false);");
-	}
-
-	/// <summary>Reads the flag's environment variable into <paramref name="text"/> when the command line left it out.</summary>
+	/// <summary>
+	/// Reads the flag's environment variable into <paramref name="text"/> when the command line left it out. A bool's
+	/// variable is read as clap's <c>FalseyValueParser</c> reads it and becomes <c>"true"</c> or <c>"false"</c>.
+	/// </summary>
 	private static void EmitEnvironmentFallback(CodeWriter w, ParameterModel p, string envVar, string text, string envValue)
 	{
+		if (p.Special != BoolSpecialKind.None)
+		{
+			w.Line($"{text} = {ArghBoolBindingFq}.EnvironmentText({Quote(envVar)}, {BoolLiteral(p.EnvTreatEmptyAsUnset)});");
+			return;
+		}
+
 		w.Line($"var {envValue} = global::System.Environment.GetEnvironmentVariable({Quote(envVar)});");
 		w.Line(p.EnvTreatEmptyAsUnset
 			? $"{text} = ({envValue} != null && {envValue}.Length > 0) ? {envValue} : null;"
@@ -622,9 +613,6 @@ public sealed partial class CliParserGenerator
 			if (p.Kind == ParameterKind.Injected || p.Kind == ParameterKind.OptionsInjected)
 				continue;
 
-			if (p.Special == BoolSpecialKind.Bool || p.Special == BoolSpecialKind.NullableBool)
-				continue;
-
 			if (p.IsCollection && p.Kind == ParameterKind.Flag)
 			{
 				var accType = p.CollectionTargetIsReadOnlySet
@@ -838,10 +826,9 @@ public sealed partial class CliParserGenerator
 	private static bool IsEmittedFlagLike(ParameterKind kind) =>
 		kind is ParameterKind.Flag or ParameterKind.OptionsInjected;
 
-	private static void EmitBoolSwitchNames(CodeWriter w, CommandModel cmd, bool suppressNoNameHelper = false)
+	private static void EmitBoolSwitchNames(CodeWriter w, CommandModel cmd)
 	{
 		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		var noNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var p in cmd.Parameters)
 		{
 			if (!IsEmittedFlagLike(p.Kind))
@@ -849,15 +836,10 @@ public sealed partial class CliParserGenerator
 			if (p.Special is BoolSpecialKind.Bool or BoolSpecialKind.NullableBool)
 				names.Add(p.CliLongName);
 			if (p.Special == BoolSpecialKind.NullableBool)
-			{
 				names.Add("no-" + p.CliLongName);
-				noNames.Add("no-" + p.CliLongName);
-			}
 		}
 
 		EmitNamePredicate(w, "bool IsBoolSwitchName(string name)", names);
-		if (!suppressNoNameHelper)
-			EmitNamePredicate(w, "bool IsBoolSwitchNoName(string name)", noNames);
 	}
 
 	private static void EmitKnownNonBoolFlagNames(CodeWriter w, CommandModel cmd)
@@ -920,7 +902,7 @@ public sealed partial class CliParserGenerator
 				continue;
 			// IsRepeatableCollection only applies when multiFlags is available in the emitted context.
 			var isRepeatableCollection = multiFlagsAvailable && p.IsCollection && p.CollectionSeparator is null;
-			shortCases.Add((ch, p.CliLongName, p.Special == BoolSpecialKind.Bool, isRepeatableCollection));
+			shortCases.Add((ch, p.CliLongName, p.Special != BoolSpecialKind.None, isRepeatableCollection));
 		}
 
 		void UnknownShortOption()
@@ -1025,7 +1007,36 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>The error for a value that doesn't parse as <paramref name="what"/>, quoting the raw text.</summary>
 	private static string InvalidValueError(string what, ParameterModel p, string rawExpr) =>
-		$"Console.Error.WriteLine($\"Error: invalid {what} for --{Escape(p.CliLongName)}: '{{{rawExpr}}}'.\");";
+		$"Console.Error.WriteLine($\"Error: invalid {what} for {ErrorArgName(p)}: '{{{rawExpr}}}'.\");";
+
+	private const string ArghBoolBindingFq = "global::Nullean.Argh.Runtime.ArghBoolBinding";
+
+	/// <summary>A command-line boolean parse (<c>ArghBool.TryParseBoolish</c>), the same for flags, positionals and elements.</summary>
+	private static string BoolishParseCall(string rawExpr, string outArg) =>
+		$"global::Nullean.Argh.ArghBool.TryParseBoolish({rawExpr}, {outArg})";
+
+	private static string BoolInvalidValueError(ParameterModel p, string rawExpr) =>
+		$"Console.Error.WriteLine({ArghBoolBindingFq}.InvalidValueError(\"{ErrorArgName(p)}\", {rawExpr}));";
+
+	/// <summary>A bool's environment variable read as clap's <c>FalseyValueParser</c> reads it: a <c>bool?</c>, null when unset.</summary>
+	private static string BoolFromEnvironmentCall(ParameterModel p, string envVar) =>
+		$"{ArghBoolBindingFq}.FromEnvironment({Quote(envVar)}, {BoolLiteral(p.EnvTreatEmptyAsUnset)})";
+
+	/// <summary>
+	/// Binds a <c>bool</c> or <c>bool?</c> flag into <paramref name="target"/>, which already holds the value to keep when
+	/// the flag isn't on the command line: <c>--name[=value]</c> (and <c>--no-name[=value]</c> for <c>bool?</c>) wins, then
+	/// <paramref name="fallback"/> when given (such as an environment variable, itself a <c>bool?</c>). A value that isn't
+	/// a boolean fails.
+	/// </summary>
+	private static void EmitBoolFlagBinding(CodeWriter w, ParameterModel p, string target, ParseFailure failure, string? fallback = null)
+	{
+		var cli = target + "Cli";
+		var error = target + "Err";
+		var negatable = BoolLiteral(p.Special == BoolSpecialKind.NullableBool);
+		EmitParseError(w, $"!{ArghBoolBindingFq}.TryGetFlag(flags, {Quote(p.CliLongName)}, {negatable}, out var {cli}, out var {error})",
+			$"Console.Error.WriteLine({error});", p, failure);
+		w.Line(fallback is null ? $"{target} = {cli} ?? {target};" : $"{target} = {cli} ?? {fallback} ?? {target};");
+	}
 
 	private static void EmitEnumParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
@@ -1121,7 +1132,7 @@ public sealed partial class CliParserGenerator
 		var parsed = ParamTemp(p, "pv");
 		w.Line($"{CustomParserLocalType(p)} {parser} = new {p.ParserTypeFq}();");
 		EmitParseError(w, $"!{parser}.TryParse({rawExpr}!, {ParserOptionsExpr}, out var {parsed})",
-			$"Console.Error.WriteLine($\"Error: invalid value for --{Escape(p.CliLongName)}.\");", p, failure);
+			$"Console.Error.WriteLine($\"Error: invalid value for {ErrorArgName(p)}.\");", p, failure);
 		// A T? value parsed through IArgumentParser<T> is converted, so a var target is T?.
 		EmitAssign(w, outVarKeyword, targetVar, IsLiftedCustomParser(p) ? $"({p.CustomValueTypeFq}){parsed}" : parsed);
 	}
@@ -1153,12 +1164,12 @@ public sealed partial class CliParserGenerator
 	private static void EmitPrimitiveScalarParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
 		var type = p.TypeName;
-		if (p.Special != BoolSpecialKind.None)
+		// A bool positional or collection element: the same spellings as a bool flag's value.
+		if (p.Special != BoolSpecialKind.None || type == "bool")
 		{
-			if (outVarKeyword)
-				w.Line($"var {targetVar} = {rawExpr};");
-			else
-				w.Line($"{targetVar} = {rawExpr}; // fallback");
+			var tmp = ParamTemp(p, "bool");
+			EmitParseError(w, $"!{BoolishParseCall(rawExpr, "out var " + tmp)}", BoolInvalidValueError(p, rawExpr), p, failure);
+			EmitAssign(w, outVarKeyword, targetVar, tmp);
 			return;
 		}
 
@@ -1180,13 +1191,6 @@ public sealed partial class CliParserGenerator
 			var tmp = ParamTemp(p, tempSuffix);
 			EmitParseError(w, $"!{ScalarTryParseCall(type, rawExpr, "out var " + tmp)}", InvalidValueError(type, p, rawExpr), p, failure);
 			EmitAssign(w, outVarKeyword, targetVar, tmp);
-			return;
-		}
-
-		if (type == "bool")
-		{
-			var tmp = ParamTemp(p, "bool");
-			EmitAssign(w, outVarKeyword, targetVar, $"bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true");
 			return;
 		}
 

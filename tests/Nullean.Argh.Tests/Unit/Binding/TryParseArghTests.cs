@@ -37,6 +37,24 @@ public class TryParseArghTests
 		o.Quota.Should().Be(2);
 	}
 
+	[Theory]
+	[InlineData(new string[0], false, true)]
+	[InlineData(new[] { "--verbose=yes", "--progress=OFF" }, true, false)]
+	[InlineData(new[] { "-v=0", "--progress" }, false, true)]
+	public void TryParseArgh_on_options_type_reads_bool_values(string[] args, bool verbose, bool progress)
+	{
+		TestGlobalCliOptions.TryParseArgh(args, out var o).Should().BeTrue();
+		o!.Verbose.Should().Be(verbose);
+		o.Progress.Should().Be(progress);
+	}
+
+	[Theory]
+	[InlineData("--verbose=maybe")]
+	[InlineData("--progress=")]
+	[InlineData("-v=2")]
+	public void TryParseArgh_on_options_type_rejects_a_bool_value_that_isnt_a_boolean(string arg) =>
+		TestGlobalCliOptions.TryParseArgh([arg], out _).Should().BeFalse();
+
 	[Fact]
 	public void TryParseArgh_static_on_options_type_binds_global_short_bool_without_value()
 	{

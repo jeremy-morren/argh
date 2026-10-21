@@ -531,6 +531,58 @@ internal static class EnvBindingHandlers
 		Console.Out.WriteLine($"env-ns-key:{o.Key}");
 }
 
+/// <summary><c>bool</c> and <c>bool?</c> members of an <c>[AsParameters]</c> DTO.</summary>
+/// <param name="Fast">Plain bool member.</param>
+/// <param name="Maybe">Nullable bool member.</param>
+/// <param name="Lit">Bool member that starts on, with an env fallback.</param>
+internal sealed record BoolArgs(bool Fast = false, bool? Maybe = null, [Env("ARGH_TEST_DTO_LIT")] bool Lit = true);
+
+/// <summary>Handlers for boolean value and environment variable tests.</summary>
+internal static class BoolBindingHandlers
+{
+	private static string Show(bool? value) => value?.ToString() ?? "null";
+
+	/// <summary>Echo every kind of bool flag.</summary>
+	/// <param name="force">-f, Plain bool.</param>
+	/// <param name="color">Plain bool that starts on.</param>
+	/// <param name="dryRun">-d, Nullable bool.</param>
+	/// <param name="fromEnv">Plain bool with an env fallback.</param>
+	/// <param name="maybe">Nullable bool with an env fallback.</param>
+	[NoOptionsInjection]
+	public static void BoolFlags(bool force = false, bool color = true, bool? dryRun = null,
+		[Env("ARGH_TEST_BOOL")] bool fromEnv = false, [Env("ARGH_TEST_NBOOL")] bool? maybe = null) =>
+		Console.Out.WriteLine($"force:{force} color:{color} dry-run:{Show(dryRun)} from-env:{fromEnv} maybe:{Show(maybe)}");
+
+	/// <summary>Echo bool positional arguments.</summary>
+	/// <param name="first">Plain bool argument.</param>
+	/// <param name="second">Nullable bool argument with an env fallback.</param>
+	[NoOptionsInjection]
+	public static void BoolArgs([Argument] bool first, [Argument, Env("ARGH_TEST_BOOL_ARG")] bool? second = null) =>
+		Console.Out.WriteLine($"first:{first} second:{Show(second)}");
+
+	/// <summary>Echo a repeatable bool collection.</summary>
+	/// <param name="bits">Bool values.</param>
+	[NoOptionsInjection]
+	public static void BoolList(bool[] bits) =>
+		Console.Out.WriteLine($"bits:{string.Join(",", bits)}");
+
+	/// <summary>Echo bool members of an [AsParameters] DTO.</summary>
+	/// <param name="args">The DTO.</param>
+	[NoOptionsInjection]
+	public static void BoolDto([AsParameters] BoolArgs args) =>
+		Console.Out.WriteLine($"fast:{args.Fast} maybe:{Show(args.Maybe)} lit:{args.Lit}");
+
+	/// <summary>Echo the bool global option.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	public static void BoolGlobal(TestGlobalCliOptions g) =>
+		Console.Out.WriteLine($"verbose:{g.Verbose} progress:{g.Progress}");
+
+	/// <summary>Echo the bool namespace options.</summary>
+	/// <param name="o">Namespace options.</param>
+	public static void BoolNs(BoolNamespaceOptions o) =>
+		Console.Out.WriteLine($"progress:{o.Progress} loud:{o.Loud} tri:{Show(o.Tri)}");
+}
+
 /// <summary>
 /// Cross-assembly [AsParameters] handler.
 /// Tests that non-nullable init properties with C# initializers are not required when the

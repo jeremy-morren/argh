@@ -499,7 +499,7 @@ public sealed partial class CliParserGenerator
 		{
 			w.Line("var flags = new System.Collections.Generic.Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
 			w.Line("var idx = new int[] { pos };");
-			EmitBoolSwitchNames(w, syn, suppressNoNameHelper: true);
+			EmitBoolSwitchNames(w, syn);
 			EmitCanonFlagNameMethod(w, syn);
 			EmitShortFlagMethods(w, syn, multiFlagsAvailable: false);
 			EmitAllowedFlagPredicate(w, members);

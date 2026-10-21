@@ -539,14 +539,6 @@ public sealed partial class CliParserGenerator
 				w.Line("where T : global::System.Numerics.INumberBase<T> => T.TryParse(raw, options.NumberStyles, options.Culture, out value);");
 		});
 		w.Line();
-		using (w.Block("private static bool? ParseNullableBool(string? raw, bool fromYesSwitch)"))
-		{
-			w.Line("if (string.IsNullOrEmpty(raw)) return fromYesSwitch;");
-			w.Line("if (bool.TryParse(raw, out var b)) return b;");
-			w.Return("fromYesSwitch");
-		}
-
-		w.Line();
 		using (w.Block("private static string[] TailFrom(string[] args, int start)"))
 		{
 			w.Line("if (start >= args.Length) return Array.Empty<string>();");

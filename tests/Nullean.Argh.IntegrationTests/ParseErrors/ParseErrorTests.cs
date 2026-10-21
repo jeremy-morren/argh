@@ -16,6 +16,14 @@ public class ParseErrorTests
 	}
 
 	[Fact]
+	public void Invalid_positional_value_names_the_argument_as_usage_does()
+	{
+		var result = CliHostRunner.Run("env-positional", "x", "abc");
+		result.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(result)).Should().StartWith("Error: invalid int for <count>: 'abc'.");
+	}
+
+	[Fact]
 	public void Missing_required_flag_stderr_and_stdout_match_expected_text()
 	{
 		var result = CliHostRunner.Run(

@@ -111,6 +111,25 @@ public class EnvVarBindingTests
 	}
 
 	[Fact]
+	public void Env_on_global_option_cli_flag_before_the_command_wins_over_env_var()
+	{
+		var env = new Dictionary<string, string> { ["TEST_API_URL"] = "fromenv" };
+		var result = CliHostRunner.Run(env, "--api-url", "cli", "env-global");
+		result.ExitCode.Should().Be(0);
+		CliHostRunner.StdoutText(result).Trim().Should().Be("env-global-api-url:cli");
+	}
+
+	[Fact]
+	public void Env_on_global_option_cli_flag_between_namespace_and_command_wins_over_env_var()
+	{
+		var env = new Dictionary<string, string> { ["ARGH_TEST_QUOTA"] = "9" };
+		var result = CliHostRunner.Run(env, "numeric-ns", "--quota", "3", "show");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		// NumericNsShow prints the members joined by |; quota is the 14th.
+		CliHostRunner.StdoutText(result).Trim().Split('|')[13].Should().Be("3");
+	}
+
+	[Fact]
 	public void Env_on_global_option_null_when_neither_cli_nor_env()
 	{
 		var result = CliHostRunner.Run("env-global");
@@ -125,6 +144,15 @@ public class EnvVarBindingTests
 		var result = CliHostRunner.Run(env, "env-ns", "key");
 		result.ExitCode.Should().Be(0);
 		CliHostRunner.StdoutText(result).Trim().Should().Be("env-ns-key:from-env-key");
+	}
+
+	[Fact]
+	public void Env_on_namespace_option_cli_flag_before_the_command_wins_over_env_var()
+	{
+		var env = new Dictionary<string, string> { ["TEST_NS_KEY"] = "nsenv" };
+		var result = CliHostRunner.Run(env, "env-ns", "--key", "cli", "key");
+		result.ExitCode.Should().Be(0);
+		CliHostRunner.StdoutText(result).Trim().Should().Be("env-ns-key:cli");
 	}
 
 	[Fact]

@@ -109,6 +109,16 @@ internal static class CliRegistrationModule
 			g.UseNamespaceOptions<EnvTestNamespaceOptions>();
 			g.Map("key", EnvBindingHandlers.EnvNs);
 		});
+		app.Map("bool-flags", BoolBindingHandlers.BoolFlags);
+		app.Map("bool-args", BoolBindingHandlers.BoolArgs);
+		app.Map("bool-list", BoolBindingHandlers.BoolList);
+		app.Map("bool-dto", BoolBindingHandlers.BoolDto);
+		app.Map("bool-global", BoolBindingHandlers.BoolGlobal);
+		app.MapNamespace("bool-ns", "Bool namespace options tests.", g =>
+		{
+			g.UseNamespaceOptions<BoolNamespaceOptions>();
+			g.Map("show", BoolBindingHandlers.BoolNs);
+		});
 		app.MapNamespace("parsable-ns", "IParsable types as namespace options.", g =>
 		{
 			g.UseNamespaceOptions<ParsableNamespaceOptions>();

@@ -815,6 +815,9 @@ public sealed partial class CliParserGenerator
 			if (HasShownDefault(p))
 				parts.Add($"[default: {FormatDefaultForHelpText(p)}]");
 		}
+		// A switch is off unless given, so only a bool that starts on (or a bool? that starts set) shows its default.
+		else if (HasShownDefault(p) && (p.Special == BoolSpecialKind.NullableBool || p.DefaultValueLiteral!.Trim() == "true"))
+			parts.Add($"[default: {p.DefaultValueLiteral!.Trim()}]");
 
 		var envVarName = ComputeEffectiveEnvVarName(p, environmentPrefix);
 		if (!string.IsNullOrEmpty(envVarName))

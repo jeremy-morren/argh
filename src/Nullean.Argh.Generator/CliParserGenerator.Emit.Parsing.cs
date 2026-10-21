@@ -64,6 +64,18 @@ public sealed partial class CliParserGenerator
 	private const string OptionFlagsSeenField = "s_optionFlagsSeen";
 
 	/// <summary>
+	/// Whether the leading options parsers saw the member's flag (or, for a <c>bool?</c>, its <c>--no-</c> form), so the
+	/// static already holds the command-line value.
+	/// </summary>
+	private static string OptionFlagSeenCheck(ParameterModel m)
+	{
+		var seen = $"{OptionFlagsSeenField}.Contains({Quote(m.CliLongName)})";
+		return m.Special == BoolSpecialKind.NullableBool
+			? $"({seen} || {OptionFlagsSeenField}.Contains({Quote("no-" + m.CliLongName)}))"
+			: seen;
+	}
+
+	/// <summary>
 	/// For each member long name, <c>{static}.{member}</c> from the last of <paramref name="options"/> that declares it, so
 	/// a later (more specific) options type wins over an earlier one.
 	/// </summary>
@@ -173,7 +185,8 @@ public sealed partial class CliParserGenerator
 						RejectUnknownFlag();
 						using (w.If("IsBoolSwitchName(flagName)"))
 						{
-							w.Line("flags[flagName] = IsBoolSwitchNoName(flagName) ? null : \"true\";");
+							// A bare switch has no value, unlike --flag=true: --no-flag=true is an error.
+							w.Line("flags[flagName] = null;");
 							w.Line("idx[0]++;");
 						}
 
@@ -290,21 +303,16 @@ public sealed partial class CliParserGenerator
 				continue;
 			string? inherited = null;
 			inheritedValues?.TryGetValue(m.CliLongName, out inherited);
-			if (m.Special == BoolSpecialKind.Bool)
-				w.Line($"var {m.LocalVarName} = flags.ContainsKey({Quote(m.CliLongName)}){(inherited is null ? "" : " || " + inherited)};");
-			else if (m.Special == BoolSpecialKind.NullableBool)
-			{
-				w.Line($"bool? {m.LocalVarName} = {inherited ?? "null"};");
-				EmitNullableBoolFromFlags(w, m, m.LocalVarName, "_yv", "_nv");
-			}
+			// Declare the local variable first (EmitParseAndAssign only assigns, does not declare).
+			// For cross-assembly runtime-default properties, seed from the pre-created instance.
+			var initializer = inherited
+				?? (m.UsesRuntimeDefault && hasRtDefaults ? $"__rt_default.{m.SymbolName}" : GetCliInitializer(m));
+			w.Line($"{GetCSharpCliType(m)} {m.LocalVarName} = {initializer};");
+			if (m.Special != BoolSpecialKind.None)
+				EmitBoolFlagBinding(w, m, m.LocalVarName, failure);
 			else
 			{
-				// Declare the local variable first (EmitParseAndAssign only assigns, does not declare).
-				// For cross-assembly runtime-default properties, seed from the pre-created instance.
-				var initializer = inherited
-					?? (m.UsesRuntimeDefault && hasRtDefaults ? $"__rt_default.{m.SymbolName}" : GetCliInitializer(m));
 				var text = m.LocalVarName + "Text";
-				w.Line($"{GetCSharpCliType(m)} {m.LocalVarName} = {initializer};");
 				using (w.If($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text}) && {text} is not null"))
 					EmitParseAndAssign(w, m, text, m.LocalVarName, failure);
 			}
@@ -369,21 +377,13 @@ public sealed partial class CliParserGenerator
 				var tmpName = ParamTemp(m, "ropt");
 				// Skip if already emitted by a parent type in the chain (inherited members appear in multiple flat lists).
 				if (!emittedTmpVars.Add(tmpName)) continue;
-				if (m.Special == BoolSpecialKind.Bool)
+				if (m.Special != BoolSpecialKind.None)
 				{
-					if (ComputeEffectiveEnvVarName(m, environmentPrefix) is { } boolEnvVar)
-					{
-						var raw = tmpName + "EnvRaw";
-						w.Line($"var {raw} = global::System.Environment.GetEnvironmentVariable({Quote(boolEnvVar)});");
-						w.Line($"var {tmpName} = flags.ContainsKey({Quote(m.CliLongName)}) || ({raw} != null ? ({raw} != \"0\" && {raw} != \"false\" && {raw}.Length > 0) : {fallback});");
-					}
-					else
-						w.Line($"var {tmpName} = flags.ContainsKey({Quote(m.CliLongName)}) || {fallback};");
-				}
-				else if (m.Special == BoolSpecialKind.NullableBool)
-				{
-					w.Line($"bool? {tmpName} = {fallback};");
-					EmitNullableBoolFromFlags(w, m, tmpName, "_yv", "_nv");
+					// The command line after the command wins, then before it (the static), then the environment variable.
+					w.Line($"{GetCSharpCliType(m)} {tmpName} = {fallback};");
+					var envVar = ComputeEffectiveEnvVarName(m, environmentPrefix);
+					var envFallback = envVar is null ? null : $"({OptionFlagSeenCheck(m)} ? null : {BoolFromEnvironmentCall(m, envVar)})";
+					EmitBoolFlagBinding(w, m, tmpName, failure, envFallback);
 				}
 				else
 					EmitReparseOptionsMember(w, m, tmpName, fallback, environmentPrefix, failure);
@@ -402,8 +402,9 @@ public sealed partial class CliParserGenerator
 	}
 
 	/// <summary>
-	/// A value-typed options member: its text from the command's flags, else its environment variable, re-parsed over the
-	/// pre-parsed static value. A value that doesn't parse keeps the static value; leading globals were already validated.
+	/// A value-typed options member: its text from the command's flags, else its environment variable when the flag wasn't
+	/// given before the command either, re-parsed over the pre-parsed static value. A value that doesn't parse keeps the
+	/// static value; leading globals were already validated.
 	/// </summary>
 	private static void EmitReparseOptionsMember(CodeWriter w, ParameterModel m, string tmpName, string fallback, string? environmentPrefix, ParseFailure failure)
 	{
@@ -411,12 +412,12 @@ public sealed partial class CliParserGenerator
 		w.Line($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text});");
 		if (ComputeEffectiveEnvVarName(m, environmentPrefix) is { } optEnvVar)
 		{
-			using (w.If($"{text} == null"))
+			using (w.If($"{text} == null && !{OptionFlagSeenCheck(m)}"))
 				EmitEnvironmentFallback(w, m, optEnvVar, text, tmpName + "EnvVal");
 		}
 
 		if (m.IsRequired)
-			EmitParseError(w, $"{text} == null && !{OptionFlagsSeenField}.Contains({Quote(m.CliLongName)})",
+			EmitParseError(w, $"{text} == null && !{OptionFlagSeenCheck(m)}",
 				$"Console.Error.WriteLine($\"Error: missing required flag --{Escape(m.CliLongName)}.\");", m, failure);
 
 		w.Line($"var {tmpName} = {fallback};");
@@ -741,8 +742,15 @@ public sealed partial class CliParserGenerator
 		}
 	}
 
+	/// <summary>
+	/// How errors name a parameter, escaped for a generated string: <c>&lt;name&gt;</c> for a positional argument, as usage
+	/// shows it, and <c>--name</c> for a flag.
+	/// </summary>
+	private static string ErrorArgName(ParameterModel p) =>
+		p.Kind == ParameterKind.Positional ? $"<{Escape(p.CliLongName)}>" : $"--{Escape(p.CliLongName)}";
+
 	/// <summary><c>Console.Error.WriteLine("Error: --name: <paramref name="message"/>");</c>, the message already escaped.</summary>
-	private static string FlagErrorLine(ValidationTarget t, string message) => ErrorLine($"Error: --{Escape(t.CliName)}: {message}");
+	private static string FlagErrorLine(ValidationTarget t, string message) => ErrorLine($"Error: {ErrorArgName(t.P)}: {message}");
 
 	/// <summary>An error line as an interpolated string, so numbers in <paramref name="message"/> format with the parse culture.</summary>
 	private static string InterpolatedErrorLine(string message) => $"Console.Error.WriteLine($\"{EscapeForHelpInterpolation(message)}\");";
@@ -828,8 +836,7 @@ public sealed partial class CliParserGenerator
 		var lenExpr = p.CollectionTargetIsArray ? $"{t.VarName}.Length" : $"{t.VarName}.Count";
 		var nullGuard = !p.IsRequired && p.DeclaredNullableAnnotated ? $"{t.VarName} != null && " : "";
 		var (condition, limit) = LengthLimit(lenExpr, cc.Min, cc.Max, nullGuard, "items");
-		var prefix = p.Kind == ParameterKind.Positional ? $"<{Escape(t.CliName)}>" : $"--{Escape(t.CliName)}";
-		EmitValidationFailure(w, t, condition, ErrorLine($"Error: {prefix}: {Escape("must have " + limit)}"));
+		EmitValidationFailure(w, t, condition, FlagErrorLine(t, Escape("must have " + limit)));
 	}
 
 	private static void EmitStringLengthConstraintCheck(CodeWriter w, ValidationTarget t, StringLengthConstraint s)
@@ -969,7 +976,7 @@ public sealed partial class CliParserGenerator
 		var failuresVar = ParamTemp(p, "fsFailures");
 		var itemVar = ParamTemp(p, "fsItem");
 		var msgVar = ParamTemp(p, "fsMsg");
-		var argToken = p.Kind == ParameterKind.Positional ? $"<{Escape(t.CliName)}>" : $"--{Escape(t.CliName)}";
+		var argToken = ErrorArgName(p);
 		string AddFailure(string message) => $"{failuresVar}.Add({itemVar}.FullName + \": {message}\");";
 
 		void CheckItems()

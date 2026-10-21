@@ -1102,7 +1102,7 @@ public sealed partial class CliParserGenerator
 		private static string? TryGetDefaultLiteral(IParameterSymbol p, BoolSpecialKind bs)
 		{
 			if (bs == BoolSpecialKind.Bool)
-				return "false";
+				return p is { HasExplicitDefaultValue: true, ExplicitDefaultValue: true } ? "true" : "false";
 
 			if (!p.HasExplicitDefaultValue)
 				return null;

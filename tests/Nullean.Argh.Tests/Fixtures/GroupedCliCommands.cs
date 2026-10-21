@@ -46,6 +46,10 @@ internal class TestGlobalCliOptions
 	/// <summary>Validated global option: decimal bounds parsed from text.</summary>
 	[System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0.5", "2.5")]
 	public decimal? Weight { get; set; }
+
+	/// <summary>Bool global option that starts on, with an env fallback.</summary>
+	[Env("ARGH_TEST_PROGRESS")]
+	public bool Progress { get; set; } = true;
 }
 
 /// <summary>Storage command namespace options; must inherit global options type.</summary>
@@ -60,6 +64,18 @@ internal sealed class EnvTestNamespaceOptions : TestGlobalCliOptions
 	/// <summary>Namespace-scoped key from env var fallback.</summary>
 	[Env("TEST_NS_KEY")]
 	public string? Key { get; set; }
+}
+
+/// <summary>Namespace options with env-bound <c>bool</c> and <c>bool?</c> members.</summary>
+internal sealed class BoolNamespaceOptions : TestGlobalCliOptions
+{
+	/// <summary>Bool namespace option with an env fallback.</summary>
+	[Env("ARGH_TEST_NS_LOUD")]
+	public bool Loud { get; set; }
+
+	/// <summary>Nullable bool namespace option with an env fallback.</summary>
+	[Env("ARGH_TEST_NS_TRI")]
+	public bool? Tri { get; set; }
 }
 
 /// <summary>Namespace options with each special scalar type, plain (required) and nullable.</summary>

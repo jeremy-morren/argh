@@ -36,11 +36,13 @@ public class RootHelpFullTextTests
 			  --quota <value>      Validated global option: only a lower bound. [env: ARGH_TEST_QUOTA] [min: 1]
 			  --zone <string>      Validated global option: one of a fixed list. [allowed: eu|us]
 			  --weight <value>     Validated global option: decimal bounds parsed from text. [range: 0.5-2.5]
+			  --progress           Bool global option that starts on, with an env fallback. [default: true] [env: ARGH_TEST_PROGRESS]
 
 			Namespaces:
 			  alias-followed  Root alias followed by additional mapped command classes.
 			  alias-scope     Root-alias integration test namespace.
 			  billing         Billing commands
+			  bool-ns         Bool namespace options tests.
 			  env-ns          Env binding namespace options tests.
 			  numeric-ns      Numeric defaults and limits as namespace options.
 			  parsable-ns     IParsable types as namespace options.
@@ -63,6 +65,13 @@ public class RootHelpFullTextTests
 			  as-params-scalars
 			  as-params-tag-set
 			  as-params-with-ct
+			  bool-args                                     Echo bool positional arguments.
+			  bool-dto                                      Echo bool members of an
+			                                                [AsParameters] DTO.
+			  bool-flags                                    Echo every kind of bool flag.
+			  bool-global                                   Echo the bool global option.
+			  bool-list                                     Echo a repeatable bool
+			                                                collection.
 			  brace-doc                                     Regression: braces in XML docs
 			                                                must not become C# interpolation
 			                                                in generated help.

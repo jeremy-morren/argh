@@ -32,6 +32,7 @@ public class EnumHelpTests
 			  --quota <value>      Validated global option: only a lower bound. [env: ARGH_TEST_QUOTA] [min: 1]
 			  --zone <string>      Validated global option: one of a fixed list. [allowed: eu|us]
 			  --weight <value>     Validated global option: decimal bounds parsed from text. [range: 0.5-2.5]
+			  --progress           Bool global option that starts on, with an env fallback. [default: true] [env: ARGH_TEST_PROGRESS]
 
 			Options:
 			  -c, --colour <enum>  [required] Pick a color.
