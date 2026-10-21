@@ -125,6 +125,7 @@ internal static class Registration
 		Bug91.Register(app);
 		Bug94.Register(app);
 		Bug95.Register(app);
+		Bug99.Register(app);
 #if BUG98
 		Bug98.Register(app);
 #endif

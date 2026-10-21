@@ -11,6 +11,7 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 81 | [Combined short flags are rejected, and the limitation isn't documented](#81-combined-short-flags-are-rejected-and-the-limitation-isnt-documented) | Minor | `bug81.cs` |
 | 83 | [Command names are case-insensitive but flags aren't](#83-command-names-are-case-insensitive-but-flags-arent) | Minor | `bug83.cs` |
 | 95 | [A value-taking flag followed by another flag takes that flag as its value](#95-a-value-taking-flag-followed-by-another-flag-takes-that-flag-as-its-value) | Wrong result | `bug95.cs` |
+| 99 | [`[Url]` on a `Uri` accepts only http and https, on a `string` also ftp](#99-url-on-a-uri-accepts-only-http-and-https-on-a-string-also-ftp) | Wrong result | `bug99.cs` |
 
 ## Background
 
@@ -113,6 +114,27 @@ Cause: the value-taking branch checks only that another token exists (`if (i + 1
 - pflag takes the next token whatever it is (`'--flag arg'`, [flag.go#L1020-L1023](https://github.com/spf13/pflag/blob/v1.0.10/flag.go#L1020-L1023); `'-f arg'`, [#L1092-L1095](https://github.com/spf13/pflag/blob/v1.0.10/flag.go#L1092-L1095)), which is what Argh does now.
 
 Follow clap for tokens that are known flags (`--port`, `--severity`, `--help`, `-h`): report `a value is required for '--name'`. Keep negative numbers as values of numeric options, as if `allow_negative_numbers` were on, so `--offset -5` and `--limit -2.5` keep working; `--name=--help` stays the way to pass a flag-like string.
+
+### 99. `[Url]` on a `Uri` accepts only http and https, on a `string` also ftp
+
+```
+Bugs.exe bug99-uri --link ftp://x   → Error: --link: URI scheme must be one of: http, https.   exit 2   ([Url] Uri link)
+Bugs.exe bug99-str --url ftp://x    → url:ftp://x                                              exit 0   ([Url] string url)
+```
+
+The same attribute means different things on the two types, and help and `__schema` say so:
+
+| | `[Url] Uri` | `[Url] string` |
+|---|---|---|
+| Accepts | `http`, `https` | `http`, `https`, `ftp` |
+| Help | `[schemes: http\|https]` | `[url]` |
+| `__schema` | `{"kind": "uriScheme", "values": ["http", "https"]}` | `{"kind": "url"}` |
+
+The mapping is the same on `main` (`45954b6`). Reproduced in `bugs/bug99.cs`.
+
+Cause: `src/Nullean.Argh.Generator/CliParserGenerator.Validation.cs:352-357` turns `[Url]` on a `Uri` into `UriSchemeConstraint("http", "https")`; on a `string` it becomes `UrlConstraint`, whose check allows `http`, `https` and `ftp` (`CliParserGenerator.Emit.Parsing.cs:1079-1094`).
+
+**Expected:** the rule of .NET's `UrlAttribute`, which accepts `http`, `https` and `ftp` for an absolute `Uri` and for a `string` alike ([UrlAttribute.cs#L22-L33](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.ComponentModel.Annotations/src/System/ComponentModel/DataAnnotations/UrlAttribute.cs#L22-L33)), on both types, with the same help hint and `__schema` constraint.
 
 ### By design, after checking
 
