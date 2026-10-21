@@ -109,6 +109,11 @@ internal static class CliRegistrationModule
 			g.UseNamespaceOptions<EnvTestNamespaceOptions>();
 			g.Map("key", EnvBindingHandlers.EnvNs);
 		});
+		app.MapNamespace("ls", "A default command that takes positionals.", g =>
+		{
+			g.MapRoot(ListHandlers.List);
+			g.Map("version", ListHandlers.Version);
+		});
 		app.Map("bool-flags", BoolBindingHandlers.BoolFlags);
 		app.Map("bool-args", BoolBindingHandlers.BoolArgs);
 		app.Map("bool-list", BoolBindingHandlers.BoolList);

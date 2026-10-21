@@ -754,3 +754,19 @@ internal static class ParsableHandlers
 		Console.Out.WriteLine(set.Count == 0 ? "none" : string.Join("|", set));
 	}
 }
+
+/// <summary>An <c>ls</c>-like namespace: its default command collects every argument no command matches.</summary>
+internal static class ListHandlers
+{
+	/// <summary>List paths.</summary>
+	/// <param name="all">-a, Include hidden entries.</param>
+	/// <param name="longFormat">-l, Use the long listing format.</param>
+	/// <param name="paths">Paths to list.</param>
+	[NoOptionsInjection]
+	public static void List(bool all = false, bool longFormat = false, [Argument] params string[] paths) =>
+		Console.Out.WriteLine($"ls all:{all} long:{longFormat} paths:{string.Join(",", paths)}");
+
+	/// <summary>A command next to the default, matched before its positionals.</summary>
+	[NoOptionsInjection]
+	public static void Version() => Console.Out.WriteLine("ls-version");
+}

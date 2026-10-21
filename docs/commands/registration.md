@@ -31,6 +31,8 @@ app.MapRoot(Handlers.DefaultAction);
 
 At the app level this handles bare `myapp` invocations. Inside a `MapNamespace` callback, it handles `myapp <namespace>` without a subcommand.
 
+It also gets arguments that start with `-`, and when it declares [positional arguments](../parameters/arguments.md#extra-arguments-and---), any argument that isn't one of the scope's commands or namespaces: `myapp file.txt` runs it with `file.txt`.
+
 When using `MapRoot`, the XML doc on the handler method becomes the app-level overview in `--help`:
 
 ```csharp

@@ -32,6 +32,31 @@ public static void Tag([Argument] string target, bool force, [Argument] params s
 // myapp tag main-branch --force tag1 tag2 tag3
 ```
 
+## Extra arguments and `--`
+
+A command takes only the positionals it declares. Any other argument is an error, as in clap:
+
+```
+myapp deploy production extra
+Error: unexpected argument 'extra' found.
+```
+
+To take any number of arguments, declare a variadic positional. A value that starts with `-` reads as an option, so put it after `--`: everything after `--` is positional, even `--help`. A command that declares no positionals rejects anything after `--` too.
+
+This is enough for an `ls`:
+
+```csharp
+/// <param name="all">-a, Include hidden entries.</param>
+/// <param name="longFormat">-l, Use the long listing format.</param>
+/// <param name="paths">Paths to list.</param>
+public static void List(bool all = false, bool longFormat = false, [Argument] params string[] paths) { … }
+
+app.MapRoot(List);
+// myapp -a -l dir1 dir2 -- -weird-name   → all, longFormat, paths = [dir1, dir2, -weird-name]
+```
+
+A [default command](../commands/registration.md#maproothandler) that declares positionals also takes any argument that isn't one of its scope's commands or namespaces, so `myapp dir1` runs it. Use `--` for a positional with a command's name: `myapp -- build`.
+
 ## Help output
 
 Variadic positionals appear as `<files...>` / `[<files...>]` in `--help` and include a `[variadic]` annotation.

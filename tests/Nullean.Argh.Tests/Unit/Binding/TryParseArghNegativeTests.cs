@@ -14,6 +14,27 @@ public class TryParseArghNegativeTests
 	}
 
 	[Fact]
+	public void TryParseArghExact_extra_positional_returns_false()
+	{
+		DeployCliArgs.TryParseArghExact(["--app-env", "prod", "--app-port", "80", "extra"], out _).Should().BeFalse();
+		DeployCliArgs.TryParseArghExact(["--app-env", "prod", "--app-port", "80", "--", "extra"], out _).Should().BeFalse();
+	}
+
+	[Fact]
+	public void TryParseArghExact_accepts_a_trailing_double_dash()
+	{
+		DeployCliArgs.TryParseArghExact(["--app-env", "prod", "--app-port", "80", "--"], out var d).Should().BeTrue();
+		d!.Port.Should().Be(80);
+	}
+
+	[Fact]
+	public void TryParseArgh_ignores_what_follows_double_dash()
+	{
+		DeployCliArgs.TryParseArgh(["--app-env", "prod", "--app-port", "80", "--", "--app-port", "1"], out var d).Should().BeTrue();
+		d!.Port.Should().Be(80);
+	}
+
+	[Fact]
 	public void TryParseArgh_unknown_flag_at_end_does_not_fail_and_extracts_known_flags()
 	{
 		var ok = DeployCliArgs.TryParseArgh(["--app-env", "prod", "--app-port", "8080", "--assume-cloned"], out var d);

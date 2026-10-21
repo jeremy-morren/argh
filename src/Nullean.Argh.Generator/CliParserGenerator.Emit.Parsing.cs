@@ -165,7 +165,8 @@ public sealed partial class CliParserGenerator
 
 			using (w.While("idx[0] < args.Length && args[idx[0]].Length > 0 && args[idx[0]][0] == '-'"))
 			{
-				w.If("args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\" || args[idx[0]] == \"--version\"", "break;");
+				// Help, the version, and "--" or "-", which are arguments, are for the dispatcher.
+				w.If("args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\" || args[idx[0]] == \"--version\" || args[idx[0]] == \"--\" || args[idx[0]] == \"-\"", "break;");
 				w.Line("var a = args[idx[0]];");
 				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
 				{
@@ -403,85 +404,28 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>
 	/// A value-typed options member: its text from the command's flags, else its environment variable when the flag wasn't
-	/// given before the command either, re-parsed over the pre-parsed static value. A value that doesn't parse keeps the
-	/// static value; leading globals were already validated.
+	/// given before the command either, parsed over the pre-parsed static value. A value that doesn't parse fails like the
+	/// same flag before the command, naming the environment variable when it came from there.
 	/// </summary>
 	private static void EmitReparseOptionsMember(CodeWriter w, ParameterModel m, string tmpName, string fallback, string? environmentPrefix, ParseFailure failure)
 	{
 		var text = tmpName + "Txt";
 		w.Line($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text});");
-		if (ComputeEffectiveEnvVarName(m, environmentPrefix) is { } optEnvVar)
+		var envVar = ComputeEffectiveEnvVarName(m, environmentPrefix);
+		if (envVar is not null)
 		{
 			using (w.If($"{text} == null && !{OptionFlagSeenCheck(m)}"))
-				EmitEnvironmentFallback(w, m, optEnvVar, text, tmpName + "EnvVal");
+				EmitEnvironmentFallback(w, m, envVar, text, tmpName + "EnvVal");
 		}
 
 		if (m.IsRequired)
 			EmitParseError(w, $"{text} == null && !{OptionFlagSeenCheck(m)}",
 				$"Console.Error.WriteLine($\"Error: missing required flag --{Escape(m.CliLongName)}.\");", m, failure);
 
-		w.Line($"var {tmpName} = {fallback};");
-		if (m.ScalarKind == CliScalarKind.Primitive)
-		{
-			// Re-parse from text if present, keeping static value if not.
-			// T? re-parses through T's TryParse; a value that doesn't parse keeps the static fallback.
-			var reparse = ScalarTryParseCall(m.TypeName.TrimEnd('?'), text, "out var " + tmpName + "P");
-			var cast = m.TypeName.EndsWith("?", StringComparison.Ordinal) ? "(" + GetCSharpCliType(m) + ")" : "";
-			var parseExpr = reparse is not null
-				? $"{reparse} ? {cast}{tmpName}P : {tmpName}"
-				: m.TypeName is "string" or "string?"
-					? $"{text} ?? {tmpName}"
-					: $"{text} != null ? {text} : {tmpName}";
-			if (m.TypeName is "string" or "string?")
-				w.Line($"{tmpName} = {parseExpr};");
-			else
-				w.Line($"if ({text} != null) {tmpName} = {parseExpr};");
-		}
-		else if (m.ScalarKind == CliScalarKind.Enum && m.EnumTypeFq is not null)
-		{
-			// Re-parse enum from command-trailing flags; null-guard required (TryGetValue out-var is string?).
-			var evVar = "__ev_ropt_" + m.LocalVarName;
-			using (w.If($"{text} is not null"))
-			{
-				w.If($"global::System.Enum.TryParse<{m.EnumTypeFq}>({text}, true, out var {evVar}) && global::System.Enum.IsDefined(typeof({m.EnumTypeFq}), {evVar})",
-					$"{tmpName} = {evVar};");
-			}
-		}
-		else if (m.ScalarKind is CliScalarKind.FileInfo or CliScalarKind.DirectoryInfo)
-		{
-			var infoType = m.ScalarKind == CliScalarKind.FileInfo ? "global::System.IO.FileInfo" : "global::System.IO.DirectoryInfo";
-			using (w.If($"{text} is not null"))
-			{
-				if (m.ExpandUserProfileBeforeBind)
-				{
-					var expanded = "__path_ropt_" + m.LocalVarName;
-					w.Line($"var {expanded} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({text});");
-					w.Line($"{tmpName} = new {infoType}({expanded});");
-				}
-				else
-					w.Line($"{tmpName} = new {infoType}({text});");
-			}
-		}
-		else if (m.ScalarKind == CliScalarKind.Uri)
-		{
-			var uriVar = "__uri_ropt_" + m.LocalVarName;
-			w.If($"{text} is not null && global::System.Uri.TryCreate({text}, global::System.UriKind.RelativeOrAbsolute, out var {uriVar})", $"{tmpName} = {uriVar};");
-		}
-		else if (m.ScalarKind == CliScalarKind.CustomParser && m.ParserTypeFq is not null)
-		{
-			var parserVar = "__parser_ropt_" + m.LocalVarName;
-			var pvVar = "__pv_ropt_" + m.LocalVarName;
-			using (w.If($"{text} is not null"))
-			{
-				w.Line($"{CustomParserLocalType(m)} {parserVar} = new {m.ParserTypeFq}();");
-				w.If($"{parserVar}.TryParse({text}, {ParserOptionsExpr}, out var {pvVar})", $"{tmpName} = {pvVar};");
-			}
-		}
-		else if (m.ScalarKind == CliScalarKind.Parsable && m.CustomValueTypeFq is not null)
-		{
-			var pvVar = ParamTemp(m, "pv_ropt");
-			w.If($"{text} is not null && {ParsableTryParseCall(m, text, "out var " + pvVar)}", $"{tmpName} = {pvVar};");
-		}
+		w.Line($"{GetCSharpCliType(m)} {tmpName} = {fallback};");
+		using (w.If($"{text} is not null"))
+			EmitParseFromString(w, m, text, tmpName, outVarKeyword: false,
+				WithEnvironmentSource(failure, envVar, $"!flags.ContainsKey({Quote(m.CliLongName)})"));
 	}
 
 	private static void EmitBindCollectionParameter(CodeWriter w, ParameterModel p, bool multiFlagsAvailable, ParseFailure failure)

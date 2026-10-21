@@ -692,7 +692,7 @@ public sealed partial class CliParserGenerator
 
 		using (w.Block("private static void PrintRootHelp()"))
 		{
-			w.Line(HelpUsageLine(entryAssemblyName, " <namespace|command> [options]"));
+			EmitScopeUsageLines(w, entryAssemblyName, ImmutableArray<string>.Empty, " <namespace|command> [options]", app.Root.RootCommand ?? app.Root.RootAlias);
 			w.Line(HelpBlankLine);
 			if (app.Root.RootCommand is { } rootOverview)
 				EmitRootCommandHelpOverview(w, rootOverview, app, entryAssemblyName);
@@ -729,7 +729,6 @@ public sealed partial class CliParserGenerator
 	private static void EmitCommandNamespaceHelpPrinter(CodeWriter w, ImmutableArray<string> path, RegistryNode node, AppEmitModel app, string entryAssemblyName)
 	{
 		var key = CommandNamespacePathKey(path);
-		var usagePrefix = string.Join(" ", path);
 
 		var globalFlagMembers = EnumerateFlagMembers(app.GlobalOptionsModel).ToList();
 		var namespaceOptionSections = BuildNamespaceOptionSections(app, path, globalFlagMembers);
@@ -760,7 +759,7 @@ public sealed partial class CliParserGenerator
 
 		using (w.Block($"private static void PrintHelp_CommandNamespace_{key}()"))
 		{
-			w.Line(HelpUsageLine(entryAssemblyName, $" {usagePrefix} <command> [options]"));
+			EmitScopeUsageLines(w, entryAssemblyName, path, " <command> [options]", node.RootCommand ?? node.RootAlias);
 			w.Line(HelpBlankLine);
 			if (node.RootCommand is { } nsRootOverview)
 				EmitRootCommandHelpOverview(w, nsRootOverview, app, entryAssemblyName);
@@ -821,6 +820,54 @@ public sealed partial class CliParserGenerator
 		bool isRoot,
 		string entryAssemblyName)
 	{
+		EmitDispatchMethod(w, node, path, methodName, isRoot, entryAssemblyName);
+		w.Line();
+		foreach (var ch in node.Children)
+		{
+			var childPath = AppendSegment(path, ch.Segment);
+			EmitDispatchForNode(w, app, ch.Node, childPath, "DispatchCommandNamespace_" + CommandNamespacePathKey(childPath), isRoot: false, entryAssemblyName);
+		}
+	}
+
+	/// <summary>
+	/// <see langword="null"/> when the default command takes every token no command or namespace matched (it declares
+	/// positionals), else the C# condition on <paramref name="tokExpr"/> for the tokens it takes: an option, or <c>--</c>.
+	/// </summary>
+	private static string? DefaultCommandTakesTokenCondition(CommandModel defaultCommand, string tokExpr) =>
+		defaultCommand.Parameters.Any(static p => p.Kind == ParameterKind.Positional)
+			? null
+			: $"{tokExpr}.Length > 0 && {tokExpr}[0] == '-'";
+
+	/// <summary>
+	/// Without a default command, nothing takes positionals: <c>--</c> alone is like no arguments, and an argument after
+	/// it is unexpected, as in clap.
+	/// </summary>
+	private static void EmitDoubleDashWithoutDefaultCommand(CodeWriter w, ImmutableArray<string> path, string printHelp, string entryAssemblyName)
+	{
+		using (w.If("tok == \"--\""))
+		{
+			using (w.If("idx[0] + 1 >= args.Length"))
+			{
+				w.Line(printHelp);
+				w.Return("0");
+			}
+
+			w.Line(UnexpectedArgumentError("args[idx[0] + 1]"));
+			w.Line("Console.Error.WriteLine();");
+			var helpPath = path.IsDefaultOrEmpty ? "" : " " + string.Join(" ", path);
+			w.Line(ErrorLine(Escape($"Run '{entryAssemblyName}{helpPath} --help' for usage.")));
+			w.Return("2");
+		}
+	}
+
+	private static void EmitDispatchMethod(
+		CodeWriter w,
+		RegistryNode node,
+		ImmutableArray<string> path,
+		string methodName,
+		bool isRoot,
+		string entryAssemblyName)
+	{
 		var printHelp = isRoot ? "PrintRootHelp();" : $"PrintHelp_CommandNamespace_{CommandNamespacePathKey(path)}();";
 		using (w.Block($"private static async Task<int> {methodName}(string[] args, int[] idx, CancellationToken ct)"))
 		{
@@ -867,21 +914,23 @@ public sealed partial class CliParserGenerator
 				}
 			}
 
-			if ((node.RootCommand ?? node.RootAlias) is { } flagFallback)
+			if ((node.RootCommand ?? node.RootAlias) is { } defaultCommand)
 			{
-				using (w.If("tok.Length > 0 && tok[0] == '-'"))
-					w.Line(ReturnRunTail(flagFallback.RunMethodName));
+				// A default command that takes positionals takes any other token, as clap does; otherwise only an option or "--".
+				if (DefaultCommandTakesTokenCondition(defaultCommand, "tok") is not { } takesToken)
+				{
+					w.Line(ReturnRunTail(defaultCommand.RunMethodName));
+					return;
+				}
+
+				using (w.If(takesToken))
+					w.Line(ReturnRunTail(defaultCommand.RunMethodName));
 			}
+			else
+				EmitDoubleDashWithoutDefaultCommand(w, path, printHelp, entryAssemblyName);
 
 			using (w.Block())
 				EmitFuzzyDispatchDefault(w, node, path, entryAssemblyName);
-		}
-
-		w.Line();
-		foreach (var ch in node.Children)
-		{
-			var childPath = AppendSegment(path, ch.Segment);
-			EmitDispatchForNode(w, app, ch.Node, childPath, "DispatchCommandNamespace_" + CommandNamespacePathKey(childPath), isRoot: false, entryAssemblyName);
 		}
 	}
 }

@@ -101,6 +101,17 @@ public class ScalarOptionsBindingTests
 			.Should().Contain($"Error: invalid {typeName} for {flag}: '{value}'.");
 	}
 
+	[Theory]
+	[MemberData(nameof(InvalidValues))]
+	public void NamespaceOptions_invalid_scalar_after_the_command_exits_2(string flag, string value, string typeName)
+	{
+		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgs, "show", flag, value]);
+		result.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(result))
+			.Should().Contain($"Error: invalid {typeName} for {flag}: '{value}'.");
+		CliHostRunner.StdoutText(result).Should().BeEmpty();
+	}
+
 	public static TheoryData<string, string, string> InvalidValues => new()
 	{
 		{ "--span", "nope", "TimeSpan" },

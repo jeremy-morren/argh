@@ -34,6 +34,26 @@ public class ArghParserRouteTests
 		r.Value.RemainingArgs.Should().BeEmpty();
 	}
 
+	[Theory]
+	[InlineData("a", "b")]
+	[InlineData("--", "version")]
+	[InlineData("-a")]
+	public void Route_resolves_unmatched_arguments_to_a_default_command_with_positionals(params string[] args)
+	{
+		var r = ArghParser.Route(["ls", .. args]);
+		r.Should().NotBeNull();
+		r.Value.CommandPath.Should().NotBe("ls/version");
+		r.Value.RemainingArgs.Should().Equal(args);
+	}
+
+	[Fact]
+	public void Route_resolves_a_command_next_to_a_default_command_with_positionals()
+	{
+		var r = ArghParser.Route(["ls", "version"]);
+		r.Should().NotBeNull();
+		r.Value.CommandPath.Should().Be("ls/version");
+	}
+
 	[Fact]
 	public void Route_returns_null_for_root_help() => ArghParser.Route(["--help"]).Should().BeNull();
 }

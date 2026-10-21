@@ -164,6 +164,14 @@ public sealed partial class CliParserGenerator
 			}
 		}
 
+		var rootPositionals = rootCmd.Parameters.Where(static p => p.Kind == ParameterKind.Positional).ToList();
+		if (includeScopedDefaultHelpOptions && rootPositionals.Count > 0)
+		{
+			w.Line(HelpBlankLine);
+			w.Line(HelpSection("Arguments for this default:"));
+			EmitPositionalHelpRows(w, rootPositionals);
+		}
+
 		w.Line(HelpBlankLine);
 	}
 
@@ -305,7 +313,23 @@ public sealed partial class CliParserGenerator
 					}
 				}
 
-				w.Case("default", "return false;");
+				// The default command takes what the dispatcher gives it.
+				using (w.CaseBlock("default"))
+				{
+					if ((node.RootCommand ?? node.RootAlias) is { } defaultCommand)
+					{
+						if (DefaultCommandTakesTokenCondition(defaultCommand, "args[idx[0]]") is { } takesToken)
+						{
+							using (w.If(takesToken))
+								EmitRouteMatch(w, defaultCommand);
+							w.Return("false");
+						}
+						else
+							EmitRouteMatch(w, defaultCommand);
+					}
+					else
+						w.Return("false");
+				}
 			}
 		}
 
@@ -578,8 +602,18 @@ public sealed partial class CliParserGenerator
 	/// <summary>
 	/// How generated binding code reports a value it can't use: the statement that leaves (<c>return 2</c>, or
 	/// <c>return false</c> for a DTO parser), then the command's help printers and run hint, where it has them.
+	/// <paramref name="SourceNote"/> is a statement that follows the error, such as naming the environment variable a value came from.
 	/// </summary>
-	private sealed record ParseFailure(string Exit, string? HelpMethod = null, string? FlagHelpMethod = null, string? RunHint = null);
+	private sealed record ParseFailure(string Exit, string? HelpMethod = null, string? FlagHelpMethod = null, string? RunHint = null, string? SourceNote = null);
+
+	/// <summary>
+	/// <paramref name="failure"/> naming <paramref name="envVar"/> after an invalid value when <paramref name="fromEnvironment"/>
+	/// (a C# condition) says the value came from it; <paramref name="failure"/> itself without an environment variable.
+	/// </summary>
+	private static ParseFailure WithEnvironmentSource(ParseFailure failure, string? envVar, string fromEnvironment) =>
+		envVar is null
+			? failure
+			: failure with { SourceNote = $"if ({fromEnvironment}) Console.Error.WriteLine({Quote($"The value comes from the environment variable {envVar}.")});" };
 
 	/// <summary>After a CLI parse/validation error on stderr: optional flag rows (matching --help), then optional run hint.</summary>
 	private static void EmitAfterCliParseErrorHelp(CodeWriter w, ParameterModel p, ParseFailure failure)
@@ -602,6 +636,8 @@ public sealed partial class CliParserGenerator
 		using (w.If(condition))
 		{
 			w.Line(errorStatement);
+			if (failure.SourceNote is not null)
+				w.Line(failure.SourceNote);
 			EmitAfterCliParseErrorHelp(w, p, failure);
 			w.Line(failure.Exit + ";");
 		}
@@ -694,6 +730,31 @@ public sealed partial class CliParserGenerator
 			? (p.IsRequired ? $"<{p.CliLongName}...>" : $"[<{p.CliLongName}...>]")
 			: (p.IsRequired ? $"<{p.CliLongName}>" : $"[<{p.CliLongName}>]");
 
+	/// <summary>The rows of an arguments section, names padded to the longest.</summary>
+	private static void EmitPositionalHelpRows(CodeWriter w, IReadOnlyList<ParameterModel> positionals)
+	{
+		var maxArgWidth = Math.Min(positionals.Max(p => PositionalNameCell(p).Length), 40);
+		foreach (var p in positionals)
+		{
+			var nameCell = HelpNameCell("Placeholder", PositionalNameCell(p).PadRight(maxArgWidth));
+			w.Lines(HelpRowStatements("Out", nameCell, BuildDescriptionSuffix(p, forPositional: true), BuildValidationLine(p), null));
+		}
+	}
+
+	/// <summary>
+	/// The usage line of the app or a namespace (<paramref name="path"/>): <c>&lt;command&gt;</c>, and a second line for a
+	/// default command that takes positionals, which it gets when no command matches.
+	/// </summary>
+	private static void EmitScopeUsageLines(CodeWriter w, string entryAssemblyName, ImmutableArray<string> path, string commandTail, CommandModel? defaultCommand)
+	{
+		var prefix = path.IsDefaultOrEmpty ? "" : " " + string.Join(" ", path);
+		w.Line(HelpUsageLine(entryAssemblyName, prefix + commandTail));
+		if (defaultCommand is null || !defaultCommand.Parameters.Any(static p => p.Kind == ParameterKind.Positional))
+			return;
+		var indent = new string(' ', "Usage: ".Length);
+		w.Line($"Console.Out.WriteLine({Quote(indent)} + CliHelpFormatting.Accent({Quote(entryAssemblyName)}) + {Quote((prefix + " " + defaultCommand.UsageHints).TrimEnd())});");
+	}
+
 	private static void EmitCommandHelpPrinter(CodeWriter w, CommandModel cmd, AppEmitModel app, string entryAssemblyName)
 	{
 		if (cmd.IsRootDefault)
@@ -717,14 +778,8 @@ public sealed partial class CliParserGenerator
 
 			if (positionals.Count > 0)
 			{
-				var maxArgWidth = Math.Min(positionals.Max(p => PositionalNameCell(p).Length), 40);
 				w.Line(HelpSection("Arguments:"));
-				foreach (var p in positionals)
-				{
-					var nameCell = HelpNameCell("Placeholder", PositionalNameCell(p).PadRight(maxArgWidth));
-					w.Lines(HelpRowStatements("Out", nameCell, BuildDescriptionSuffix(p, forPositional: true), BuildValidationLine(p), null));
-				}
-
+				EmitPositionalHelpRows(w, positionals);
 				w.Line(HelpBlankLine);
 			}
 

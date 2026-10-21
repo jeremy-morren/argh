@@ -52,8 +52,11 @@ public sealed partial class CliParserGenerator
 		string? parseFailureRunHint = null;
 		if (!emitDtoTryParse && entryAssemblyName is not null && !string.IsNullOrEmpty(cmd.CommandName))
 		{
-			var routeForHint = cmd.RoutePrefix.IsDefaultOrEmpty ? "" : string.Join(" ", cmd.RoutePrefix) + " ";
-			parseFailureRunHint = $"Run '{Escape(entryAssemblyName)} {Escape(routeForHint)}{Escape(cmd.CommandName)} --help' for usage.";
+			// A default command's help is its scope's: the app's or the namespace's.
+			var helpPath = cmd.RoutePrefix.IsDefaultOrEmpty ? new List<string>() : cmd.RoutePrefix.ToList();
+			if (!cmd.IsRootDefault)
+				helpPath.Add(cmd.CommandName);
+			parseFailureRunHint = $"Run '{Escape(string.Join(" ", new[] { entryAssemblyName }.Concat(helpPath)))} --help' for usage.";
 		}
 
 		var failure = new ParseFailure(failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -101,13 +104,20 @@ public sealed partial class CliParserGenerator
 			EmitBoolSwitchNames(w, cmd);
 			EmitCanonFlagNameMethod(w, cmd);
 			EmitShortFlagMethods(w, cmd, multiFlagsAvailable: anyRepeatedCollection,
-				parseFailureRunHint: emitDtoTryParse ? null : parseFailureRunHint);
+				parseFailureRunHint: emitDtoTryParse ? null : parseFailureRunHint, emitValueCharPredicate: !(emitDtoTryParse && dtoLenient));
 			EmitKnownNonBoolFlagNames(w, cmd);
 			if (!emitDtoTryParse)
 				EmitCommandRunnerFuzzyFailHelper(w, cmd, flagHelpStdErrMethodName, parseFailureRunHint);
 			using (w.For("var i = 0; i < args.Length;"))
 			{
 				w.Line("var a = args[i];");
+				// After "--" every argument is positional, even one that starts with '-'.
+				using (w.If("a == \"--\""))
+				{
+					w.Line("for (i++; i < args.Length; i++) positionals.Add(args[i]);");
+					w.Line("break;");
+				}
+
 				// Help is a flag like any other: read in order, so it can be the value of a flag before it.
 				if (helpMethodName is not null)
 				{
@@ -248,7 +258,8 @@ public sealed partial class CliParserGenerator
 						}
 						else
 						{
-							using (w.If("i + 1 >= args.Length"))
+							// A value is missing only for a known option; an unknown one, such as -5, is reported as unknown.
+							using (w.If("i + 1 >= args.Length && IsShortValueChar(sc)"))
 							{
 								w.Line("Console.Error.WriteLine($\"Error: missing value for short flag '-{sc}'.\");");
 								if (helpMethodName is not null)
@@ -256,7 +267,7 @@ public sealed partial class CliParserGenerator
 								w.Line(exit);
 							}
 
-							w.If("!TryApplyShortFlag(sc, args[i + 1])", exit);
+							w.If("!TryApplyShortFlag(sc, i + 1 < args.Length ? args[i + 1] : \"\")", exit);
 							w.Line("i += 2;");
 							w.Line("continue;");
 						}
@@ -273,6 +284,8 @@ public sealed partial class CliParserGenerator
 			}
 
 			w.Line();
+			if (!(emitDtoTryParse && dtoLenient))
+				EmitUnexpectedPositionalCheck(w, cmd, failure);
 
 			foreach (var p in cmd.Parameters)
 			{
@@ -316,7 +329,7 @@ public sealed partial class CliParserGenerator
 						w.Line($"{text} = null;");
 				}
 
-				EmitParseAndAssign(w, p, text, p.LocalVarName, failure);
+				EmitParseAndAssign(w, p, text, p.LocalVarName, WithEnvironmentSource(failure, effectiveEnvVar, $"!flags.ContainsKey(\"{flagKey}\")"));
 			}
 
 			var posIndex = 0;
@@ -358,7 +371,8 @@ public sealed partial class CliParserGenerator
 					w.If(missing, $"{p.LocalVarName} = {p.DefaultValueLiteral ?? "default!"};");
 
 				using (w.Else())
-					EmitParseFromString(w, p, raw, p.LocalVarName, outVarKeyword: false, failure);
+					EmitParseFromString(w, p, raw, p.LocalVarName, outVarKeyword: false,
+						WithEnvironmentSource(failure, string.IsNullOrEmpty(p.EnvVarName) ? null : p.EnvVarName, $"positionals.Count <= {posIndex}"));
 
 				posIndex++;
 			}
@@ -373,6 +387,36 @@ public sealed partial class CliParserGenerator
 			}
 			else
 				EmitCommandInvocationTail(w, cmd, globalMiddleware, injectedOptions, failure, entryAssemblyName, environmentPrefix);
+		}
+
+		w.Line();
+	}
+
+	/// <summary>The error for an argument nothing takes, as clap words it, from the C# expression <paramref name="argExpr"/>.</summary>
+	private static string UnexpectedArgumentError(string argExpr) =>
+		$"Console.Error.WriteLine($\"Error: unexpected argument '{{{argExpr}}}' found.\");";
+
+	/// <summary>
+	/// Rejects positional arguments beyond the ones the command declares, as clap does; a variadic positional takes them all.
+	/// The error is followed by the run hint, or the help when there's no hint.
+	/// </summary>
+	private static void EmitUnexpectedPositionalCheck(CodeWriter w, CommandModel cmd, ParseFailure failure)
+	{
+		var declared = cmd.Parameters.Where(static p => p.Kind == ParameterKind.Positional).ToList();
+		if (declared.Any(static p => p.IsVariadic))
+			return;
+
+		using (w.If($"positionals.Count > {declared.Count}"))
+		{
+			w.Line(UnexpectedArgumentError($"positionals[{declared.Count}]"));
+			if (failure.RunHint is not null)
+			{
+				w.Line("Console.Error.WriteLine();");
+				w.Line(ErrorLine(failure.RunHint));
+			}
+			else if (failure.HelpMethod is not null)
+				w.Line($"{failure.HelpMethod}();");
+			w.Line(failure.Exit + ";");
 		}
 
 		w.Line();
@@ -891,7 +935,7 @@ public sealed partial class CliParserGenerator
 			EmitSwitchExpression(w, signature, "raw", cases.Select(static c => (Quote(c.from), Quote(c.to))), "raw");
 	}
 
-	private static void EmitShortFlagMethods(CodeWriter w, CommandModel cmd, bool multiFlagsAvailable = true, string? parseFailureRunHint = null)
+	private static void EmitShortFlagMethods(CodeWriter w, CommandModel cmd, bool multiFlagsAvailable = true, string? parseFailureRunHint = null, bool emitValueCharPredicate = false)
 	{
 		var shortCases = new List<(char c, string Primary, bool IsBool, bool IsRepeatableCollection)>();
 		foreach (var p in cmd.Parameters)
@@ -949,11 +993,18 @@ public sealed partial class CliParserGenerator
 			}
 		}
 
-		var boolChars = shortCases.Where(static x => x.IsBool).Select(static x => $"'{x.c}'").ToList();
-		if (boolChars.Count == 0)
-			w.Line("bool IsShortBoolChar(char c) => false;");
+		EmitShortCharPredicate(w, "IsShortBoolChar", shortCases.Where(static x => x.IsBool).Select(static x => x.c));
+		if (emitValueCharPredicate)
+			EmitShortCharPredicate(w, "IsShortValueChar", shortCases.Where(static x => !x.IsBool).Select(static x => x.c));
+	}
+
+	private static void EmitShortCharPredicate(CodeWriter w, string name, IEnumerable<char> chars)
+	{
+		var literals = chars.Select(static c => $"'{c}'").ToList();
+		if (literals.Count == 0)
+			w.Line($"bool {name}(char c) => false;");
 		else
-			EmitSwitchPredicate(w, "bool IsShortBoolChar(char c)", "c", boolChars);
+			EmitSwitchPredicate(w, $"bool {name}(char c)", "c", literals);
 	}
 
 	private static void EmitParseAndAssign(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, ParseFailure failure)

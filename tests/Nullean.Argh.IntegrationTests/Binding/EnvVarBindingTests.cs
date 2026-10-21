@@ -129,6 +129,29 @@ public class EnvVarBindingTests
 		CliHostRunner.StdoutText(result).Trim().Split('|')[13].Should().Be("3");
 	}
 
+	[Theory]
+	[InlineData("ARGH_TEST_QUOTA", "abc", "Error: invalid int for --quota: 'abc'.", "env-global")]
+	[InlineData("ARGH_TEST_QUOTA", "1,000", "Error: invalid int for --quota: '1,000'.", "numeric-ns", "show")]
+	[InlineData("ARGH_TEST_NS_SHARDS", "many", "Error: invalid int for --shards: 'many'.", "numeric-ns", "show")]
+	[InlineData("ARGH_TEST_POS_COUNT", "two", "Error: invalid int for <count>: 'two'.", "env-positional", "bob")]
+	public void Env_value_that_does_not_parse_exits_2_naming_the_variable(string variable, string value, string error, params string[] args)
+	{
+		var env = new Dictionary<string, string> { ["NO_COLOR"] = "1", [variable] = value };
+		var result = CliHostRunner.Run(env, args);
+		result.ExitCode.Should().Be(2);
+		var err = ConsoleOutput.Normalize(CliHostRunner.StderrText(result));
+		err.Should().StartWith($"{error}\nThe value comes from the environment variable {variable}.\n");
+	}
+
+	[Fact]
+	public void Env_value_that_does_not_parse_is_ignored_when_the_flag_is_given()
+	{
+		var env = new Dictionary<string, string> { ["ARGH_TEST_QUOTA"] = "abc" };
+		var result = CliHostRunner.Run(env, "env-global", "--quota", "3");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.Run(env, "--quota", "3", "env-global").ExitCode.Should().Be(0);
+	}
+
 	[Fact]
 	public void Env_on_global_option_null_when_neither_cli_nor_env()
 	{

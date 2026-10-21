@@ -43,6 +43,7 @@ public class RootAndNamespaceHelpTests
 			  billing         Billing commands
 			  bool-ns         Bool namespace options tests.
 			  env-ns          Env binding namespace options tests.
+			  ls              A default command that takes positionals.
 			  numeric-ns      Numeric defaults and limits as namespace options.
 			  parsable-ns     IParsable types as namespace options.
 			  scalars-ns      Special scalar types as namespace options.

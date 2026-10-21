@@ -72,6 +72,25 @@ public class GlobalOptionsAfterCommandTests
 		CliHostRunner.StdoutText(result).Trim().Should().Be("severity:Warning");
 	}
 
+	/// <summary>A global option after the command is checked like one before it: a value that doesn't parse fails.</summary>
+	[Theory]
+	[InlineData("Error: invalid value for --severity: 'bogus'.", "severity-cmd", "--severity", "bogus")]
+	[InlineData("Error: invalid value for --severity: '2'.", "severity-cmd", "--severity", "2")]
+	[InlineData("Error: invalid value for --severity: ''.", "severity-cmd", "--severity=")]
+	[InlineData("Error: invalid int for --quota: '1,000'.", "env-global", "--quota", "1,000")]
+	[InlineData("Error: invalid int for --quota: 'x'.", "env-global", "--quota", "1", "--quota", "x")]
+	[InlineData("Error: invalid decimal for --weight: '--verbose'.", "env-global", "--weight", "--verbose")]
+	[InlineData("Error: invalid value for --severity: 'bogus'.", "storage", "list", "--severity", "bogus")]
+	public void Invalid_global_option_after_the_command_exits_2(string error, params string[] args)
+	{
+		var result = CliHostRunner.Run(new Dictionary<string, string>(StringComparer.Ordinal) { ["NO_COLOR"] = "1" }, args);
+		result.ExitCode.Should().Be(2);
+		var err = ConsoleOutput.Normalize(CliHostRunner.StderrText(result));
+		err.Should().StartWith(error);
+		err.Should().NotContain("environment variable");
+		CliHostRunner.StdoutText(result).Should().NotContain("severity:").And.NotContain("env-global").And.NotContain("storage-list");
+	}
+
 	/// <summary>
 	/// Regression: global enum flag before the command name must still work (leading prefetch path).
 	/// </summary>
