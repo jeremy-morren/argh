@@ -17,7 +17,7 @@ Every `bugNN.cs` starts with a comment giving the exact command, the actual outp
 dotnet build bugs -c Release -p:DefineConstants=BUG10
 ```
 
-`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the two bugs that need DI. `bug31`, `bug32`, `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
+`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_CULTURE` (bug72) and `BUGS_RUN_TWICE` (bug77). `bug31`, `bug32`, `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
 
 ## Proposed issues
 
@@ -39,6 +39,14 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 19 | `[Env]` on a positional argument is shown in help but never read | `bug19.cs` |
 | 20 | `params string[]` is treated as required | `bug20.cs` |
 | 67 | A required namespace option is only accepted before the command | `bug67.cs` |
+| 71 | `float`, `double` and `decimal` accept thousands separators, so `1,5` parses as `15` | `bug71.cs` |
+| 72 | The trailing re-parse of global `int`/`long` is culture-sensitive, and trailing `double` disagrees with leading | `bug72.cs` |
+| 73 | A required `Uri` binds empty, whitespace and garbage values as relative URIs | `bug73.cs` |
+| 74 | `--help` anywhere in the arguments wins, so it can't be passed as a value | `bug74.cs` |
+| 75 | A repeated scalar flag silently takes the last value | `bug75.cs` |
+| 76 | A bare number is a `TimeSpan` in days, and the compact duration format is undocumented and incomplete | `bug76.cs` |
+| 81 | Combined short flags (`-vn foo`, `-nfoo`) are rejected, and the limitation isn't documented | `bug81.cs` |
+| 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | `bug83.cs` |
 
 ### Issue B: Generator: uncompilable output and missing diagnostics
 
@@ -49,9 +57,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 10 | An enum parameter with a non-zero default doesn't compile (open issue #75) | `bug10.cs` (build break, `#if BUG10`) |
 | 11 | `float`, `decimal`, `char`, `NaN` and `Infinity` defaults don't compile | `bug11.cs` (build break, `#if BUG11`) |
 | 12 | Unsupported scalar types are treated as `string` and don't compile, with no diagnostic | `bug12.cs` (build break, `#if BUG12`) |
-| 13 | Handler parameters named `args`, `flags`, `i`, `a`, `eq`, `ct` or `positionals` don't compile | `bug13.cs` (build break, `#if BUG13`) |
 | 14 | A command and a namespace with the same name don't compile, with no diagnostic | `bug14.cs` (build break, `#if BUG14`) |
-| 15 | Two flags whose C# local names collide don't compile, with no diagnostic | `bug15.cs` (build break, `#if BUG15`) |
 | 16 | A cross-assembly `[AsParameters]` DTO with `required` members doesn't compile | `bug16.cs` + `lib/bug16.cs` (build break, `#if BUG16`) |
 | 17 | A nullable enum parameter loses its nullability | `bug17.cs` |
 | 18 | Duplicate CLI names created by `<param>` overrides aren't diagnosed; both parameters bind | `bug18.cs` |
@@ -63,6 +69,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 61 | `[NamespaceSegment]` is silently ignored by `MapNamespace<T>("literal")`; AGH0018 never fires | `bug61.cs` |
 | 68 | A non-constant initializer on an options property doesn't make it optional | `bug68.cs` |
 | 70 | A positional `bool` parameter doesn't compile | `bug70.cs` (build break, `#if BUG70`) |
+| 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | `bug82.cs` (build break, `#if BUG82`) |
 
 ### Issue C: Runtime, dispatch and hosting
 
@@ -79,6 +86,10 @@ Registration, lambda dispatch, DI lifetimes, cancellation and error reporting.
 | 28 | Namespace-option parse errors always hint at root help | `bug28.cs` |
 | 29 | An unknown flag in a namespace without a root handler is reported as a command typo | `bug29.cs` |
 | 30 | ANSI colour on stderr is decided by whether stdout is redirected | `bug30.cs` |
+| 77 | The `Console.CancelKeyPress` handler is never removed and captures a disposed token source | `bug77.cs` |
+| 78 | Hosting suppresses logging for any run that has `--help` or `--version` anywhere in argv | `hosted/bug78.cs` |
+| 79 | Hosting's `Environment.Exit` skips `StopAsync` and disposal of other services | `hosted/bug79.cs` |
+| 80 | A base type's validator is skipped when the derived type has one | `bug80.cs` |
 
 ### Issue D: Help and XML docs
 
@@ -132,7 +143,7 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 66 (`Uri` and `Uri?` in one method) on `timeonly`, and the `allowed`/`denied` part of 35 on `enum-completion`. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, and the `allowed`/`denied` part of 35 on `enum-completion`. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 ## Summary
 
@@ -150,9 +161,7 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 10 | An enum parameter with a non-zero default doesn't compile (open issue #75) | Generator | Build break |
 | 11 | `float`, `decimal`, `char`, `NaN` and `Infinity` defaults don't compile | Generator | Build break |
 | 12 | Unsupported scalar types are treated as `string` and don't compile, with no diagnostic | Generator | Build break |
-| 13 | Handler parameters named `args`, `flags`, `i`, `a`, `eq`, `ct` or `positionals` don't compile | Generator | Build break |
 | 14 | A command and a namespace with the same name don't compile, with no diagnostic | Generator | Build break |
-| 15 | Two flags whose C# local names collide don't compile, with no diagnostic | Generator | Build break |
 | 16 | A cross-assembly `[AsParameters]` DTO with `required` members doesn't compile | Generator | Build break |
 | 17 | A nullable enum parameter loses its nullability | Generator | Wrong result |
 | 18 | Duplicate CLI names created by `<param>` overrides aren't diagnosed; both parameters bind | Generator | Wrong result |
@@ -205,6 +214,19 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 68 | A non-constant initializer on an options property doesn't make it optional | Generator | Wrong result |
 | 69 | Help pads columns by UTF-16 length, so CJK command names misalign | Help | Cosmetic |
 | 70 | A positional `bool` parameter doesn't compile | Generator | Build break |
+| 71 | `float`, `double` and `decimal` accept thousands separators, so `1,5` parses as `15` | Parsing | Wrong result |
+| 72 | The trailing re-parse of global `int`/`long` is culture-sensitive, and trailing `double` disagrees with leading | Parsing | Wrong result |
+| 73 | A required `Uri` binds empty, whitespace and garbage values as relative URIs | Parsing | Wrong result |
+| 74 | `--help` anywhere in the arguments wins, so it can't be passed as a value | Parsing | Wrong result |
+| 75 | A repeated scalar flag silently takes the last value | Parsing | Design |
+| 76 | A bare number is a `TimeSpan` in days, and the compact duration format is undocumented and incomplete | Parsing | Misleading |
+| 77 | The `Console.CancelKeyPress` handler is never removed and captures a disposed token source | Runtime | Crash |
+| 78 | Hosting suppresses logging for any run that has `--help` or `--version` anywhere in argv | Hosting | Wrong result |
+| 79 | Hosting's `Environment.Exit` skips `StopAsync` and disposal of other services | Hosting | Minor |
+| 80 | A base type's validator is skipped when the derived type has one | Runtime | Wrong result |
+| 81 | Combined short flags (`-vn foo`, `-nfoo`) are rejected, and the limitation isn't documented | Parsing | Minor |
+| 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | Generator | Wrong diagnostic |
+| 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | Parsing | Minor |
 
 ## Parsing and binding
 
@@ -254,7 +276,17 @@ Before the command the same flag is validated: `EXE --severity bogus severity-cm
 
 Cause: `Emit.Runner.cs:286-287` skips `OptionsInjected` parameters in `EmitParseAndAssign`. The re-parse in `Emit.Parsing.cs:484-490` uses `Enum.TryParse(txt, true, ...)`, which accepts integers and ignores `[EnumValue]` names, and a comment says it keeps the static fallback silently. `int` and `long` fall back silently the same way at `:439-444`.
 
-The same re-parse covers namespace options of every special type: `TimeSpan`, `DateTime`, `DateTimeOffset`, `DateOnly`, `Uri`, `FileInfo` and `DirectoryInfo`, plain and nullable. Reproduced with the `scalars-ns` fixture on the `timeonly` branch, where `P` holds the required options:
+The same re-parse covers global and namespace options of every type, not only enums, and it also swallows a missing value. With a global `int Port = 80`, `DateTime? When` and so on:
+
+```
+EXE glob --port 1,000       → port=80, exit 0        (leading: Error: invalid int for --port: '1,000')
+EXE glob --when bogus       → when=null, exit 0
+EXE glob --port 1 --port x  → port=80, exit 0        (the valid value is lost too)
+EXE glob --port --verbose   → port=80 and verbose=false: both lost
+REPRO_GPORT=1,000 EXE glob  → the environment value fails the same way
+```
+
+Cause for these: `Emit.Parsing.cs:436-470` is `TryParse(...) ? parsed : fallback` for every type. Namespace options of every special type too: `TimeSpan`, `DateTime`, `DateTimeOffset`, `DateOnly`, `Uri`, `FileInfo` and `DirectoryInfo`, plain and nullable. Reproduced with the `scalars-ns` fixture on the `timeonly` branch, where `P` holds the required options:
 
 ```
 EXE scalars-ns P --day-opt nope show   → Error: invalid DateOnly for --day-opt: 'nope'.   exit 2
@@ -372,6 +404,8 @@ Cause: `TryGetDefaultLiteral` in `src/Nullean.Argh.Generator/CliParserGenerator.
 
 Same cause as bug 10: `TryGetDefaultLiteral` drops the type suffix. `long.MinValue`, `1e-7`, and strings with quotes or braces are fine.
 
+Options-type properties have the same problem through a different path: `decimal Money { get; set; } = 1.25m`, `double Ratio = 0.5` and `float Scale = 0.5f` on a global options class generate `decimal money = 1.25;` and fail with CS0664. `TryFormatInitializerOperation` (`src/Nullean.Argh.Generator/CliParserGenerator.SymbolReaders.cs:403`) formats the literal's constant value without its `m`/`f` suffix, and `Emit.Runner.cs:387` emits it.
+
 ### 12. Unsupported scalar types are treated as `string` and don't compile
 
 A parameter of type `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`, `Guid`, or a user struct implementing `IParsable<T>` without `[ArgumentParser]`, produces dozens of CS0029/CS1503 errors, for example `string? b = 18446744073709551615;`.
@@ -379,16 +413,6 @@ A parameter of type `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`,
 Cause: `GetSimpleTypeName` in `ParameterModel.cs:910-951` falls through to `return "string"`, and `ClassifyScalar` (`:824`) has no "unsupported type" diagnostic.
 
 **Expected:** either support the type or report an Argh diagnostic naming the parameter and type. clap's derive macro fails at compile time with a message naming the type.
-
-### 13. Handler parameters named like generated locals don't compile
-
-```csharp
-static void Locals(string args) { }   // also: flags, positionals, i, ct, a, eq
-```
-
-Each alone fails: CS0128, CS0136 or CS0841, because the generated parse loop declares locals with those names (`Emit.Runner.cs:72, 85, 103, 111, 116`; `Emit.Parsing.cs:53, 127`).
-
-Cause: `SafeLocalName` in `ParameterModel.cs:998-1008` only escapes C# keywords. Prefixing user locals, or reserving these names, fixes it.
 
 ### 14. A command and a namespace with the same name don't compile
 
@@ -400,10 +424,6 @@ app.MapNamespace("storage", "ns", g => g.Map("x", H.Plain));
 Generated: `CS0152: duplicate case "storage"`. No diagnostic: AGH0027 (`Analysis.cs:475`) compares commands only with commands, and AGH0018 only covers segment conflicts from attributes or XML.
 
 **Expected (clap/cobra):** both reject duplicate subcommand names at build time (clap panics in debug asserts with the name; cobra's `AddCommand` doesn't check, but the second never routes). A diagnostic is the right answer here.
-
-### 15. Two flags whose C# local names collide don't compile
-
-Parameters `fooBar` and `foo_bar` have different CLI names (`--foo-bar`, `--foo_bar`) but both become the local `foo_bar`, giving CS0128.
 
 ### 16. A cross-assembly `[AsParameters]` DTO with `required` members doesn't compile
 
@@ -869,21 +889,127 @@ Cause: the positional binding path in `src/Nullean.Argh.Generator/CliParserGener
 
 **Expected (clap/cobra):** clap accepts a positional `bool` through `value_parser!(bool)` (`true`/`false`); cobra has no typed positionals. Either compile it or report a diagnostic.
 
-## Under investigation
+## Third pass: parsing and runtime
 
-Being checked in detail now; each will move up or be struck out:
+These started as suspicions and were confirmed with a repro app that has a global options class (`int Port = 80`, `long Big`, `double Ratio`, `float? Scale`, `decimal Money`, `DateTime? When`, `TimeSpan? Span`) and commands for each value type, in every binding path: method parameter, `[AsParameters]` DTO, environment variable, positional, and leading or trailing global.
 
-- `float`/`double`/`decimal` parse with `NumberStyles.Float | NumberStyles.AllowThousands`, so `1,5` may become `15` silently (`Emit.Runner.cs:1370, 1379, 1498, 1502`; `Emit.Parsing.cs:448, 452`).
-- The trailing re-parse of a global `int`/`long` uses the current culture (`Emit.Parsing.cs:439, 442`); every other path is invariant.
-- `uri-cmd --uri ""` binds an empty relative `Uri`; `Uri?` treats whitespace as null (`Emit.Runner.cs:1284`) while required `Uri` binds it (`:1302`).
-- `hello --name --help` shows help instead of binding (`Emit.Runner.cs:72-79` scans every argument for `--help`); with bug 7 a literal `--help` value can't be passed.
-- `hello --version` is an unknown option; `--version` only works before a command.
-- A repeated scalar flag silently takes the last value.
-- `temporal-cmd --duration 10` means 10 days (`TimeSpan.TryParse`), while `10s` means 10 seconds.
-- `Console.CancelKeyPress` handler is never removed and captures a disposed `cts` (`Emit.Dispatch.cs:333-335`).
-- `IsArghBuiltinIntrinsic` matches `--help`/`--version` anywhere in argv (`ArghApp.cs:170-173`), so `send --body --help` may fast-exit.
-- Hosting: `Environment.Exit` inside `StartAsync` skips `StopAsync` and disposal of other services.
-- `ArghValidation.Validate` stops at the first type in the hierarchy with a validator (`ArghValidation.cs:60-71`).
+### 71. `float`, `double` and `decimal` accept thousands separators
+
+```
+EXE num --f 1,5 --d 1,5 --m 1,5     → f=15 d=15 m=15     exit 0
+EXE num --f 1,5,5                   → 155
+EXE num --f 5,                      → 5
+```
+
+The same in every path: required, DTO, env var, positional, leading global. `int` rejects `1,000`, so the types disagree. Also accepted everywhere: `+5`, ` 5 `, and for `float`/`double` `1e3`, `NaN`, `Infinity`.
+
+Cause: `NumberStyles.Float | NumberStyles.AllowThousands` at `Emit.Runner.cs:1370, 1379` and the nullable variants at `:1498-1506`; `NumberStyles.Number` (which includes `AllowThousands`) for `decimal` at `:1388`; `Emit.Parsing.cs:448, 452, 454, 456`.
+
+**Expected (clap/cobra):** both reject `1,5`: Rust's `f64::from_str` and Go's `strconv.ParseFloat` take no thousands separators, and both are culture-independent.
+
+### 72. The trailing re-parse of global `int`/`long` is culture-sensitive
+
+With the current culture set to `sv-SE` and a U+2212 minus sign:
+
+```
+EXE glob --port −5     → port=-5                                   (trailing: current culture)
+EXE --port −5 glob     → Error: invalid int for --port: '-5'       (leading: invariant)
+```
+
+Also, trailing `double` uses `NumberStyles.Float` without `AllowThousands` while leading and `double?` allow it, so in `de-DE` `--ratio 1,5 glob` gives `15` and `glob --ratio 1,5` keeps the default. `DateTime` is invariant in every path.
+
+Cause: `Emit.Parsing.cs:439, 442` call `int.TryParse(txt, out ...)` with the current culture; `:446` for `double`.
+
+**Expected (clap/cobra):** culture-independent parsing in every position.
+
+### 73. A required `Uri` binds empty, whitespace and garbage values as relative URIs
+
+```
+EXE uri-req --u ""              → bound as an empty relative Uri, exit 0
+EXE uri-req --u "not a uri"     → bound, relative
+EXE uri-req --u "::"            → bound, relative
+EXE uri-opt --n ""              → null              (optional: whitespace is treated as absent)
+```
+
+The fixture's `uri-cmd --uri ""` then throws `InvalidOperationException: not supported for a relative URI` from the handler, exit 1. `[UriScheme]` rejects relative values, but an optional `[UriScheme]` parameter with `""` becomes null. The DTO path behaves the same.
+
+Cause: `Emit.Runner.cs:1284` has an `IsNullOrWhiteSpace` guard for the optional path only; `:1302` binds anything `Uri.TryCreate(..., UriKind.RelativeOrAbsolute)` accepts.
+
+**Expected (clap/cobra):** clap's `PathBufValueParser` rejects an empty value, and a `value_parser!(Url)` rejects a non-URL. Reject empty and whitespace; decide whether relative URIs are intended.
+
+### 74. `--help` anywhere in the arguments wins
+
+```
+EXE hello --name --help          → help, exit 0     (expected: name = "--help")
+EXE hello --name x -- --help     → help              (bug 7: `--` is no terminator)
+EXE hello --bogus --help         → help, no error
+EXE hello --name=--help          → binds             (the only way)
+EXE ns --bogus --help            → error             (namespaces don't pre-scan: inconsistent)
+```
+
+Cause: `Emit.Runner.cs:72-79` scans every argument for `--help`/`-h` before parsing.
+
+**Expected (clap/cobra):** both bind `--help` as the value of `--name` when it follows a value-taking flag, and everything after `--` is positional.
+
+### 75. A repeated scalar flag silently takes the last value
+
+```
+EXE hello --name a --name b     → b
+EXE hello -n a --name b         → b
+EXE --port 2 glob --port 1      → 1
+```
+
+The fixture's `deploy --app-env prod --app-port 1 --app-env dev` gives `deploy:dev:1`. No warning anywhere; the generator has no notion of "specified multiple times".
+
+**Expected (clap/cobra):** they differ. clap errors with `the argument '--name <NAME>' cannot be used multiple times` unless `ArgAction::Append` or `args_override_self` is set; pflag takes the last value silently. A design decision, but a deliberate one.
+
+### 76. A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete
+
+`ArghTimeSpan` (`src/Nullean.Argh.Core/ArghTimeSpan.cs`) accepts `10s`, `90m`, `1d`, `00:30`, `1:2` (1 h 2 min) and `1.00:00:00`, and rejects `1.5h`, `1h30m`, `-5m`, `10ms`, `1w`, `0.5s`, `+5s` and `PT10S`. A bare `10` falls back to `TimeSpan.TryParse`, which reads it as 10 days: `temporal-cmd --duration 10` → 864000 seconds. Help shows only `<timeSpan>`, and `docs/` never mentions the compact form.
+
+**Expected (clap/cobra):** Go's `time.ParseDuration` and Rust's `humantime` both reject a bare number and accept compound values such as `1h30m`, `1.5h`, `-5m` and `10ms`. Reject bare numbers (or document them), accept compound values, and document the format in help.
+
+### 77. The `Console.CancelKeyPress` handler is never removed and captures a disposed token source
+
+Generated code: `using var cts = ...; Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };` (`Emit.Dispatch.cs:333-335`). The handler stays registered after `RunAsync` returns, so a Ctrl+C after that, or during a second in-process `RunAsync`, calls `Cancel()` on a disposed source: `Unhandled exception. System.ObjectDisposedException: The CancellationTokenSource has been disposed`, exit `0xE0434352`. Observed by the repro agent with `GenerateConsoleCtrlEvent` after `RunAsync` returned, and in a second run where the stale handler fires first; not reproduced under a Bash or PowerShell pipe here, where no console event reaches the process.
+
+**Expected (clap/cobra):** n/a. Unregister the handler when the run ends.
+
+### 78. Hosting suppresses logging for any run that has `--help` or `--version` anywhere in argv
+
+`ReproHost send --body --version` runs the command (`send body=[--version]`), yet the host's "Hosting starting" debug line and the handler's `LogInformation` output are suppressed. `send --body hi` shows them.
+
+Cause: `IsArghBuiltinIntrinsic` uses `Array.Exists(args, a => a == "--help" || a == "--version")` (`src/Nullean.Argh.Core/ArghApp.cs:170-174`), consumed by `ArghHostingExtensions.cs:48, 104`.
+
+### 79. Hosting's `Environment.Exit` skips `StopAsync` and disposal of other services
+
+For a normal run and for `--help`: another hosted service's `StartAsync` runs, but its `StopAsync`, `IAsyncDisposable`/`IDisposable` singleton disposal, and `ApplicationStopping`/`ApplicationStopped` never happen; only `ProcessExit` fires. Cause: `ArghHostingCliService.cs:59` calls `Environment.Exit`. `docs/hosting/index.md:34` says the host doesn't continue, but not that shutdown is skipped (the XML remarks do).
+
+### 80. A base type's validator is skipped when the derived type has one
+
+With validators registered for `BaseDto` and `DerivedDto`, binding a `DerivedDto` runs only the derived validator: `val --level -1 --name x` passes although the base validator rejects `level < 0`. With only the base validator registered, it covers the derived type.
+
+Cause: `ArghValidation.cs:60-73` returns after the first type in the hierarchy that has a validator.
+
+### 81. Combined short flags are rejected, and the limitation isn't documented
+
+`-vn foo`, `-nfoo`, `-c1` and `-vv` all fail with `Error: combined short flags (e.g. -abc) are not supported.` followed by the full help. `-n=foo` works. `docs/` never states the limitation.
+
+**Expected (clap/cobra):** both accept `-vn foo` and `-nfoo`. Either support clustering or document that it isn't.
+
+### 82. AGH0003 fires when injected options precede an `[Argument]` parameter
+
+`Handler(Globals g, [Argument] string who)` fails with `AGH0003: Parameters marked with [Argument] must start at position 0 and be consecutive`, while `([Argument] string who, Globals g)` builds. The injected options are expanded as flags at their parameter position before the check in `Validation.cs:183-196` runs (`CommandModel.cs:70, 105`).
+
+### 83. Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position
+
+`HELLO` routes to `hello`, but `--NAME` is an unknown option. `-V` before the command gives `unknown short option '-V'`; after it, `missing value for short flag '-V'`, which is misleading.
+
+**Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
+
+### By design, after checking
+
+- `--version` only works at the root (`hello --version` is an unknown option). clap accepts `--version` only where it's defined, which is the root by default, and cobra reports `unknown flag`, so this matches both.
 
 Checked and refuted:
 

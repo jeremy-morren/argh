@@ -24,6 +24,9 @@ public class GlobalOpts
 
 	/// <summary>Severity (bug03).</summary>
 	public Severity Severity { get; set; } = Severity.Information;
+
+	/// <summary>Port (bug72, bug75).</summary>
+	public int Port { get; set; } = 80;
 }
 
 internal static class Registration
@@ -137,5 +140,20 @@ internal static class Registration
 		Bug67.Register(app);
 		Bug68.Register(app);
 		Bug69.Register(app);
+
+		// Third pass: parsing and runtime (bug78 and bug79 live in bugs/hosted)
+		Bug71.Register(app);
+		Bug72.Register(app);
+		Bug73.Register(app);
+		Bug74.Register(app);
+		Bug75.Register(app);
+		Bug76.Register(app);
+		Bug77.Register(app);
+		Bug80.Register(app);
+		Bug81.Register(app);
+#if BUG82
+		Bug82.Register(app);
+#endif
+		Bug83.Register(app);
 	}
 }
