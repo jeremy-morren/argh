@@ -30,7 +30,7 @@ public sealed partial class CliParserGenerator
 	}
 
 	private static void EmitCommandRunner(
-		StringBuilder sb,
+		CodeWriter w,
 		CommandModel cmd,
 		ImmutableArray<GlobalMiddlewareRegistration> globalMiddleware,
 		bool emitDtoTryParse = false,
@@ -56,367 +56,369 @@ public sealed partial class CliParserGenerator
 			parseFailureRunHint = $"Run '{Escape(entryAssemblyName)} {Escape(routeForHint)}{Escape(cmd.CommandName)} --help' for usage.";
 		}
 
+		var failure = new ParseFailure(failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		var exit = failureExit + ";";
+		string SetFlag(string value) => anyRepeatedCollection ? $"SetFlag(flagName, {value});" : $"flags[flagName] = {value};";
+		const string unknownLongOption = "Console.Error.WriteLine($\"Error: unknown option '--{flagName}'.\");";
+
+		string header;
 		if (emitDtoTryParse)
 		{
 			if (dtoMethodName is null || dtoResultTypeFq is null)
 				throw new InvalidOperationException("DTO try-parse requires method name and result type.");
-
-			sb.AppendLine($"\t\tinternal static bool {dtoMethodName}(string[] args, out {dtoResultTypeFq}? value)");
-			sb.AppendLine("\t\t{");
-			sb.AppendLine("\t\t\tvalue = null;");
+			header = $"internal static bool {dtoMethodName}(string[] args, out {dtoResultTypeFq}? value)";
 		}
 		else
-		{
-			sb.AppendLine($"\t\tprivate static async Task<int> {cmd.RunMethodName}(string[] args, CancellationToken ct)");
-			sb.AppendLine("\t\t{");
-			sb.AppendLine("\t\t\tfor (var i = 0; i < args.Length; i++)");
-			sb.AppendLine("\t\t\t{");
-			sb.AppendLine("\t\t\t\tif (args[i] == \"--help\" || args[i] == \"-h\")");
-			sb.AppendLine("\t\t\t\t{");
-			sb.AppendLine($"\t\t\t\t\t{helpMethodName}();");
-			sb.AppendLine("\t\t\t\t\treturn 0;");
-			sb.AppendLine("\t\t\t\t}");
-			sb.AppendLine("\t\t\t}");
-			sb.AppendLine();
-		}
+			header = $"private static async Task<int> {cmd.RunMethodName}(string[] args, CancellationToken ct)";
 
-		EmitCliValueDeclarations(sb, cmd, dtoOptionsTypeFq);
-
-		sb.AppendLine("\t\t\tvar flags = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
-		if (anyRepeatedCollection)
+		using (w.Block(header))
 		{
-			sb.AppendLine("\t\t\tvar multiFlags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);");
-			EmitIsMultiFlagPredicate(sb, cmd);
-			sb.AppendLine("\t\t\tvoid SetFlag(string name, string? value)");
-			sb.AppendLine("\t\t\t{");
-			sb.AppendLine("\t\t\t\tif (IsMultiFlag(name))");
-			sb.AppendLine("\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\tif (value is null) return;");
-			sb.AppendLine("\t\t\t\t\tif (!multiFlags.TryGetValue(name, out var list)) { list = new List<string>(); multiFlags[name] = list; }");
-			sb.AppendLine("\t\t\t\t\tlist.Add(value);");
-			sb.AppendLine("\t\t\t\t\treturn;");
-			sb.AppendLine("\t\t\t\t}");
-			sb.AppendLine("\t\t\t\tflags[name] = value;");
-			sb.AppendLine("\t\t\t}");
-		}
-
-		sb.AppendLine("\t\t\tvar positionals = new List<string>();");
-		EmitBoolSwitchNames(sb, cmd);
-		EmitCanonFlagNameMethod(sb, cmd);
-		EmitShortFlagMethods(sb, cmd, multiFlagsAvailable: anyRepeatedCollection,
-			parseFailureRunHint: emitDtoTryParse ? null : parseFailureRunHint);
-		EmitKnownNonBoolFlagNames(sb, cmd);
-		if (!emitDtoTryParse)
-			EmitCommandRunnerFuzzyFailHelper(sb, cmd, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine("\t\t\tfor (var i = 0; i < args.Length;)");
-		sb.AppendLine("\t\t\t{");
-		sb.AppendLine("\t\t\t\tvar a = args[i];");
-		sb.AppendLine("\t\t\t\tif (a.StartsWith(\"--\", StringComparison.Ordinal))");
-		sb.AppendLine("\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\tvar eq = a.IndexOf('=');");
-		sb.AppendLine("\t\t\t\t\tif (eq >= 0)");
-		sb.AppendLine("\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\tvar flagName = CanonFlagName(a.Substring(2, eq - 2));");
-		sb.AppendLine("\t\t\t\t\t\tvar flagValue = a.Substring(eq + 1);");
-		if (emitDtoTryParse && !dtoLenient)
-		{
-			sb.AppendLine("\t\t\t\t\t\tif (!IsBoolSwitchName(flagName) && !IsKnownNonBoolFlagName(flagName))");
-			sb.AppendLine("\t\t\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: unknown option '--{flagName}'.\");");
-			sb.AppendLine($"\t\t\t\t\t\t\t{failureExit};");
-			sb.AppendLine("\t\t\t\t\t\t}");
-		}
-		else if (!emitDtoTryParse)
-		{
-			sb.AppendLine("\t\t\t\t\t\tif (!IsBoolSwitchName(flagName) && !IsKnownNonBoolFlagName(flagName))");
-			sb.AppendLine("\t\t\t\t\t\t\treturn FailUnknownLongOption(flagName);");
-		}
-		if (anyRepeatedCollection)
-		{
-			sb.AppendLine("\t\t\t\t\t\tSetFlag(flagName, flagValue);");
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\t\t\tflags[flagName] = flagValue;");
-		}
-
-		sb.AppendLine("\t\t\t\t\t\ti++;");
-		sb.AppendLine("\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\telse");
-		sb.AppendLine("\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\tvar flagName = CanonFlagName(a.Substring(2));");
-		sb.AppendLine("\t\t\t\t\t\tif (IsBoolSwitchName(flagName))");
-		sb.AppendLine("\t\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\t\tflags[flagName] = IsBoolSwitchNoName(flagName) ? null : \"true\";");
-		sb.AppendLine("\t\t\t\t\t\t\ti++;");
-		sb.AppendLine("\t\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\t\telse");
-		sb.AppendLine("\t\t\t\t\t\t{");
-		if (emitDtoTryParse)
-		{
-			if (dtoLenient)
-			{
-				sb.AppendLine("\t\t\t\t\t\t\tif (!IsKnownNonBoolFlagName(flagName))");
-				sb.AppendLine("\t\t\t\t\t\t\t{");
-				sb.AppendLine("\t\t\t\t\t\t\t\tif (i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal))");
-				sb.AppendLine("\t\t\t\t\t\t\t\t\ti += 2;");
-				sb.AppendLine("\t\t\t\t\t\t\t\telse");
-				sb.AppendLine("\t\t\t\t\t\t\t\t\ti++;");
-				sb.AppendLine("\t\t\t\t\t\t\t\tcontinue;");
-				sb.AppendLine("\t\t\t\t\t\t\t}");
-			}
+			if (emitDtoTryParse)
+				w.Line("value = null;");
 			else
 			{
-				sb.AppendLine("\t\t\t\t\t\t\tif (!IsKnownNonBoolFlagName(flagName))");
-				sb.AppendLine("\t\t\t\t\t\t\t{");
-				sb.AppendLine("\t\t\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: unknown option '--{flagName}'.\");");
-				sb.AppendLine($"\t\t\t\t\t\t\t\t{failureExit};");
-				sb.AppendLine("\t\t\t\t\t\t\t}");
-			}
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\t\t\t\tif (!IsKnownNonBoolFlagName(flagName))");
-			sb.AppendLine("\t\t\t\t\t\t\t\treturn FailUnknownLongOption(flagName);");
-		}
-		sb.AppendLine("\t\t\t\t\t\t\tif (i + 1 >= args.Length)");
-		sb.AppendLine("\t\t\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: missing value for flag --{flagName}.\");");
-		if (flagHelpStdErrMethodName is not null)
-		{
-			sb.AppendLine("\t\t\t\t\t\t\t\tConsole.Error.WriteLine();");
-			sb.AppendLine($"\t\t\t\t\t\t\t\t{flagHelpStdErrMethodName}(flagName);");
-			sb.AppendLine("\t\t\t\t\t\t\t\tConsole.Error.WriteLine();");
-			if (parseFailureRunHint is not null)
-				sb.AppendLine($"\t\t\t\t\t\t\t\tConsole.Error.WriteLine(\"{parseFailureRunHint}\");");
-		}
-		else if (helpMethodName is not null)
-			sb.AppendLine($"\t\t\t\t\t\t\t\t{helpMethodName}();");
-		sb.AppendLine($"\t\t\t\t\t\t\t\t{failureExit};");
-		sb.AppendLine("\t\t\t\t\t\t\t}");
-		if (anyRepeatedCollection)
-		{
-			sb.AppendLine("\t\t\t\t\t\t\tSetFlag(flagName, args[i + 1]);");
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\t\t\t\tflags[flagName] = args[i + 1];");
-		}
-
-		sb.AppendLine("\t\t\t\t\t\t\ti += 2;");
-		sb.AppendLine("\t\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\tcontinue;");
-		sb.AppendLine("\t\t\t\t}");
-		sb.AppendLine("\t\t\t\tif (a.Length >= 2 && a[0] == '-' && a[1] != '-')");
-		sb.AppendLine("\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\tvar eqs = a.IndexOf('=');");
-		sb.AppendLine("\t\t\t\t\tif (eqs >= 0)");
-		sb.AppendLine("\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\tvar shortKey = a.Substring(1, eqs - 1);");
-		sb.AppendLine("\t\t\t\t\t\tif (shortKey.Length != 1)");
-		sb.AppendLine("\t\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\t\tConsole.Error.WriteLine(\"Error: short options must be a single letter (e.g. -e=value).\");");
-		if (helpMethodName is not null)
-			sb.AppendLine($"\t\t\t\t\t\t\t{helpMethodName}();");
-		sb.AppendLine($"\t\t\t\t\t\t\t{failureExit};");
-		sb.AppendLine("\t\t\t\t\t\t}");
-		if (emitDtoTryParse && dtoLenient)
-			sb.AppendLine("\t\t\t\t\t\tTryApplyShortFlag(shortKey[0], a.Substring(eqs + 1));");
-		else
-		{
-			sb.AppendLine("\t\t\t\t\t\tif (!TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1)))");
-			sb.AppendLine($"\t\t\t\t\t\t\t{failureExit};");
-		}
-		sb.AppendLine("\t\t\t\t\t\ti++;");
-		sb.AppendLine("\t\t\t\t\t\tcontinue;");
-		sb.AppendLine("\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\tif (a.Length == 2)");
-		sb.AppendLine("\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\tvar sc = a[1];");
-		sb.AppendLine("\t\t\t\t\t\tif (IsShortBoolChar(sc))");
-		sb.AppendLine("\t\t\t\t\t\t{");
-		sb.AppendLine("\t\t\t\t\t\t\tif (!TryApplyShortFlag(sc, \"true\"))");
-		sb.AppendLine($"\t\t\t\t\t\t\t\t{failureExit};");
-		sb.AppendLine("\t\t\t\t\t\t\ti++;");
-		sb.AppendLine("\t\t\t\t\t\t\tcontinue;");
-		sb.AppendLine("\t\t\t\t\t\t}");
-		if (emitDtoTryParse && dtoLenient)
-		{
-			// lenient: skip unknown value-taking short flags using same heuristic as long flags
-			sb.AppendLine("\t\t\t\t\t\tif (i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal))");
-			sb.AppendLine("\t\t\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\t\t\tTryApplyShortFlag(sc, args[i + 1]);");
-			sb.AppendLine("\t\t\t\t\t\t\ti += 2;");
-			sb.AppendLine("\t\t\t\t\t\t}");
-			sb.AppendLine("\t\t\t\t\t\telse");
-			sb.AppendLine("\t\t\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\t\t\tTryApplyShortFlag(sc, \"true\");");
-			sb.AppendLine("\t\t\t\t\t\t\ti++;");
-			sb.AppendLine("\t\t\t\t\t\t}");
-			sb.AppendLine("\t\t\t\t\t\tcontinue;");
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\t\t\tif (i + 1 >= args.Length)");
-			sb.AppendLine("\t\t\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: missing value for short flag '-{sc}'.\");");
-			if (helpMethodName is not null)
-				sb.AppendLine($"\t\t\t\t\t\t\t{helpMethodName}();");
-			sb.AppendLine($"\t\t\t\t\t\t\t{failureExit};");
-			sb.AppendLine("\t\t\t\t\t\t}");
-			sb.AppendLine("\t\t\t\t\t\tif (!TryApplyShortFlag(sc, args[i + 1]))");
-			sb.AppendLine($"\t\t\t\t\t\t\t{failureExit};");
-			sb.AppendLine("\t\t\t\t\t\ti += 2;");
-			sb.AppendLine("\t\t\t\t\t\tcontinue;");
-		}
-		sb.AppendLine("\t\t\t\t\t}");
-		sb.AppendLine("\t\t\t\t\tConsole.Error.WriteLine(\"Error: combined short flags (e.g. -abc) are not supported.\");");
-		if (helpMethodName is not null)
-			sb.AppendLine($"\t\t\t\t\t{helpMethodName}();");
-		sb.AppendLine($"\t\t\t\t\t{failureExit};");
-		sb.AppendLine("\t\t\t\t}");
-		sb.AppendLine("\t\t\t\tpositionals.Add(a);");
-		sb.AppendLine("\t\t\t\ti++;");
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine();
-
-		foreach (var p in cmd.Parameters)
-		{
-			if (p.Kind == ParameterKind.Injected || p.Kind == ParameterKind.OptionsInjected)
-				continue;
-
-			if (p.Kind == ParameterKind.Positional)
-				continue;
-
-			if (p.Special == BoolSpecialKind.Bool)
-			{
-				var boolEnvVar = ComputeEffectiveEnvVarName(p, environmentPrefix);
-				if (boolEnvVar != null)
+				using (w.For("var i = 0; i < args.Length; i++"))
 				{
-					sb.AppendLine($"\t\t\tvar {p.LocalVarName}EnvRaw = global::System.Environment.GetEnvironmentVariable(\"{Escape(boolEnvVar)}\");");
-					sb.AppendLine($"\t\t\tvar {p.LocalVarName} = flags.ContainsKey(\"{Escape(p.CliLongName)}\") || ({p.LocalVarName}EnvRaw != null && {p.LocalVarName}EnvRaw != \"0\" && {p.LocalVarName}EnvRaw != \"false\" && {p.LocalVarName}EnvRaw.Length > 0);");
+					using (w.If("args[i] == \"--help\" || args[i] == \"-h\""))
+					{
+						w.Line($"{helpMethodName}();");
+						w.Return("0");
+					}
 				}
-				else
-					sb.AppendLine($"\t\t\tvar {p.LocalVarName} = flags.ContainsKey(\"{Escape(p.CliLongName)}\");");
-				continue;
+
+				w.Line();
 			}
 
-			if (p.Special == BoolSpecialKind.NullableBool)
-			{
-				sb.AppendLine($"\t\t\tbool? {p.LocalVarName} = null;");
-				sb.AppendLine($"\t\t\tif (flags.TryGetValue(\"{Escape(p.CliLongName)}\", out var {p.LocalVarName}_yesVal))");
-				sb.AppendLine($"\t\t\t\t{p.LocalVarName} = ParseNullableBool({p.LocalVarName}_yesVal, true);");
-				sb.AppendLine($"\t\t\tif (flags.TryGetValue(\"no-{Escape(p.CliLongName)}\", out var {p.LocalVarName}_noVal))");
-				sb.AppendLine($"\t\t\t\t{p.LocalVarName} = ParseNullableBool({p.LocalVarName}_noVal, false);");
-				continue;
-			}
+			EmitCliValueDeclarations(w, cmd, dtoOptionsTypeFq);
 
-			if (p.IsCollection && p.Kind == ParameterKind.Flag)
+			w.Line("var flags = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
+			if (anyRepeatedCollection)
 			{
-				EmitBindCollectionParameter(sb, p, anyRepeatedCollection, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-				continue;
-			}
-
-			var flagKey = Escape(p.CliLongName);
-			var effectiveEnvVar = ComputeEffectiveEnvVarName(p, environmentPrefix);
-			sb.AppendLine($"\t\t\tif (!flags.TryGetValue(\"{flagKey}\", out var {p.LocalVarName}Text))");
-			sb.AppendLine("\t\t\t{");
-			if (effectiveEnvVar != null)
-			{
-				sb.AppendLine($"\t\t\t\tvar {p.LocalVarName}EnvVal = global::System.Environment.GetEnvironmentVariable(\"{Escape(effectiveEnvVar)}\");");
-				if (p.EnvTreatEmptyAsUnset)
-					sb.AppendLine($"\t\t\t\t{p.LocalVarName}Text = ({p.LocalVarName}EnvVal != null && {p.LocalVarName}EnvVal.Length > 0) ? {p.LocalVarName}EnvVal : null;");
-				else
-					sb.AppendLine($"\t\t\t\t{p.LocalVarName}Text = {p.LocalVarName}EnvVal;");
-			}
-			if (p.IsRequired)
-			{
-				if (effectiveEnvVar != null)
+				w.Line("var multiFlags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);");
+				EmitIsMultiFlagPredicate(w, cmd);
+				using (w.Block("void SetFlag(string name, string? value)"))
 				{
-					sb.AppendLine($"\t\t\t\tif ({p.LocalVarName}Text == null)");
-					sb.AppendLine("\t\t\t\t{");
-					sb.AppendLine($"\t\t\t\t\tConsole.Error.WriteLine($\"Error: missing required flag --{flagKey}.\");");
-					EmitAfterCliParseErrorHelp(sb, p, "\t\t\t\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-					sb.AppendLine($"\t\t\t\t\t{failureExit};");
-					sb.AppendLine("\t\t\t\t}");
-				}
-				else
-				{
-					sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine($\"Error: missing required flag --{flagKey}.\");");
-					EmitAfterCliParseErrorHelp(sb, p, "\t\t\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-					sb.AppendLine($"\t\t\t\t{failureExit};");
+					using (w.If("IsMultiFlag(name)"))
+					{
+						w.Line("if (value is null) return;");
+						w.Line("if (!multiFlags.TryGetValue(name, out var list)) { list = new List<string>(); multiFlags[name] = list; }");
+						w.Line("list.Add(value);");
+						w.Line("return;");
+					}
+
+					w.Line("flags[name] = value;");
 				}
 			}
-			else if (effectiveEnvVar == null)
-				sb.AppendLine($"\t\t\t\t{p.LocalVarName}Text = null;");
-			sb.AppendLine("\t\t\t}");
 
-			EmitParseAndAssign(sb, p, p.LocalVarName + "Text", p.LocalVarName, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		}
-
-		var posIndex = 0;
-		foreach (var p in cmd.Parameters)
-		{
-			if (p.Kind != ParameterKind.Positional)
-				continue;
-
-			if (p.IsVariadic)
+			w.Line("var positionals = new List<string>();");
+			EmitBoolSwitchNames(w, cmd);
+			EmitCanonFlagNameMethod(w, cmd);
+			EmitShortFlagMethods(w, cmd, multiFlagsAvailable: anyRepeatedCollection,
+				parseFailureRunHint: emitDtoTryParse ? null : parseFailureRunHint);
+			EmitKnownNonBoolFlagNames(w, cmd);
+			if (!emitDtoTryParse)
+				EmitCommandRunnerFuzzyFailHelper(w, cmd, flagHelpStdErrMethodName, parseFailureRunHint);
+			using (w.For("var i = 0; i < args.Length;"))
 			{
-				EmitVariadicPositionalParse(sb, p, posIndex, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+				w.Line("var a = args[i];");
+				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
+				{
+					w.Line("var eq = a.IndexOf('=');");
+					using (w.If("eq >= 0"))
+					{
+						w.Line("var flagName = CanonFlagName(a.Substring(2, eq - 2));");
+						w.Line("var flagValue = a.Substring(eq + 1);");
+						const string unknownFlag = "!IsBoolSwitchName(flagName) && !IsKnownNonBoolFlagName(flagName)";
+						if (emitDtoTryParse && !dtoLenient)
+						{
+							using (w.If(unknownFlag))
+							{
+								w.Line(unknownLongOption);
+								w.Line(exit);
+							}
+						}
+						else if (!emitDtoTryParse)
+							w.If(unknownFlag, "return FailUnknownLongOption(flagName);");
+
+						w.Line(SetFlag("flagValue"));
+						w.Line("i++;");
+					}
+
+					using (w.Else())
+					{
+						w.Line("var flagName = CanonFlagName(a.Substring(2));");
+						using (w.If("IsBoolSwitchName(flagName)"))
+						{
+							w.Line("flags[flagName] = IsBoolSwitchNoName(flagName) ? null : \"true\";");
+							w.Line("i++;");
+						}
+
+						using (w.Else())
+						{
+							if (emitDtoTryParse && dtoLenient)
+							{
+								using (w.If("!IsKnownNonBoolFlagName(flagName)"))
+								{
+									w.If("i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal)", "i += 2;");
+									w.Else("i++;");
+									w.Line("continue;");
+								}
+							}
+							else if (emitDtoTryParse)
+							{
+								using (w.If("!IsKnownNonBoolFlagName(flagName)"))
+								{
+									w.Line(unknownLongOption);
+									w.Line(exit);
+								}
+							}
+							else
+								w.If("!IsKnownNonBoolFlagName(flagName)", "return FailUnknownLongOption(flagName);");
+
+							using (w.If("i + 1 >= args.Length"))
+							{
+								w.Line("Console.Error.WriteLine($\"Error: missing value for flag --{flagName}.\");");
+								if (flagHelpStdErrMethodName is not null)
+								{
+									w.Line("Console.Error.WriteLine();");
+									w.Line($"{flagHelpStdErrMethodName}(flagName);");
+									w.Line("Console.Error.WriteLine();");
+									if (parseFailureRunHint is not null)
+										w.Line(ErrorLine(parseFailureRunHint));
+								}
+								else if (helpMethodName is not null)
+									w.Line($"{helpMethodName}();");
+								w.Line(exit);
+							}
+
+							w.Line(SetFlag("args[i + 1]"));
+							w.Line("i += 2;");
+						}
+					}
+
+					w.Line("continue;");
+				}
+
+				using (w.If("a.Length >= 2 && a[0] == '-' && a[1] != '-'"))
+				{
+					w.Line("var eqs = a.IndexOf('=');");
+					using (w.If("eqs >= 0"))
+					{
+						w.Line("var shortKey = a.Substring(1, eqs - 1);");
+						using (w.If("shortKey.Length != 1"))
+						{
+							w.Line("Console.Error.WriteLine(\"Error: short options must be a single letter (e.g. -e=value).\");");
+							if (helpMethodName is not null)
+								w.Line($"{helpMethodName}();");
+							w.Line(exit);
+						}
+
+						if (emitDtoTryParse && dtoLenient)
+							w.Line("TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1));");
+						else
+							w.If("!TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1))", exit);
+						w.Line("i++;");
+						w.Line("continue;");
+					}
+
+					using (w.If("a.Length == 2"))
+					{
+						w.Line("var sc = a[1];");
+						using (w.If("IsShortBoolChar(sc)"))
+						{
+							w.If("!TryApplyShortFlag(sc, \"true\")", exit);
+							w.Line("i++;");
+							w.Line("continue;");
+						}
+
+						if (emitDtoTryParse && dtoLenient)
+						{
+							// lenient: skip unknown value-taking short flags using same heuristic as long flags
+							using (w.If("i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal)"))
+							{
+								w.Line("TryApplyShortFlag(sc, args[i + 1]);");
+								w.Line("i += 2;");
+							}
+
+							using (w.Else())
+							{
+								w.Line("TryApplyShortFlag(sc, \"true\");");
+								w.Line("i++;");
+							}
+
+							w.Line("continue;");
+						}
+						else
+						{
+							using (w.If("i + 1 >= args.Length"))
+							{
+								w.Line("Console.Error.WriteLine($\"Error: missing value for short flag '-{sc}'.\");");
+								if (helpMethodName is not null)
+									w.Line($"{helpMethodName}();");
+								w.Line(exit);
+							}
+
+							w.If("!TryApplyShortFlag(sc, args[i + 1])", exit);
+							w.Line("i += 2;");
+							w.Line("continue;");
+						}
+					}
+
+					w.Line("Console.Error.WriteLine(\"Error: combined short flags (e.g. -abc) are not supported.\");");
+					if (helpMethodName is not null)
+						w.Line($"{helpMethodName}();");
+					w.Line(exit);
+				}
+
+				w.Line("positionals.Add(a);");
+				w.Line("i++;");
+			}
+
+			w.Line();
+
+			foreach (var p in cmd.Parameters)
+			{
+				if (p.Kind is ParameterKind.Injected or ParameterKind.OptionsInjected or ParameterKind.Positional)
+					continue;
+
+				if (p.Special == BoolSpecialKind.Bool)
+				{
+					if (ComputeEffectiveEnvVarName(p, environmentPrefix) is { } boolEnvVar)
+					{
+						var raw = p.LocalVarName + "EnvRaw";
+						w.Line($"var {raw} = global::System.Environment.GetEnvironmentVariable({Quote(boolEnvVar)});");
+						w.Line($"var {p.LocalVarName} = flags.ContainsKey({Quote(p.CliLongName)}) || ({raw} != null && {raw} != \"0\" && {raw} != \"false\" && {raw}.Length > 0);");
+					}
+					else
+						w.Line($"var {p.LocalVarName} = flags.ContainsKey({Quote(p.CliLongName)});");
+					continue;
+				}
+
+				if (p.Special == BoolSpecialKind.NullableBool)
+				{
+					w.Line($"bool? {p.LocalVarName} = null;");
+					EmitNullableBoolFromFlags(w, p, p.LocalVarName, "_yesVal", "_noVal");
+					continue;
+				}
+
+				if (p.IsCollection && p.Kind == ParameterKind.Flag)
+				{
+					EmitBindCollectionParameter(w, p, anyRepeatedCollection, failure);
+					continue;
+				}
+
+				var flagKey = Escape(p.CliLongName);
+				var text = p.LocalVarName + "Text";
+				var effectiveEnvVar = ComputeEffectiveEnvVarName(p, environmentPrefix);
+				var missingRequired = $"Console.Error.WriteLine($\"Error: missing required flag --{flagKey}.\");";
+				using (w.If($"!flags.TryGetValue(\"{flagKey}\", out var {text})"))
+				{
+					if (effectiveEnvVar != null)
+						EmitEnvironmentFallback(w, p, effectiveEnvVar, text, p.LocalVarName + "EnvVal");
+					if (p.IsRequired)
+					{
+						if (effectiveEnvVar != null)
+							EmitParseError(w, $"{text} == null", missingRequired, p, failure);
+						else
+						{
+							w.Line(missingRequired);
+							EmitAfterCliParseErrorHelp(w, p, failure);
+							w.Line(exit);
+						}
+					}
+					else if (effectiveEnvVar == null)
+						w.Line($"{text} = null;");
+				}
+
+				EmitParseAndAssign(w, p, text, p.LocalVarName, failure);
+			}
+
+			var posIndex = 0;
+			foreach (var p in cmd.Parameters)
+			{
+				if (p.Kind != ParameterKind.Positional)
+					continue;
+
+				if (p.IsVariadic)
+				{
+					EmitVariadicPositionalParse(w, p, posIndex, failure);
+					posIndex++;
+					continue;
+				}
+
+				if (p.IsRequired)
+				{
+					using (w.If($"positionals.Count <= {posIndex}"))
+					{
+						w.Line($"Console.Error.WriteLine(\"Error: missing required argument <{Escape(p.CliLongName)}>.\");");
+						if (helpMethodName is not null)
+							w.Line($"{helpMethodName}();");
+						w.Line(exit);
+					}
+				}
+				else
+					w.If($"positionals.Count <= {posIndex}", $"{p.LocalVarName} = {p.DefaultValueLiteral ?? "default!"};");
+
+				using (w.Else())
+					EmitParseFromString(w, p, $"positionals[{posIndex}]", p.LocalVarName, outVarKeyword: false, failure);
+
 				posIndex++;
-				continue;
 			}
 
-			if (p.IsRequired)
+			if (emitDtoTryParse)
 			{
-				sb.AppendLine($"\t\t\tif (positionals.Count <= {posIndex})");
-				sb.AppendLine("\t\t\t{");
-				sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: missing required argument <{Escape(p.CliLongName)}>.\");");
-				if (helpMethodName is not null)
-					sb.AppendLine($"\t\t\t\t{helpMethodName}();");
-				sb.AppendLine($"\t\t\t\t{failureExit};");
-				sb.AppendLine("\t\t\t}");
-				sb.AppendLine("\t\t\telse");
-				sb.AppendLine("\t\t\t{");
-				EmitParseFromString(sb, p, $"positionals[{posIndex}]", p.LocalVarName, indentExtra: "\t", failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
-				sb.AppendLine("\t\t\t}");
+				EmitValidationChecks(w, cmd, failureExit, entryAssemblyName: null);
+				if (dtoOptionsTypeFq is not null)
+					EmitOptionsDtoConstructionAndReturn(w, dtoOptionsTypeFq, cmd.Parameters, dtoOptionsBestCtorParamOrder);
+				else
+					EmitAsParametersConstructionForDto(w, cmd);
 			}
 			else
-			{
-				var fallback = p.DefaultValueLiteral ?? "default!";
-				sb.AppendLine($"\t\t\tif (positionals.Count <= {posIndex})");
-				sb.AppendLine($"\t\t\t\t{p.LocalVarName} = {fallback};");
-				sb.AppendLine("\t\t\telse");
-				sb.AppendLine("\t\t\t{");
-				EmitParseFromString(sb, p, $"positionals[{posIndex}]", p.LocalVarName, indentExtra: "\t", failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
-				sb.AppendLine("\t\t\t}");
-			}
-
-			posIndex++;
+				EmitCommandInvocationTail(w, cmd, globalMiddleware, injectedOptions, failureExit, entryAssemblyName, environmentPrefix, flagHelpStdErrMethodName, parseFailureRunHint);
 		}
 
-		if (emitDtoTryParse)
-		{
-			EmitValidationChecks(sb, cmd, failureExit, entryAssemblyName: null);
-			if (dtoOptionsTypeFq is not null)
-				EmitOptionsDtoConstructionAndReturn(sb, dtoOptionsTypeFq, cmd.Parameters, dtoOptionsBestCtorParamOrder);
-			else
-				EmitAsParametersConstructionForDto(sb, cmd);
+		w.Line();
+	}
 
-			sb.AppendLine("\t\t}");
-			sb.AppendLine();
-			return;
-		}
+	/// <summary>A <c>bool?</c> set from the <c>--name</c> and <c>--no-name</c> spellings of a nullable bool flag.</summary>
+	private static void EmitNullableBoolFromFlags(CodeWriter w, ParameterModel p, string target, string yesSuffix, string noSuffix)
+	{
+		w.If($"flags.TryGetValue({Quote(p.CliLongName)}, out var {target}{yesSuffix})", $"{target} = ParseNullableBool({target}{yesSuffix}, true);");
+		w.If($"flags.TryGetValue(\"no-{Escape(p.CliLongName)}\", out var {target}{noSuffix})", $"{target} = ParseNullableBool({target}{noSuffix}, false);");
+	}
 
-		EmitAsParametersConstruction(sb, cmd);
+	/// <summary>Reads the flag's environment variable into <paramref name="text"/> when the command line left it out.</summary>
+	private static void EmitEnvironmentFallback(CodeWriter w, ParameterModel p, string envVar, string text, string envValue)
+	{
+		w.Line($"var {envValue} = global::System.Environment.GetEnvironmentVariable({Quote(envVar)});");
+		w.Line(p.EnvTreatEmptyAsUnset
+			? $"{text} = ({envValue} != null && {envValue}.Length > 0) ? {envValue} : null;"
+			: $"{text} = {envValue};");
+	}
 
-		EmitValidationChecks(sb, cmd, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
+	/// <summary>
+	/// After binding: validation, the options locals, the handler instance, then the call, straight or through the
+	/// middleware pipeline.
+	/// </summary>
+	private static void EmitCommandInvocationTail(
+		CodeWriter w,
+		CommandModel cmd,
+		ImmutableArray<GlobalMiddlewareRegistration> globalMiddleware,
+		ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions,
+		string failureExit,
+		string? entryAssemblyName,
+		string? environmentPrefix,
+		string? flagHelpStdErrMethodName,
+		string? parseFailureRunHint)
+	{
+		EmitAsParametersConstruction(w, cmd);
+
+		EmitValidationChecks(w, cmd, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
 
 		// Reconstruct options instances merging command-level flags with pre-parsed statics.
-		EmitOptionsReconstructLocals(sb, injectedOptions, environmentPrefix);
-		EmitOptionsMemberValidation(sb, cmd, injectedOptions, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
-		EmitRegisteredValidation(sb, cmd, injectedOptions, failureExit, flagHelpStdErrMethodName, parseFailureRunHint);
+		EmitOptionsReconstructLocals(w, injectedOptions, environmentPrefix);
+		EmitOptionsMemberValidation(w, cmd, injectedOptions, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
+		EmitRegisteredValidation(w, cmd, injectedOptions, failureExit, flagHelpStdErrMethodName, parseFailureRunHint);
 
 		if (cmd.RequiresInstance)
 		{
@@ -446,85 +448,59 @@ public sealed partial class CliParserGenerator
 				}
 			}
 
-			if (optionsCtorArgs is not null)
-			{
-				sb.AppendLine(
-					$"\t\t\tvar __cmdHandler = (ArghServices.ServiceProvider?.GetService(typeof({cmd.ContainingTypeFq})) as {cmd.ContainingTypeFq}) ?? new {cmd.ContainingTypeFq}({optionsCtorArgs});");
-			}
-			else if (cmd.ContainingTypeHasParameterlessCtor)
-			{
-				sb.AppendLine(
-					$"\t\t\tvar __cmdHandler = (ArghServices.ServiceProvider?.GetService(typeof({cmd.ContainingTypeFq})) as {cmd.ContainingTypeFq}) ?? new {cmd.ContainingTypeFq}();");
-			}
-			else
-			{
-				sb.AppendLine(
-					$"\t\t\tvar __cmdHandler = (ArghServices.ServiceProvider?.GetService(typeof({cmd.ContainingTypeFq})) as {cmd.ContainingTypeFq}) ?? throw new global::System.InvalidOperationException(\"Register the command type in DI for hosted execution, or add a public parameterless constructor for standalone CLI.\");");
-			}
-
-			sb.AppendLine();
+			var fallback = optionsCtorArgs is not null ? $"new {cmd.ContainingTypeFq}({optionsCtorArgs})"
+				: cmd.ContainingTypeHasParameterlessCtor ? $"new {cmd.ContainingTypeFq}()"
+				: "throw new global::System.InvalidOperationException(\"Register the command type in DI for hosted execution, or add a public parameterless constructor for standalone CLI.\")";
+			w.Line($"var __cmdHandler = (ArghServices.ServiceProvider?.GetService(typeof({cmd.ContainingTypeFq})) as {cmd.ContainingTypeFq}) ?? {fallback};");
+			w.Line();
 		}
 
-		sb.AppendLine();
+		w.Line();
 		var useMiddleware = globalMiddleware.Length > 0 || cmd.CommandMiddlewareData.Length > 0;
 		if (!useMiddleware)
 		{
-			sb.Append("\t\t\t");
-			EmitInvocation(sb, cmd, injectedOptions: injectedOptions);
-			sb.AppendLine();
+			EmitInvocation(w, cmd, injectedOptions: injectedOptions);
+			return;
 		}
-		else
+
+		EmitCommandPathLiteral(w, cmd);
+		EmitCommandArguments(w, cmd, injectedOptions);
+		w.Line("var ctx = new CommandContext(commandPath, args, ct, __arguments);");
+		if (flagHelpStdErrMethodName is not null || parseFailureRunHint is not null)
 		{
-			EmitCommandPathLiteral(sb, cmd);
-			EmitCommandArguments(sb, cmd, injectedOptions);
-			sb.AppendLine("\t\t\tvar ctx = new CommandContext(commandPath, args, ct, __arguments);");
-			if (flagHelpStdErrMethodName is not null || parseFailureRunHint is not null)
+			using (w.Block("ctx.UsageFooter = __flag =>", ";"))
 			{
-				sb.AppendLine("\t\t\tctx.UsageFooter = __flag =>");
-				sb.AppendLine("\t\t\t{");
 				if (flagHelpStdErrMethodName is not null)
 				{
-					sb.AppendLine("\t\t\t\tif (__flag is not null)");
-					sb.AppendLine("\t\t\t\t{");
-					sb.AppendLine("\t\t\t\t\tConsole.Error.WriteLine();");
-					sb.AppendLine($"\t\t\t\t\t{flagHelpStdErrMethodName}(__flag);");
-					sb.AppendLine("\t\t\t\t\tConsole.Error.WriteLine();");
-					sb.AppendLine("\t\t\t\t}");
+					using (w.If("__flag is not null"))
+					{
+						w.Line("Console.Error.WriteLine();");
+						w.Line($"{flagHelpStdErrMethodName}(__flag);");
+						w.Line("Console.Error.WriteLine();");
+					}
 				}
 
 				if (parseFailureRunHint is not null)
-					sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"{parseFailureRunHint}\");");
-				sb.AppendLine("\t\t\t};");
+					w.Line(ErrorLine(parseFailureRunHint));
 			}
-
-			sb.AppendLine("\t\t\tCommandMiddlewareDelegate next = async c =>");
-			sb.AppendLine("\t\t\t{");
-			EmitInvocation(sb, cmd, "c.CancellationToken", "c", "\t\t\t\t", injectedOptions: injectedOptions);
-			sb.AppendLine("\t\t\t};");
-			var cap = 0;
-			for (var i = cmd.CommandMiddlewareData.Length - 1; i >= 0; i--)
-			{
-				var (fq, middlewareParamless) = cmd.CommandMiddlewareData[i];
-				var name = "__cap" + cap++;
-				sb.AppendLine($"\t\t\tvar {name} = next;");
-				sb.AppendLine($"\t\t\tnext = async c => await {DiResolveOrNew(fq, middlewareParamless)}.InvokeAsync(c, {name});");
-			}
-
-			for (var i = globalMiddleware.Length - 1; i >= 0; i--)
-			{
-				var gFq = globalMiddleware[i].TypeFq;
-				var gParamless = globalMiddleware[i].HasParameterlessCtor;
-				var name = "__cap" + cap++;
-				sb.AppendLine($"\t\t\tvar {name} = next;");
-				sb.AppendLine($"\t\t\tnext = async c => await {DiResolveOrNew(gFq, gParamless)}.InvokeAsync(c, {name});");
-			}
-
-			sb.AppendLine("\t\t\tawait next(ctx).ConfigureAwait(false);");
-			sb.AppendLine("\t\t\treturn ctx.ExitCode;");
 		}
 
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		using (w.Block("CommandMiddlewareDelegate next = async c =>", ";"))
+			EmitInvocation(w, cmd, "c.CancellationToken", "c", injectedOptions: injectedOptions);
+		var middleware = new List<(string TypeFq, bool HasParameterlessCtor)>();
+		for (var i = cmd.CommandMiddlewareData.Length - 1; i >= 0; i--)
+			middleware.Add(cmd.CommandMiddlewareData[i]);
+		for (var i = globalMiddleware.Length - 1; i >= 0; i--)
+			middleware.Add((globalMiddleware[i].TypeFq, globalMiddleware[i].HasParameterlessCtor));
+		for (var cap = 0; cap < middleware.Count; cap++)
+		{
+			var name = "__cap" + cap;
+			w.Line($"var {name} = next;");
+			w.Line($"next = async c => await {DiResolveOrNew(middleware[cap].TypeFq, middleware[cap].HasParameterlessCtor)}.InvokeAsync(c, {name});");
+		}
+
+		w.Line("await next(ctx).ConfigureAwait(false);");
+		w.Return("ctx.ExitCode");
 	}
 
 	/// <summary>The bound option objects a handler receives: [AsParameters] objects and injected options, each with its local variable and member-to-flag pairs.</summary>
@@ -562,73 +538,61 @@ public sealed partial class CliParserGenerator
 	}
 
 	/// <summary>Emits <c>__arguments</c>: the bound objects with their member-to-flag map, for <c>CommandContext.Arguments</c>.</summary>
-	private static void EmitCommandArguments(StringBuilder sb, CommandModel cmd, ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions)
+	private static void EmitCommandArguments(CodeWriter w, CommandModel cmd, ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions)
 	{
-		sb.AppendLine("\t\t\tvar __arguments = new global::System.Collections.Generic.List<CommandArgument>();");
+		w.Line("var __arguments = new global::System.Collections.Generic.List<CommandArgument>();");
 		foreach (var (name, varName, flags) in EnumerateBoundObjects(cmd, injectedOptions))
-			sb.AppendLine($"\t\t\t__arguments.Add(new CommandArgument(\"{Escape(name)}\", {varName}, {MemberFlagsLiteral(flags)}));");
+			w.Line($"__arguments.Add(new CommandArgument({Quote(name)}, {varName}, {MemberFlagsLiteral(flags)}));");
 	}
 
 	/// <summary>Runs registered <c>ArghValidation</c> validators over each bound object; on failure prints the flag's help rows and the run hint, then exits like a built-in check.</summary>
-	private static void EmitRegisteredValidation(StringBuilder sb, CommandModel cmd, ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions, string failureExit, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitRegisteredValidation(CodeWriter w, CommandModel cmd, ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions, string failureExit, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var bound = EnumerateBoundObjects(cmd, injectedOptions);
 		if (bound.Count == 0)
 			return;
-		sb.AppendLine("\t\t\tif (global::Nullean.Argh.Validation.ArghValidation.HasValidators)");
-		sb.AppendLine("\t\t\t{");
-		sb.AppendLine("\t\t\t\tstring? __badFlag = null;");
-		sb.AppendLine("\t\t\t\tvar __valid = true;");
-		foreach (var (_, varName, flags) in bound)
+		using (w.If("global::Nullean.Argh.Validation.ArghValidation.HasValidators"))
 		{
-			sb.AppendLine($"\t\t\t\t__valid &= global::Nullean.Argh.Validation.ArghValidation.Validate({varName}, {MemberFlagsLiteral(flags)}, out var __f_{varName});");
-			sb.AppendLine($"\t\t\t\t__badFlag ??= __f_{varName};");
+			w.Line("string? __badFlag = null;");
+			w.Line("var __valid = true;");
+			foreach (var (_, varName, flags) in bound)
+			{
+				w.Line($"__valid &= global::Nullean.Argh.Validation.ArghValidation.Validate({varName}, {MemberFlagsLiteral(flags)}, out var __f_{varName});");
+				w.Line($"__badFlag ??= __f_{varName};");
+			}
+
+			using (w.If("!__valid"))
+			{
+				if (flagHelpStdErrMethodName is not null)
+				{
+					using (w.If("__badFlag is not null"))
+					{
+						w.Line("Console.Error.WriteLine();");
+						w.Line($"{flagHelpStdErrMethodName}(__badFlag);");
+						w.Line("Console.Error.WriteLine();");
+					}
+				}
+
+				if (parseFailureRunHint is not null)
+					w.Line(ErrorLine(parseFailureRunHint));
+				w.Line(failureExit + ";");
+			}
 		}
 
-		sb.AppendLine("\t\t\t\tif (!__valid)");
-		sb.AppendLine("\t\t\t\t{");
-		if (flagHelpStdErrMethodName is not null)
-		{
-			sb.AppendLine("\t\t\t\t\tif (__badFlag is not null)");
-			sb.AppendLine("\t\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\t\tConsole.Error.WriteLine();");
-			sb.AppendLine($"\t\t\t\t\t\t{flagHelpStdErrMethodName}(__badFlag);");
-			sb.AppendLine("\t\t\t\t\t\tConsole.Error.WriteLine();");
-			sb.AppendLine("\t\t\t\t\t}");
-		}
-
-		if (parseFailureRunHint is not null)
-			sb.AppendLine($"\t\t\t\t\tConsole.Error.WriteLine(\"{parseFailureRunHint}\");");
-		sb.AppendLine($"\t\t\t\t\t{failureExit};");
-		sb.AppendLine("\t\t\t\t}");
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine();
+		w.Line();
 	}
 
-	private static void EmitCommandPathLiteral(StringBuilder sb, CommandModel cmd)
-	{
-		sb.Append("\t\t\tvar commandPath = new string[] { ");
-		for (var i = 0; i < cmd.RoutePrefix.Length; i++)
-		{
-			if (i > 0)
-				sb.Append(", ");
-			sb.Append('"').Append(Escape(cmd.RoutePrefix[i])).Append('"');
-		}
+	private static void EmitCommandPathLiteral(CodeWriter w, CommandModel cmd) =>
+		w.Line($"var commandPath = {InlineStringArray(cmd.RoutePrefix.Append(cmd.CommandName))};");
 
-		if (cmd.RoutePrefix.Length > 0)
-			sb.Append(", ");
-		sb.Append('"').Append(Escape(cmd.CommandName)).Append('"');
-		sb.AppendLine(" };");
-	}
-
-	private static void EmitCliValueDeclarations(StringBuilder sb, CommandModel cmd, string? rtDefaultTypeFq = null)
+	private static void EmitCliValueDeclarations(CodeWriter w, CommandModel cmd, string? rtDefaultTypeFq = null)
 	{
 		// For cross-assembly options types, seed non-nullable properties from a runtime instance.
 		// rtDefaultTypeFq covers UseGlobalOptions / UseNamespaceOptions DTO paths.
 		// AsParametersTypeFq covers [AsParameters] init-property paths from cross-assembly types.
 		var hasRtDefaults = rtDefaultTypeFq is not null && cmd.Parameters.Any(static p => p.UsesRuntimeDefault);
 		if (hasRtDefaults)
-			sb.AppendLine($"\t\t\tvar __rt_default = new {rtDefaultTypeFq}();");
+			w.Line($"var __rt_default = new {rtDefaultTypeFq}();");
 
 		// Emit one runtime-default instance per unique cross-assembly [AsParameters] type.
 		var asParamsRtTypes = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -640,7 +604,7 @@ public sealed partial class CliParserGenerator
 				continue;
 			var suffix = DtoMethodSuffix(p.AsParametersTypeFq);
 			asParamsRtTypes[p.AsParametersTypeFq] = suffix;
-			sb.AppendLine($"\t\t\tvar __rt_default_{suffix} = new {p.AsParametersTypeFq}();");
+			w.Line($"var __rt_default_{suffix} = new {p.AsParametersTypeFq}();");
 		}
 
 		foreach (var p in cmd.Parameters)
@@ -653,12 +617,10 @@ public sealed partial class CliParserGenerator
 
 			if (p.IsCollection && p.Kind == ParameterKind.Flag)
 			{
-				var elemFq = GetElementCSharpFq(p);
 				var accType = p.CollectionTargetIsReadOnlySet
 					? "global::System.Collections.Generic.HashSet"
 					: "global::System.Collections.Generic.List";
-				sb.AppendLine(
-					$"\t\t\tvar {p.LocalVarName}_acc = new {accType}<{elemFq}>();");
+				w.Line($"var {p.LocalVarName}_acc = new {accType}<{GetElementCSharpFq(p)}>();");
 				continue;
 			}
 
@@ -675,7 +637,7 @@ public sealed partial class CliParserGenerator
 			else
 				initializer = GetCliInitializer(p);
 
-			sb.AppendLine($"\t\t\t{GetCSharpCliType(p)} {p.LocalVarName} = {initializer};");
+			w.Line($"{GetCSharpCliType(p)} {p.LocalVarName} = {initializer};");
 		}
 	}
 
@@ -737,59 +699,38 @@ public sealed partial class CliParserGenerator
 			IsRequired = true
 		};
 
-	private static void EmitVariadicPositionalParse(
-		StringBuilder sb,
-		ParameterModel p,
-		int startIndex,
-		string failureExit,
-		string? helpMethodName,
-		string? flagHelpStdErrMethodName,
-		string? parseFailureRunHint)
+	private static void EmitVariadicPositionalParse(CodeWriter w, ParameterModel p, int startIndex, ParseFailure failure)
 	{
-		var argName = Escape(p.CliLongName);
 		var countVar = ParamTemp(p, "varCount");
 		var arrVar = ParamTemp(p, "arr");
+		var vi = ParamTemp(p, "vi");
 		var elemModel = ForElementParsing(p);
-		var elemCsharpType = GetCSharpCliType(elemModel);
 
 		// For [Argument] params T[] with no [MinLength], zero items is valid (C# params convention).
 		// If the user added [MinLength(n)], CollectionCountConstraint validation below enforces at-least-n.
 		// However if IsRequired is true (non-nullable, no default), we require at least 1.
 		if (p.IsRequired)
 		{
-			sb.AppendLine($"\t\t\tif (positionals.Count <= {startIndex})");
-			sb.AppendLine("\t\t\t{");
-			sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: missing required argument <{argName}...>.\");");
-			if (helpMethodName is not null)
-				sb.AppendLine($"\t\t\t\t{helpMethodName}();");
-			sb.AppendLine($"\t\t\t\t{failureExit};");
-			sb.AppendLine("\t\t\t}");
+			using (w.If($"positionals.Count <= {startIndex}"))
+			{
+				w.Line($"Console.Error.WriteLine(\"Error: missing required argument <{Escape(p.CliLongName)}...>.\");");
+				if (failure.HelpMethod is not null)
+					w.Line($"{failure.HelpMethod}();");
+				w.Line(failure.Exit + ";");
+			}
 		}
 
-		sb.AppendLine($"\t\t\tvar {countVar} = positionals.Count > {startIndex} ? positionals.Count - {startIndex} : 0;");
-		sb.AppendLine($"\t\t\tvar {arrVar} = new {elemCsharpType}[{countVar}];");
-		sb.AppendLine($"\t\t\tfor (var {ParamTemp(p, "vi")} = 0; {ParamTemp(p, "vi")} < {countVar}; {ParamTemp(p, "vi")}++)");
-		sb.AppendLine("\t\t\t{");
-
-		if (p.ElementScalarKind == CliScalarKind.Primitive && p.ElementTypeName == "string")
+		w.Line($"var {countVar} = positionals.Count > {startIndex} ? positionals.Count - {startIndex} : 0;");
+		w.Line($"var {arrVar} = new {GetCSharpCliType(elemModel)}[{countVar}];");
+		using (w.For($"var {vi} = 0; {vi} < {countVar}; {vi}++"))
 		{
-			sb.AppendLine($"\t\t\t\t{arrVar}[{ParamTemp(p, "vi")}] = positionals[{startIndex} + {ParamTemp(p, "vi")}];");
-		}
-		else
-		{
-			EmitParseFromString(sb, elemModel,
-				$"positionals[{startIndex} + {ParamTemp(p, "vi")}]",
-				$"{arrVar}[{ParamTemp(p, "vi")}]",
-				indentExtra: "\t",
-				outVarKeyword: false,
-				failureExit: failureExit,
-				helpMethodName: helpMethodName,
-				flagHelpStdErrMethodName: flagHelpStdErrMethodName,
-				parseFailureRunHint: parseFailureRunHint);
+			if (p.ElementScalarKind == CliScalarKind.Primitive && p.ElementTypeName == "string")
+				w.Line($"{arrVar}[{vi}] = positionals[{startIndex} + {vi}];");
+			else
+				EmitParseFromString(w, elemModel, $"positionals[{startIndex} + {vi}]", $"{arrVar}[{vi}]", outVarKeyword: false, failure);
 		}
 
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine($"\t\t\t{p.LocalVarName} = {arrVar};");
+		w.Line($"{p.LocalVarName} = {arrVar};");
 	}
 
 	private static string GetCSharpCliType(ParameterModel p)
@@ -887,66 +828,29 @@ public sealed partial class CliParserGenerator
 	private static bool IsEmittedFlagLike(ParameterKind kind) =>
 		kind is ParameterKind.Flag or ParameterKind.OptionsInjected;
 
-	private static void EmitBoolSwitchNames(StringBuilder sb, CommandModel cmd, bool suppressNoNameHelper = false)
+	private static void EmitBoolSwitchNames(CodeWriter w, CommandModel cmd, bool suppressNoNameHelper = false)
 	{
-		var names = new List<string>();
-		var noNames = new List<string>();
+		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var noNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var p in cmd.Parameters)
 		{
 			if (!IsEmittedFlagLike(p.Kind))
 				continue;
-			if (p.Special == BoolSpecialKind.Bool)
+			if (p.Special is BoolSpecialKind.Bool or BoolSpecialKind.NullableBool)
 				names.Add(p.CliLongName);
 			if (p.Special == BoolSpecialKind.NullableBool)
 			{
-				names.Add(p.CliLongName);
+				names.Add("no-" + p.CliLongName);
 				noNames.Add("no-" + p.CliLongName);
 			}
 		}
 
-		if (names.Count == 0 && noNames.Count == 0)
-		{
-			sb.AppendLine("\t\t\tbool IsBoolSwitchName(string name) => false;");
-			if (!suppressNoNameHelper)
-				sb.AppendLine("\t\t\tbool IsBoolSwitchNoName(string name) => false;");
-			return;
-		}
-
-		var boolSwitchNameCases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var n in names)
-			boolSwitchNameCases.Add(n);
-		foreach (var n in noNames)
-			boolSwitchNameCases.Add(n);
-
-		sb.AppendLine("\t\t\tbool IsBoolSwitchName(string name) => name switch");
-		sb.AppendLine("\t\t\t{");
-		foreach (var n in boolSwitchNameCases.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))
-			sb.AppendLine($"\t\t\t\t\"{Escape(n)}\" => true,");
-
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
-
-		if (suppressNoNameHelper)
-			return;
-		if (noNames.Count == 0)
-		{
-			sb.AppendLine("\t\t\tbool IsBoolSwitchNoName(string name) => false;");
-		}
-		else
-		{
-			var noNameCases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var n in noNames)
-				noNameCases.Add(n);
-			sb.AppendLine("\t\t\tbool IsBoolSwitchNoName(string name) => name switch");
-			sb.AppendLine("\t\t\t{");
-			foreach (var n in noNameCases.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))
-				sb.AppendLine($"\t\t\t\t\"{Escape(n)}\" => true,");
-			sb.AppendLine("\t\t\t\t_ => false");
-			sb.AppendLine("\t\t\t};");
-		}
+		EmitNamePredicate(w, "bool IsBoolSwitchName(string name)", names);
+		if (!suppressNoNameHelper)
+			EmitNamePredicate(w, "bool IsBoolSwitchNoName(string name)", noNames);
 	}
 
-	private static void EmitKnownNonBoolFlagNames(StringBuilder sb, CommandModel cmd)
+	private static void EmitKnownNonBoolFlagNames(CodeWriter w, CommandModel cmd)
 	{
 		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var p in cmd.Parameters)
@@ -960,21 +864,10 @@ public sealed partial class CliParserGenerator
 				names.Add(al);
 		}
 
-		if (names.Count == 0)
-		{
-			sb.AppendLine("\t\t\tbool IsKnownNonBoolFlagName(string name) => false;");
-			return;
-		}
-
-		sb.AppendLine("\t\t\tbool IsKnownNonBoolFlagName(string name) => name switch");
-		sb.AppendLine("\t\t\t{");
-		foreach (var n in names.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))
-			sb.AppendLine($"\t\t\t\t\"{Escape(n)}\" => true,");
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
+		EmitNamePredicate(w, "bool IsKnownNonBoolFlagName(string name)", names);
 	}
 
-	private static void EmitCanonFlagNameMethod(StringBuilder sb, CommandModel cmd)
+	private static void EmitCanonFlagNameMethod(CodeWriter w, CommandModel cmd)
 	{
 		var cases = new List<(string from, string to)>();
 		foreach (var p in cmd.Parameters)
@@ -999,22 +892,14 @@ public sealed partial class CliParserGenerator
 			}
 		}
 
+		const string signature = "string CanonFlagName(string raw)";
 		if (cases.Count == 0)
-		{
-			sb.AppendLine("\t\t\tstring CanonFlagName(string raw) => raw;");
-			return;
-		}
-
-		sb.AppendLine("\t\t\tstring CanonFlagName(string raw) => raw switch");
-		sb.AppendLine("\t\t\t{");
-		foreach ((var from, var to) in cases)
-			sb.AppendLine($"\t\t\t\t\"{Escape(from)}\" => \"{Escape(to)}\",");
-
-		sb.AppendLine("\t\t\t\t_ => raw");
-		sb.AppendLine("\t\t\t};");
+			w.Line(signature + " => raw;");
+		else
+			EmitSwitchExpression(w, signature, "raw", cases.Select(static c => (Quote(c.from), Quote(c.to))), "raw");
 	}
 
-	private static void EmitShortFlagMethods(StringBuilder sb, CommandModel cmd, bool multiFlagsAvailable = true, string? parseFailureRunHint = null)
+	private static void EmitShortFlagMethods(CodeWriter w, CommandModel cmd, bool multiFlagsAvailable = true, string? parseFailureRunHint = null)
 	{
 		var shortCases = new List<(char c, string Primary, bool IsBool, bool IsRepeatableCollection)>();
 		foreach (var p in cmd.Parameters)
@@ -1028,309 +913,184 @@ public sealed partial class CliParserGenerator
 			shortCases.Add((ch, p.CliLongName, p.Special == BoolSpecialKind.Bool, isRepeatableCollection));
 		}
 
-		if (shortCases.Count == 0)
+		void UnknownShortOption()
 		{
-			sb.AppendLine("\t\t\tbool TryApplyShortFlag(char c, string val)");
-			sb.AppendLine("\t\t\t{");
-			sb.AppendLine("\t\t\t\tConsole.Error.WriteLine($\"Error: unknown short option '-{c}'.\");");
+			w.Line("Console.Error.WriteLine($\"Error: unknown short option '-{c}'.\");");
 			if (parseFailureRunHint is not null)
 			{
-				sb.AppendLine("\t\t\t\tConsole.Error.WriteLine();");
-				sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"{Escape(parseFailureRunHint)}\");");
+				w.Line("Console.Error.WriteLine();");
+				w.Line($"Console.Error.WriteLine({Quote(parseFailureRunHint)});");
 			}
-			sb.AppendLine("\t\t\t\treturn false;");
-			sb.AppendLine("\t\t\t}");
-			sb.AppendLine("\t\t\tbool IsShortBoolChar(char c) => false;");
-			return;
+
+			w.Return("false");
 		}
 
-		sb.AppendLine("\t\t\tbool TryApplyShortFlag(char c, string val)");
-		sb.AppendLine("\t\t\t{");
-		sb.AppendLine("\t\t\t\tswitch (c)");
-		sb.AppendLine("\t\t\t\t{");
-		foreach ((var c, var primary, _, var isRepeatableCol) in shortCases)
+		using (w.Block("bool TryApplyShortFlag(char c, string val)"))
 		{
-			var esc = Escape(primary);
-			sb.AppendLine($"\t\t\t\t\tcase '{c}':");
-			if (isRepeatableCol)
-			{
-				// Repeatable flag: append to multiFlags so short opt and long opt collect into the same list.
-				sb.AppendLine($"\t\t\t\t\t\tif (!multiFlags.TryGetValue(\"{esc}\", out var __scList_{esc.Replace("-", "_")})) {{ __scList_{esc.Replace("-", "_")} = new List<string>(); multiFlags[\"{esc}\"] = __scList_{esc.Replace("-", "_")}; }}");
-				sb.AppendLine($"\t\t\t\t\t\t__scList_{esc.Replace("-", "_")}.Add(val);");
-			}
+			if (shortCases.Count == 0)
+				UnknownShortOption();
 			else
 			{
-				sb.AppendLine($"\t\t\t\t\t\tflags[\"{esc}\"] = val;");
+				using (w.Switch("c"))
+				{
+					foreach ((var c, var primary, _, var isRepeatableCol) in shortCases)
+					{
+						var esc = Escape(primary);
+						using (w.Case($"'{c}'"))
+						{
+							if (isRepeatableCol)
+							{
+								// Repeatable flag: append to multiFlags so short opt and long opt collect into the same list.
+								var list = "__scList_" + esc.Replace("-", "_");
+								w.Line($"if (!multiFlags.TryGetValue(\"{esc}\", out var {list})) {{ {list} = new List<string>(); multiFlags[\"{esc}\"] = {list}; }}");
+								w.Line($"{list}.Add(val);");
+							}
+							else
+								w.Line($"flags[\"{esc}\"] = val;");
+							w.Return("true");
+						}
+					}
+
+					using (w.Case("default"))
+						UnknownShortOption();
+				}
 			}
-			sb.AppendLine("\t\t\t\t\t\treturn true;");
 		}
 
-		sb.AppendLine("\t\t\t\t\tdefault:");
-		sb.AppendLine("\t\t\t\t\t\tConsole.Error.WriteLine($\"Error: unknown short option '-{c}'.\");");
-		if (parseFailureRunHint is not null)
-		{
-			sb.AppendLine("\t\t\t\t\t\tConsole.Error.WriteLine();");
-			sb.AppendLine($"\t\t\t\t\t\tConsole.Error.WriteLine(\"{Escape(parseFailureRunHint)}\");");
-		}
-		sb.AppendLine("\t\t\t\t\t\treturn false;");
-		sb.AppendLine("\t\t\t\t}");
-		sb.AppendLine("\t\t\t}");
-
-		var anyBool = shortCases.Exists(static x => x.IsBool);
-		if (!anyBool)
-		{
-			sb.AppendLine("\t\t\tbool IsShortBoolChar(char c) => false;");
-			return;
-		}
-
-		sb.AppendLine("\t\t\tbool IsShortBoolChar(char c) => c switch");
-		sb.AppendLine("\t\t\t{");
-		foreach ((var c, _, var isBool, _) in shortCases)
-		{
-			if (isBool)
-				sb.AppendLine($"\t\t\t\t'{c}' => true,");
-		}
-
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
+		var boolChars = shortCases.Where(static x => x.IsBool).Select(static x => $"'{x.c}'").ToList();
+		if (boolChars.Count == 0)
+			w.Line("bool IsShortBoolChar(char c) => false;");
+		else
+			EmitSwitchPredicate(w, "bool IsShortBoolChar(char c)", "c", boolChars);
 	}
 
-	private static void EmitParseAndAssign(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string failureExit = "return 2", string? helpMethodName = null,
-		string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
+	private static void EmitParseAndAssign(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, ParseFailure failure)
 	{
 		if (!p.IsRequired && p.DefaultValueLiteral is not null)
 		{
-			sb.AppendLine($"\t\t\tif ({rawExpr} is null)");
-			sb.AppendLine($"\t\t\t\t{targetVar} = {p.DefaultValueLiteral};");
-			sb.AppendLine("\t\t\telse");
-			sb.AppendLine("\t\t\t{");
-			EmitParseFromString(sb, p, rawExpr, targetVar, indentExtra: "\t", outVarKeyword: false, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
-			sb.AppendLine("\t\t\t}");
+			w.If($"{rawExpr} is null", $"{targetVar} = {p.DefaultValueLiteral};");
+			using (w.Else())
+				EmitParseFromString(w, p, rawExpr, targetVar, outVarKeyword: false, failure);
 		}
 		else if (!p.IsRequired && p.DefaultValueLiteral is null)
 		{
 			// Optional parameter with no explicit default: only parse when a value was actually provided.
 			// Guards against passing null into type-specific parsers (e.g. Enum.TryParse) when the flag is absent.
-			sb.AppendLine($"\t\t\tif ({rawExpr} is not null)");
-			sb.AppendLine("\t\t\t{");
-			EmitParseFromString(sb, p, rawExpr, targetVar, indentExtra: "\t", outVarKeyword: false, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
-			sb.AppendLine("\t\t\t}");
+			using (w.If($"{rawExpr} is not null"))
+				EmitParseFromString(w, p, rawExpr, targetVar, outVarKeyword: false, failure);
 		}
 		else
-			EmitParseFromString(sb, p, rawExpr, targetVar, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);
+			EmitParseFromString(w, p, rawExpr, targetVar, outVarKeyword: false, failure);
 	}
 
-	private static void EmitParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string indentExtra = "",
-		bool outVarKeyword = false, string failureExit = "return 2", string? helpMethodName = null, string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
+	/// <summary>
+	/// Parses <paramref name="rawExpr"/> into <paramref name="targetVar"/>, declaring it when <paramref name="outVarKeyword"/>
+	/// is set; a value that doesn't parse prints an error and leaves through <paramref name="failure"/>.
+	/// </summary>
+	private static void EmitParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-		var ind = "\t\t\t" + indentExtra;
-
 		if (p.ScalarKind == CliScalarKind.Enum && p.EnumTypeFq is not null && !p.EnumMemberNames.IsDefaultOrEmpty)
-		{
-			EmitEnumParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.ScalarKind == CliScalarKind.FileInfo)
-		{
-			EmitFileInfoParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.ScalarKind == CliScalarKind.DirectoryInfo)
-		{
-			EmitDirectoryInfoParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.ScalarKind == CliScalarKind.Uri)
-		{
-			EmitUriParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.ScalarKind == CliScalarKind.CustomParser && p.ParserTypeFq is not null && p.CustomValueTypeFq is not null)
-		{
-			EmitCustomParserFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.ScalarKind == CliScalarKind.Parsable && p.CustomValueTypeFq is not null)
-		{
-			// A Nullable<T> goes through the same lifting as the built-in value types.
-			if (p.TypeName.EndsWith("?", StringComparison.Ordinal))
-				EmitLiftedNullableParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			else
-				EmitParsableFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.Special == BoolSpecialKind.None && IsLiftableNullable(p.TypeName))
-		{
-			EmitLiftedNullableParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		EmitPrimitiveScalarParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+			EmitEnumParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+		else if (p.ScalarKind == CliScalarKind.FileInfo)
+			EmitFileSystemInfoParseFromString(w, p, rawExpr, targetVar, outVarKeyword, "global::System.IO.FileInfo", "nullableFileInfo", "path");
+		else if (p.ScalarKind == CliScalarKind.DirectoryInfo)
+			EmitFileSystemInfoParseFromString(w, p, rawExpr, targetVar, outVarKeyword, "global::System.IO.DirectoryInfo", "nullableDirectoryInfo", "dir");
+		else if (p.ScalarKind == CliScalarKind.Uri)
+			EmitUriParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+		else if (p.ScalarKind == CliScalarKind.CustomParser && p.ParserTypeFq is not null && p.CustomValueTypeFq is not null)
+			EmitCustomParserFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+		// A Nullable<T> goes through the same lifting as the built-in value types.
+		else if (p.ScalarKind == CliScalarKind.Parsable && p.CustomValueTypeFq is not null && !p.TypeName.EndsWith("?", StringComparison.Ordinal))
+			EmitParsableFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+		else if (p.ScalarKind == CliScalarKind.Parsable && p.CustomValueTypeFq is not null
+		         || p.Special == BoolSpecialKind.None && IsLiftableNullable(p.TypeName))
+			EmitLiftedNullableParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+		else
+			EmitPrimitiveScalarParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
 	}
 
+	/// <summary><c>var target = value;</c> when declaring the target, <c>target = value;</c> otherwise.</summary>
+	private static void EmitAssign(CodeWriter w, bool declare, string targetVar, string value) =>
+		w.Line(declare ? $"var {targetVar} = {value};" : $"{targetVar} = {value};");
 
+	/// <summary>The error for a value that doesn't parse as <paramref name="what"/>, quoting the raw text.</summary>
+	private static string InvalidValueError(string what, ParameterModel p, string rawExpr) =>
+		$"Console.Error.WriteLine($\"Error: invalid {what} for --{Escape(p.CliLongName)}: '{{{rawExpr}}}'.\");";
 
-	private static void EmitEnumParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitEnumParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-		var e = Escape(p.CliLongName);
-var evVar = ParamTemp(p, "ev");
-var evParsed = ParamTemp(p, "evp");
-sb.AppendLine($"{ind}var {evParsed} = false;");
-sb.AppendLine($"{ind}{p.EnumTypeFq} {evVar} = default;");
-sb.AppendLine($"{ind}switch (({rawExpr} ?? \"\").ToLowerInvariant())");
-sb.AppendLine($"{ind}{{");
-for (var i = 0; i < p.EnumMemberNames.Length; i++)
-{
-	var memberName = p.EnumMemberNames[i];
-	var cliName = ResolveEnumMemberCliName(p.EnumMemberCliNames, i, memberName);
-	sb.AppendLine($"{ind}\tcase \"{Escape(cliName.ToLowerInvariant())}\": {evVar} = {p.EnumTypeFq}.{memberName}; {evParsed} = true; break;");
-}
-sb.AppendLine($"{ind}}}");
-sb.AppendLine($"{ind}if (!{evParsed})");
-sb.AppendLine($"{ind}{{");
-sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid value for --{e}: '{{{rawExpr}}}'.\");");
-EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-sb.AppendLine($"{ind}\t{failureExit};");
-sb.AppendLine($"{ind}}}");
-if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = {evVar};");
-else
-	sb.AppendLine($"{ind}{targetVar} = {evVar};");
-return;
+		var evVar = ParamTemp(p, "ev");
+		var evParsed = ParamTemp(p, "evp");
+		w.Line($"var {evParsed} = false;");
+		w.Line($"{p.EnumTypeFq} {evVar} = default;");
+		using (w.Switch($"({rawExpr} ?? \"\").ToLowerInvariant()"))
+		{
+			for (var i = 0; i < p.EnumMemberNames.Length; i++)
+			{
+				var memberName = p.EnumMemberNames[i];
+				var cliName = ResolveEnumMemberCliName(p.EnumMemberCliNames, i, memberName);
+				w.Line($"case {Quote(cliName.ToLowerInvariant())}: {evVar} = {p.EnumTypeFq}.{memberName}; {evParsed} = true; break;");
+			}
+		}
+
+		EmitParseError(w, $"!{evParsed}", InvalidValueError("value", p, rawExpr), p, failure);
+		EmitAssign(w, outVarKeyword, targetVar, evVar);
 	}
 
-	private static void EmitFileInfoParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	/// <summary>A <c>FileInfo</c> or <c>DirectoryInfo</c>, after expanding <c>~</c> when the parameter asks for it.</summary>
+	private static void EmitFileSystemInfoParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword,
+		string infoTypeFq, string nullableTemp, string pathTemp)
 	{
-// Optional FileInfo? must omit new FileInfo when the flag was not provided (null), not pass null into the ctor (ArgumentNullException).
-if (!p.IsRequired)
-{
-	var csharpNullableFi = GetCSharpCliType(p);
-	var tmpFi = ParamTemp(p, "nullableFileInfo");
-	sb.AppendLine($"{ind}{csharpNullableFi} {tmpFi} = null;");
-	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
-	sb.AppendLine($"{ind}{{");
-	var innerFi = ind + "\t";
-	string pathSrcOpt = $"{rawExpr}!";
-	if (p.ExpandUserProfileBeforeBind)
-	{
-		var expandedOpt = ParamTemp(p, "path");
-		sb.AppendLine($"{innerFi}var {expandedOpt} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
-		pathSrcOpt = expandedOpt;
+		string PathSource()
+		{
+			if (!p.ExpandUserProfileBeforeBind)
+				return $"{rawExpr}!";
+			var expanded = ParamTemp(p, pathTemp);
+			w.Line($"var {expanded} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
+			return expanded;
+		}
+
+		// An optional one must stay null when the flag was not provided, not pass null into the constructor (ArgumentNullException).
+		if (!p.IsRequired)
+		{
+			var tmp = ParamTemp(p, nullableTemp);
+			w.Line($"{GetCSharpCliType(p)} {tmp} = null;");
+			using (w.If($"!string.IsNullOrWhiteSpace({rawExpr})"))
+			{
+				var optionalSource = PathSource();
+				w.Line($"{tmp} = new {infoTypeFq}({optionalSource});");
+			}
+
+			EmitAssign(w, outVarKeyword, targetVar, tmp);
+			return;
+		}
+
+		var source = PathSource();
+		EmitAssign(w, outVarKeyword, targetVar, $"new {infoTypeFq}({source})");
 	}
 
-	sb.AppendLine($"{innerFi}{tmpFi} = new global::System.IO.FileInfo({pathSrcOpt});");
-	sb.AppendLine($"{ind}}}");
-	if (outVarKeyword)
-		sb.AppendLine($"{ind}var {targetVar} = {tmpFi};");
-	else
-		sb.AppendLine($"{ind}{targetVar} = {tmpFi};");
-	return;
-}
-
-string pathSrc = $"{rawExpr}!";
-if (p.ExpandUserProfileBeforeBind)
-{
-	var expandedName = ParamTemp(p, "path");
-	sb.AppendLine($"{ind}var {expandedName} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
-	pathSrc = expandedName;
-}
-
-if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = new global::System.IO.FileInfo({pathSrc});");
-else
-	sb.AppendLine($"{ind}{targetVar} = new global::System.IO.FileInfo({pathSrc});");
-return;
-	}
-
-	private static void EmitDirectoryInfoParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitUriParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-// Optional DirectoryInfo? must omit new DirectoryInfo when the flag was not provided (null), not pass null into the ctor (ArgumentNullException).
-if (!p.IsRequired)
-{
-	var csharpNullableDi = GetCSharpCliType(p);
-	var tmpDi = ParamTemp(p, "nullableDirectoryInfo");
-	sb.AppendLine($"{ind}{csharpNullableDi} {tmpDi} = null;");
-	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
-	sb.AppendLine($"{ind}{{");
-	var innerDi = ind + "\t";
-	string pathSrcDirOpt = $"{rawExpr}!";
-	if (p.ExpandUserProfileBeforeBind)
-	{
-		var expandedOptDir = ParamTemp(p, "dir");
-		sb.AppendLine($"{innerDi}var {expandedOptDir} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
-		pathSrcDirOpt = expandedOptDir;
-	}
-
-	sb.AppendLine($"{innerDi}{tmpDi} = new global::System.IO.DirectoryInfo({pathSrcDirOpt});");
-	sb.AppendLine($"{ind}}}");
-	if (outVarKeyword)
-		sb.AppendLine($"{ind}var {targetVar} = {tmpDi};");
-	else
-		sb.AppendLine($"{ind}{targetVar} = {tmpDi};");
-	return;
-}
-
-string pathSrcDir = $"{rawExpr}!";
-if (p.ExpandUserProfileBeforeBind)
-{
-	var expandedDir = ParamTemp(p, "dir");
-	sb.AppendLine($"{ind}var {expandedDir} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
-	pathSrcDir = expandedDir;
-}
-
-if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = new global::System.IO.DirectoryInfo({pathSrcDir});");
-else
-	sb.AppendLine($"{ind}{targetVar} = new global::System.IO.DirectoryInfo({pathSrcDir});");
-return;
-	}
-
-	private static void EmitUriParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
-	{
-		var e = Escape(p.CliLongName);
 		// Per-parameter name: two Uri parameters in one method must not both declare the same local.
 		var uriOut = ParamTemp(p, "uri");
-// Optional Uri? must treat omitted flags as null (raw text is null), not run Uri.TryCreate on null/whitespace.
-if (!p.IsRequired)
-{
-	var csharpNullableUri = GetCSharpCliType(p);
-	var tmpUri = ParamTemp(p, "nullableUriParsed");
-	sb.AppendLine($"{ind}{csharpNullableUri} {tmpUri} = null;");
-	sb.AppendLine($"{ind}if (!string.IsNullOrWhiteSpace({rawExpr}))");
-	sb.AppendLine($"{ind}{{");
-	sb.AppendLine(
-		$"{ind}\tif (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut}))");
-	sb.AppendLine($"{ind}\t{{");
-	sb.AppendLine($"{ind}\t\tConsole.Error.WriteLine($\"Error: invalid URI for --{e}: '{{{rawExpr}}}'.\");");
-	EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-	sb.AppendLine($"{ind}\t\t{failureExit};");
-	sb.AppendLine($"{ind}\t}}");
-	sb.AppendLine($"{ind}\t{tmpUri} = {uriOut};");
-	sb.AppendLine($"{ind}}}");
-	if (outVarKeyword)
-		sb.AppendLine($"{ind}var {targetVar} = {tmpUri};");
-	else
-		sb.AppendLine($"{ind}{targetVar} = {tmpUri};");
-	return;
-}
+		var tryCreateFails = $"!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut})";
+		// Optional Uri? must treat omitted flags as null (raw text is null), not run Uri.TryCreate on null/whitespace.
+		if (!p.IsRequired)
+		{
+			var tmpUri = ParamTemp(p, "nullableUriParsed");
+			w.Line($"{GetCSharpCliType(p)} {tmpUri} = null;");
+			using (w.If($"!string.IsNullOrWhiteSpace({rawExpr})"))
+			{
+				EmitParseError(w, tryCreateFails, InvalidValueError("URI", p, rawExpr), p, failure);
+				w.Line($"{tmpUri} = {uriOut};");
+			}
 
-sb.AppendLine($"{ind}if (!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut}))");
-sb.AppendLine($"{ind}{{");
-sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid URI for --{e}: '{{{rawExpr}}}'.\");");
-EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-sb.AppendLine($"{ind}\t{failureExit};");
-sb.AppendLine($"{ind}}}");
-if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = {uriOut};");
-else
-	sb.AppendLine($"{ind}{targetVar} = {uriOut};");
-return;
+			EmitAssign(w, outVarKeyword, targetVar, tmpUri);
+			return;
+		}
+
+		EmitParseError(w, tryCreateFails, InvalidValueError("URI", p, rawExpr), p, failure);
+		EmitAssign(w, outVarKeyword, targetVar, uriOut);
 	}
 
 	/// <summary>
@@ -1345,25 +1105,15 @@ return;
 	private static bool IsLiftedCustomParser(ParameterModel p) =>
 		p.ParserValueTypeFq is { } parsed && p.CustomValueTypeFq is { } declared && parsed + "?" == declared;
 
-	private static void EmitCustomParserFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitCustomParserFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-		var e = Escape(p.CliLongName);
-var parser = ParamTemp(p, "parser");
-var parsed = ParamTemp(p, "pv");
-sb.AppendLine($"{ind}{CustomParserLocalType(p)} {parser} = new {p.ParserTypeFq}();");
-sb.AppendLine($"{ind}if (!{parser}.TryParse({rawExpr}!, {ParserOptionsExpr}, out var {parsed}))");
-sb.AppendLine($"{ind}{{");
-sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid value for --{e}.\");");
-EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-sb.AppendLine($"{ind}\t{failureExit};");
-sb.AppendLine($"{ind}}}");
-// A T? value parsed through IArgumentParser<T> is converted, so a var target is T?.
-var value = IsLiftedCustomParser(p) ? $"({p.CustomValueTypeFq}){parsed}" : parsed;
-if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = {value};");
-else
-	sb.AppendLine($"{ind}{targetVar} = {value};");
-return;
+		var parser = ParamTemp(p, "parser");
+		var parsed = ParamTemp(p, "pv");
+		w.Line($"{CustomParserLocalType(p)} {parser} = new {p.ParserTypeFq}();");
+		EmitParseError(w, $"!{parser}.TryParse({rawExpr}!, {ParserOptionsExpr}, out var {parsed})",
+			$"Console.Error.WriteLine($\"Error: invalid value for --{Escape(p.CliLongName)}.\");", p, failure);
+		// A T? value parsed through IArgumentParser<T> is converted, so a var target is T?.
+		EmitAssign(w, outVarKeyword, targetVar, IsLiftedCustomParser(p) ? $"({p.CustomValueTypeFq}){parsed}" : parsed);
 	}
 
 	/// <summary>
@@ -1371,228 +1121,127 @@ return;
 	/// (<c>TryParseParsable&lt;T&gt;</c>, or <c>TryParseNumberBase&lt;T&gt;</c> for number types), so types that implement the
 	/// interface explicitly work as well as ones with a public <c>TryParse</c>. <c>T?</c> reaches this through the nullable lifting.
 	/// </summary>
-	private static void EmitParsableFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitParsableFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-		var e = Escape(p.CliLongName);
 		var parsed = ParamTemp(p, "pv");
-		sb.AppendLine($"{ind}if (!{ParsableTryParseCall(p, rawExpr, "out var " + parsed)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid {Escape(p.TypeName.TrimEnd('?'))} for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {parsed};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {parsed};");
+		EmitParseError(w, $"!{ParsableTryParseCall(p, rawExpr, "out var " + parsed)}",
+			InvalidValueError(Escape(p.TypeName.TrimEnd('?')), p, rawExpr), p, failure);
+		EmitAssign(w, outVarKeyword, targetVar, parsed);
 	}
 
-	private static void EmitPrimitiveScalarParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	/// <summary>The temp name for a primitive parsed into a local before it's assigned, or <see langword="null"/> when it's parsed straight into the target.</summary>
+	private static string? PrimitiveParseTemp(string typeName) => typeName switch
 	{
-		var e = Escape(p.CliLongName);
-		string Out(string name) => outVarKeyword ? "out var " + name : "out " + name;
-switch (p.Special)
-{
-	case BoolSpecialKind.None when p.TypeName == "string":
+		"DateTime" => "dt",
+		"DateTimeOffset" => "dto",
+		"TimeSpan" => "ts",
+		"DateOnly" => "do",
+		"TimeOnly" => "to",
+		_ => null,
+	};
+
+	private static void EmitPrimitiveScalarParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {rawExpr};");
-		else
+		var type = p.TypeName;
+		if (p.Special != BoolSpecialKind.None)
 		{
-			var nonNull = p.IsRequired ? "!" : "";
-			sb.AppendLine($"{ind}{targetVar} = {rawExpr}{nonNull};");
+			if (outVarKeyword)
+				w.Line($"var {targetVar} = {rawExpr};");
+			else
+				w.Line($"{targetVar} = {rawExpr}; // fallback");
+			return;
 		}
 
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "int":
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("int", rawExpr, Out(targetVar))})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid int for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		break;
-	case BoolSpecialKind.None when p.TypeName == "long":
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("long", rawExpr, Out(targetVar))})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid long for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		break;
-	case BoolSpecialKind.None when p.TypeName == "float":
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("float", rawExpr, Out(targetVar))})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid float for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		break;
-	case BoolSpecialKind.None when p.TypeName == "double":
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("double", rawExpr, Out(targetVar))})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid double for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		break;
-	case BoolSpecialKind.None when p.TypeName == "decimal":
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("decimal", rawExpr, Out(targetVar))})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid decimal for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		break;
-	case BoolSpecialKind.None when p.TypeName == "DateTime":
-	{
-		var tmp = ParamTemp(p, "dt");
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("DateTime", rawExpr, "out var " + tmp)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateTime for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
+		if (type == "string")
+		{
+			EmitAssign(w, outVarKeyword, targetVar, outVarKeyword || !p.IsRequired ? rawExpr : rawExpr + "!");
+			return;
+		}
+
+		if (type is "int" or "long" or "float" or "double" or "decimal")
+		{
+			var outArg = outVarKeyword ? "out var " + targetVar : "out " + targetVar;
+			EmitParseError(w, $"!{ScalarTryParseCall(type, rawExpr, outArg)}", InvalidValueError(type, p, rawExpr), p, failure);
+			return;
+		}
+
+		if (PrimitiveParseTemp(type) is { } tempSuffix)
+		{
+			var tmp = ParamTemp(p, tempSuffix);
+			EmitParseError(w, $"!{ScalarTryParseCall(type, rawExpr, "out var " + tmp)}", InvalidValueError(type, p, rawExpr), p, failure);
+			EmitAssign(w, outVarKeyword, targetVar, tmp);
+			return;
+		}
+
+		if (type == "bool")
+		{
+			var tmp = ParamTemp(p, "bool");
+			EmitAssign(w, outVarKeyword, targetVar, $"bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true");
+			return;
+		}
+
 		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
+			w.Line($"var {targetVar} = {rawExpr};");
 		else
-			sb.AppendLine($"{ind}{targetVar} = {tmp};");
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "DateTimeOffset":
-	{
-		var tmp = ParamTemp(p, "dto");
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("DateTimeOffset", rawExpr, "out var " + tmp)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateTimeOffset for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {tmp};");
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "TimeSpan":
-	{
-		var tmp = ParamTemp(p, "ts");
-		sb.AppendLine($"{ind}if (!{ScalarTryParseCall("TimeSpan", rawExpr, "out var " + tmp)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeSpan for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {tmp};");
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "DateOnly":
-	{
-		var tmp = ParamTemp(p, "do");
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("DateOnly", rawExpr, "out var " + tmp)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateOnly for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {tmp};");
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "TimeOnly":
-	{
-		var tmp = ParamTemp(p, "to");
-		sb.AppendLine(
-			$"{ind}if (!{ScalarTryParseCall("TimeOnly", rawExpr, "out var " + tmp)})");
-		sb.AppendLine($"{ind}{{");
-		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeOnly for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{failureExit};");
-		sb.AppendLine($"{ind}}}");
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmp};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {tmp};");
-		break;
-	}
-	case BoolSpecialKind.None when p.TypeName == "bool":
-	{
-		var tmp = ParamTemp(p, "bool");
-		if (outVarKeyword)
-			sb.AppendLine(
-				$"{ind}var {targetVar} = bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true;");
-		else
-			sb.AppendLine($"{ind}{targetVar} = bool.TryParse({rawExpr}, out var {tmp}) ? {tmp} : true;");
-		break;
-	}
-	default:
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {rawExpr};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {rawExpr}; // fallback");
-		break;
-}
+			w.Line($"{targetVar} = {rawExpr}; // fallback");
 	}
 
 	/// <summary>
 	/// Parses <c>T?</c> exactly as <c>T</c>: the value stays <see langword="null"/> when absent, and otherwise goes through
 	/// <c>T</c>'s own parse code, with the same styles, culture and error message.
 	/// </summary>
-	/// <summary>A nullable value type whose non-nullable form has its own parse code in <see cref="EmitPrimitiveScalarParseFromString"/>.</summary>
-	private static bool IsLiftableNullable(string typeName) =>
-		typeName.EndsWith("?", StringComparison.Ordinal)
-		&& typeName.TrimEnd('?') is "int" or "long" or "float" or "double" or "decimal"
-			or "DateTime" or "DateTimeOffset" or "TimeSpan" or "DateOnly" or "TimeOnly";
-
-	private static void EmitLiftedNullableParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar,
-		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	private static void EmitLiftedNullableParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
 	{
 		var lifted = ParamTemp(p, "lifted");
 		var value = ParamTemp(p, "value");
-		sb.AppendLine($"{ind}{GetCSharpCliType(p)} {lifted} = null;");
-		sb.AppendLine($"{ind}if ({rawExpr} is not null)");
-		sb.AppendLine($"{ind}{{");
-		var inner = p with { TypeName = p.TypeName.TrimEnd('?') };
-		if (p.ScalarKind == CliScalarKind.Parsable)
-			EmitParsableFromString(sb, inner, rawExpr, value, ind + "\t", outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		else
-			EmitPrimitiveScalarParseFromString(sb, inner, rawExpr, value, ind + "\t",
-				outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t{lifted} = {value};");
-		sb.AppendLine($"{ind}}}");
+		w.Line($"{GetCSharpCliType(p)} {lifted} = null;");
+		using (w.If($"{rawExpr} is not null"))
+		{
+			var inner = p with { TypeName = p.TypeName.TrimEnd('?') };
+			if (p.ScalarKind == CliScalarKind.Parsable)
+				EmitParsableFromString(w, inner, rawExpr, value, outVarKeyword: true, failure);
+			else
+				EmitPrimitiveScalarParseFromString(w, inner, rawExpr, value, outVarKeyword: true, failure);
+			w.Line($"{lifted} = {value};");
+		}
 
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {lifted};");
+		EmitAssign(w, outVarKeyword, targetVar, lifted);
+	}
+
+	/// <summary>
+	/// Calls the handler and turns its result into the exit code: <c>return</c> it, or with middleware
+	/// (<paramref name="commandContextVar"/>) store it on the context. <paramref name="awaited"/> awaits a task, and
+	/// <paramref name="returnsExitCode"/> uses the handler's <c>int</c> result rather than 0.
+	/// </summary>
+	private static void EmitHandlerCall(CodeWriter w, string call, bool awaited, bool returnsExitCode, string? commandContextVar)
+	{
+		var expr = awaited ? $"await {call}.ConfigureAwait(false)" : call;
+		if (!returnsExitCode)
+		{
+			w.Line(expr + ";");
+			expr = "0";
+		}
+
+		if (commandContextVar is null)
+			w.Return(expr);
 		else
-			sb.AppendLine($"{ind}{targetVar} = {lifted};");
+		{
+			w.Line($"{commandContextVar}.ExitCode = {expr};");
+			w.Line("return;");
+		}
 	}
 
 	private static void EmitInvocation(
-		StringBuilder sb,
+		CodeWriter w,
 		CommandModel cmd,
 		string ctExpr = "ct",
 		string? commandContextVar = null,
-		string lineIndent = "\t\t\t",
 		ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions = default)
 	{
 		// Lambda commands: invoke through ArghApp.GetRegisteredLambda with a cast
 		if (cmd.IsLambda && !string.IsNullOrEmpty(cmd.LambdaStorageKey))
 		{
-			EmitLambdaInvocation(sb, cmd, ctExpr, commandContextVar, lineIndent);
+			EmitLambdaInvocation(w, cmd, ctExpr, commandContextVar);
 			return;
 		}
 
@@ -1660,97 +1309,23 @@ switch (p.Special)
 			? $"__cmdHandler.{cmd.MethodName}({argList})"
 			: $"{cmd.ContainingTypeFq}.{cmd.MethodName}({argList})";
 
-		var ret0 = commandContextVar is null
-			? $"{lineIndent}return 0;"
-			: $"{lineIndent}{commandContextVar}.ExitCode = 0;\n{lineIndent}return;";
-
-		var retFq = cmd.ReturnTypeFq;
-		// Empty string means no return type info (shouldn't happen for method handlers).
-		// Note: retFq comes from SymbolDisplayFormat.FullyQualifiedFormat, which renders special
+		// Note: ReturnTypeFq comes from SymbolDisplayFormat.FullyQualifiedFormat, which renders special
 		// types using their C# keyword ("void", "int") rather than "global::System.Void"/"global::System.Int32" —
 		// keep these checks in that form (see also the "int" checks inside Task<int>/ValueTask<int> below).
-		if (retFq == "" || retFq == "void")
-		{
-			sb.AppendLine($"{lineIndent}{call};");
-			sb.AppendLine(ret0);
-			return;
-		}
-
-		if (retFq == "int")
-		{
-			if (commandContextVar is null)
-				sb.AppendLine($"{lineIndent}return {call};");
-			else
-			{
-				sb.AppendLine($"{lineIndent}{commandContextVar}.ExitCode = {call};");
-				sb.AppendLine($"{lineIndent}return;");
-			}
-
-			return;
-		}
-
-		if (retFq == "global::System.Threading.Tasks.Task")
-		{
-			sb.AppendLine($"{lineIndent}await {call}.ConfigureAwait(false);");
-			sb.AppendLine(ret0);
-			return;
-		}
-
-		if (retFq == "global::System.Threading.Tasks.Task<int>")
-		{
-			if (commandContextVar is null)
-				sb.AppendLine($"{lineIndent}return await {call}.ConfigureAwait(false);");
-			else
-			{
-				sb.AppendLine($"{lineIndent}{commandContextVar}.ExitCode = await {call}.ConfigureAwait(false);");
-				sb.AppendLine($"{lineIndent}return;");
-			}
-			return;
-		}
-
-		if (retFq.StartsWith("global::System.Threading.Tasks.Task<", StringComparison.Ordinal))
-		{
-			sb.AppendLine($"{lineIndent}await {call}.ConfigureAwait(false);");
-			sb.AppendLine(ret0);
-			return;
-		}
-
-		if (retFq == "global::System.Threading.Tasks.ValueTask")
-		{
-			sb.AppendLine($"{lineIndent}await {call}.ConfigureAwait(false);");
-			sb.AppendLine(ret0);
-			return;
-		}
-
-		if (retFq == "global::System.Threading.Tasks.ValueTask<int>")
-		{
-			if (commandContextVar is null)
-				sb.AppendLine($"{lineIndent}return await {call}.ConfigureAwait(false);");
-			else
-			{
-				sb.AppendLine($"{lineIndent}{commandContextVar}.ExitCode = await {call}.ConfigureAwait(false);");
-				sb.AppendLine($"{lineIndent}return;");
-			}
-			return;
-		}
-
-		if (retFq.StartsWith("global::System.Threading.Tasks.ValueTask<", StringComparison.Ordinal))
-		{
-			sb.AppendLine($"{lineIndent}await {call}.ConfigureAwait(false);");
-			sb.AppendLine(ret0);
-			return;
-		}
-
-		sb.AppendLine($"{lineIndent}{call};");
-		sb.AppendLine(ret0);
+		// An empty string means no return type info (shouldn't happen for method handlers).
+		var retFq = cmd.ReturnTypeFq;
+		var awaited = retFq is "global::System.Threading.Tasks.Task" or "global::System.Threading.Tasks.ValueTask"
+			|| retFq.StartsWith("global::System.Threading.Tasks.Task<", StringComparison.Ordinal)
+			|| retFq.StartsWith("global::System.Threading.Tasks.ValueTask<", StringComparison.Ordinal);
+		var returnsExitCode = retFq is "int" or "global::System.Threading.Tasks.Task<int>" or "global::System.Threading.Tasks.ValueTask<int>";
+		EmitHandlerCall(w, call, awaited, returnsExitCode, commandContextVar);
 	}
 
 	private static void EmitLambdaInvocation(
-		StringBuilder sb,
+		CodeWriter w,
 		CommandModel cmd,
 		string ctExpr,
-		string? commandContextVar,
-		string lineIndent)
+		string? commandContextVar)
 	{
 		var lambdaArgs = new List<string>();
 		foreach (var p in cmd.Parameters)
@@ -1765,57 +1340,29 @@ switch (p.Special)
 			? "global::System.Delegate"
 			: cmd.LambdaDelegateFq;
 
-		var lambdaRet0 = commandContextVar is null
-			? $"{lineIndent}return 0;"
-			: $"{lineIndent}{commandContextVar}.ExitCode = 0;\n{lineIndent}return;";
+		if (castType == "global::System.Delegate")
+		{
+			// Fallback: use DynamicInvoke
+			w.Line($"var __lambdaDelegate = ArghApp.GetRegisteredLambda({Quote(cmd.LambdaStorageKey)});");
+			EmitHandlerCall(w, $"__lambdaDelegate?.DynamicInvoke({lambdaArgList})", awaited: false, returnsExitCode: false, commandContextVar);
+			return;
+		}
 
 		var lambdaRetFq = cmd.ReturnTypeFq;
 		var lambdaIsTaskOfInt = lambdaRetFq == "global::System.Threading.Tasks.Task<int>"
 			|| lambdaRetFq == "global::System.Threading.Tasks.ValueTask<int>";
-
-		if (castType == "global::System.Delegate")
-		{
-			// Fallback: use DynamicInvoke
-			sb.AppendLine($"{lineIndent}var __lambdaDelegate = ArghApp.GetRegisteredLambda(\"{Escape(cmd.LambdaStorageKey)}\");");
-			sb.AppendLine($"{lineIndent}__lambdaDelegate?.DynamicInvoke({lambdaArgList});");
-			sb.AppendLine(lambdaRet0);
-		}
-		else
-		{
-			sb.AppendLine($"{lineIndent}var __lambdaDelegate = (({castType})ArghApp.GetRegisteredLambda(\"{Escape(cmd.LambdaStorageKey)}\")!);");
-			if (lambdaRetFq == "global::System.Threading.Tasks.Task" ||
-			    (lambdaRetFq.StartsWith("global::System.Threading.Tasks.Task<", System.StringComparison.Ordinal) && !lambdaIsTaskOfInt))
-			{
-				sb.AppendLine($"{lineIndent}await __lambdaDelegate({lambdaArgList}).ConfigureAwait(false);");
-				sb.AppendLine(lambdaRet0);
-			}
-			else if (lambdaIsTaskOfInt)
-			{
-				if (commandContextVar is null)
-					sb.AppendLine($"{lineIndent}return await __lambdaDelegate({lambdaArgList}).ConfigureAwait(false);");
-				else
-				{
-					sb.AppendLine($"{lineIndent}{commandContextVar}.ExitCode = await __lambdaDelegate({lambdaArgList}).ConfigureAwait(false);");
-					sb.AppendLine($"{lineIndent}return;");
-				}
-			}
-			else if (lambdaRetFq == "int")
-			{
-				if (commandContextVar is null)
-					sb.AppendLine($"{lineIndent}return __lambdaDelegate({lambdaArgList});");
-				else
-				{
-					sb.AppendLine($"{lineIndent}{commandContextVar}.ExitCode = __lambdaDelegate({lambdaArgList});");
-					sb.AppendLine($"{lineIndent}return;");
-				}
-			}
-			else
-			{
-				sb.AppendLine($"{lineIndent}__lambdaDelegate({lambdaArgList});");
-				sb.AppendLine(lambdaRet0);
-			}
-		}
+		var awaited = lambdaIsTaskOfInt
+			|| lambdaRetFq == "global::System.Threading.Tasks.Task"
+			|| lambdaRetFq.StartsWith("global::System.Threading.Tasks.Task<", StringComparison.Ordinal);
+		w.Line($"var __lambdaDelegate = (({castType})ArghApp.GetRegisteredLambda({Quote(cmd.LambdaStorageKey)})!);");
+		EmitHandlerCall(w, $"__lambdaDelegate({lambdaArgList})", awaited, returnsExitCode: lambdaIsTaskOfInt || lambdaRetFq == "int", commandContextVar);
 	}
+
+	/// <summary>A nullable value type whose non-nullable form has its own parse code in <see cref="EmitPrimitiveScalarParseFromString"/>.</summary>
+	private static bool IsLiftableNullable(string typeName) =>
+		typeName.EndsWith("?", StringComparison.Ordinal)
+		&& typeName.TrimEnd('?') is "int" or "long" or "float" or "double" or "decimal"
+			or "DateTime" or "DateTimeOffset" or "TimeSpan" or "DateOnly" or "TimeOnly";
 
 	private static IEnumerable<ParameterModel> EnumerateFlagMembers(OptionsTypeModel? model)
 	{

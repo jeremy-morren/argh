@@ -18,6 +18,17 @@ public sealed partial class CliParserGenerator
 {
 	private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
 
+	/// <summary><paramref name="s"/> as a C# string literal.</summary>
+	private static string Quote(string s) => "\"" + Escape(s) + "\"";
+
+	/// <summary><paramref name="s"/> as a C# string literal, or <c>null</c> when it is null or whitespace.</summary>
+	private static string QuoteOrNull(string? s) => string.IsNullOrWhiteSpace(s) ? "null" : Quote(s!);
+
+	/// <summary>A one-line <c>new string[] { "a", "b" }</c>.</summary>
+	private static string InlineStringArray(IEnumerable<string> values) => $"new string[] {{ {string.Join(", ", values.Select(Quote))} }}";
+
+	private static string BoolLiteral(bool b) => b ? "true" : "false";
+
 	/// <summary>Doubles <c>{</c> and <c>}</c> so text can be embedded in generated C# <c>$"…"</c> without forming interpolation holes.</summary>
 	private static string EscapeInterpolationBraces(string s) =>
 		s.Replace("{", "{{").Replace("}", "}}");

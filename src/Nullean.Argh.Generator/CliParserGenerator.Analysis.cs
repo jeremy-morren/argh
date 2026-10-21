@@ -1256,18 +1256,7 @@ public sealed partial class CliParserGenerator
 		}
 		var parameters = paramBuilder.ToImmutable();
 		var usage = UsageSynopsis.Build(parameters);
-		// Build run method name inline (mirrors CommandModel.BuildRunMethodName)
-		string runName;
-		if (routePrefix.IsDefaultOrEmpty)
-			runName = "Run_" + Naming.SanitizeIdentifier(commandName);
-		else
-		{
-			var rnSb = new StringBuilder();
-			rnSb.Append("Run");
-			foreach (var seg in routePrefix) { rnSb.Append('_'); rnSb.Append(Naming.SanitizeIdentifier(seg)); }
-			rnSb.Append('_'); rnSb.Append(Naming.SanitizeIdentifier(commandName));
-			runName = rnSb.ToString();
-		}
+		var runName = CommandModel.BuildRunMethodName(routePrefix, commandName);
 		var retFq = invokeMethod.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 		// FullyQualifiedFormat renders special types via their C# keyword ("void"), not "global::System.Void".
 		var retIsVoid = retFq is "void"

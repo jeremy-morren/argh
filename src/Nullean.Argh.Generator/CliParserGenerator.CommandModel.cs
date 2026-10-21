@@ -309,23 +309,9 @@ public sealed partial class CliParserGenerator
 			);
 		}
 
-		private static string BuildRunMethodName(ImmutableArray<string> routePrefix, string commandName)
-		{
-			if (routePrefix.IsDefaultOrEmpty)
-				return "Run_" + Naming.SanitizeIdentifier(commandName);
-
-			var sb = new StringBuilder();
-			sb.Append("Run");
-			foreach (var seg in routePrefix)
-			{
-				sb.Append('_');
-				sb.Append(Naming.SanitizeIdentifier(seg));
-			}
-
-			sb.Append('_');
-			sb.Append(Naming.SanitizeIdentifier(commandName));
-			return sb.ToString();
-		}
+		/// <summary><c>Run_{segment}_…_{command}</c>, each part made a valid identifier.</summary>
+		internal static string BuildRunMethodName(ImmutableArray<string> routePrefix, string commandName) =>
+			"Run_" + string.Join("_", (routePrefix.IsDefault ? ImmutableArray<string>.Empty : routePrefix).Append(commandName).Select(Naming.SanitizeIdentifier));
 
 		/// <summary>Visible to <see cref="CliParserGenerator"/> for lambda root commands (same naming as <see cref="FromRootMethod"/>).</summary>
 		internal static string BuildRootDefaultRunMethodName(ImmutableArray<string> routePrefix) =>

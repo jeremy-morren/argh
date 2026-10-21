@@ -1,266 +1,144 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace Nullean.Argh;
 
 public sealed partial class CliParserGenerator
 {
-	private static void EmitRootSchemaBlock(StringBuilder sb, string indent)
+	private static void EmitRootSchemaBlock(CodeWriter w)
 	{
-		sb.AppendLine(indent + "if (CompletionProtocol.IsSchemaInvocation(args))");
-		sb.AppendLine(indent + "{");
-		sb.AppendLine(indent + "\tConsole.Out.Write(ArghRuntime.FormatCliSchemaJson());");
-		sb.AppendLine(indent + "\treturn 0;");
-		sb.AppendLine(indent + "}");
-		sb.AppendLine();
+		using (w.If("CompletionProtocol.IsSchemaInvocation(args)"))
+		{
+			w.Line("Console.Out.Write(ArghRuntime.FormatCliSchemaJson());");
+			w.Return("0");
+		}
+
+		w.Line();
 	}
 
+	// The schema document is one nested constructor expression. Each part below returns its expression with relative
+	// indentation, and the writer indents the whole where it lands.
 
-	private static void EmitBuildCliSchemaDocumentHierarchical(StringBuilder sb, AppEmitModel app,
+	private static void EmitBuildCliSchemaDocumentHierarchical(CodeWriter w, AppEmitModel app,
 		string entryAssemblyName, string entryAssemblyVersion)
 	{
-		sb.AppendLine("\t\tinternal static ArghCliSchemaDocument BuildCliSchemaDocument() =>");
-		sb.AppendLine("\t\t\tnew ArghCliSchemaDocument(");
-		sb.AppendLine("\t\t\t\t1,");
-		sb.AppendLine($"\t\t\t\t\"{Escape(entryAssemblyName)}\",");
-		sb.AppendLine($"\t\t\t\t\"{Escape(entryAssemblyVersion)}\",");
-		EmitNullableStringArg(sb, "\t\t\t\t", string.IsNullOrWhiteSpace(app.RootSummary) ? null : app.RootSummary);
-		sb.AppendLine(",");
-		sb.AppendLine("\t\t\t\tnew[] { \"__complete\", \"__completion\", \"__schema\" },");
-		EmitSchemaGlobalOptionsExpression(sb, app, "\t\t\t\t");
-		sb.AppendLine(",");
-		EmitSchemaRootDefaultExpression(sb, app.Root.RootCommand, entryAssemblyName, "\t\t\t\t", app.EnvironmentPrefix);
-		sb.AppendLine(",");
-		EmitSchemaRootCommandsExpression(sb, app, entryAssemblyName, "\t\t\t\t");
-		sb.AppendLine(",");
-		EmitSchemaNamespacesExpression(sb, app.Root.Children, entryAssemblyName, "\t\t\t\t", app.EnvironmentPrefix);
-		EmitSchemaEnvironmentArg(sb, app, "\t\t\t\t");
-		sb.AppendLine(");");
+		var prefix = app.EnvironmentPrefix;
+		var args = new List<string>
+		{
+			"1",
+			Quote(entryAssemblyName),
+			Quote(entryAssemblyVersion),
+			QuoteOrNull(app.RootSummary),
+			"new[] { \"__complete\", \"__completion\", \"__schema\" }",
+			SchemaOptionsExpression(app.GlobalOptionsModel, prefix),
+			SchemaDefaultHandlerExpression("root", app.Root.RootCommand, entryAssemblyName, prefix),
+			SchemaCommandsExpression(app.Root, entryAssemblyName, prefix),
+			SchemaNamespacesExpression(app.Root.Children, entryAssemblyName, prefix),
+		};
+		if (SchemaEnvironmentExpression(app) is { } environment)
+			args.Add("Environment: " + environment);
+		w.Arrow("internal static ArghCliSchemaDocument BuildCliSchemaDocument()", CodeWriter.ItemList("new ArghCliSchemaDocument(", args, ",", ")", ""));
 	}
 
-	private static void EmitSchemaGlobalOptionsExpression(StringBuilder sb, AppEmitModel app, string indent)
-	{
-		if (app.GlobalOptionsModel is not { } gom || gom.Members.IsEmpty)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliParameterSchema>()");
-			return;
-		}
+	/// <summary>The flags of a global or namespace options type.</summary>
+	private static string SchemaOptionsExpression(OptionsTypeModel? options, string? environmentPrefix) =>
+		SchemaParametersExpression(
+			options?.Members.Where(static p => p.Kind == ParameterKind.Flag) ?? Enumerable.Empty<ParameterModel>(), environmentPrefix);
 
-		var flags = gom.Members.Where(static p => p.Kind == ParameterKind.Flag).ToList();
-		if (flags.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliParameterSchema>()");
-			return;
-		}
+	private static string SchemaParametersExpression(IEnumerable<ParameterModel> parameters, string? environmentPrefix) =>
+		CodeWriter.NewArray("CliParameterSchema", parameters.Select(p => CliParameterSchemaExpression(p, environmentPrefix)).ToList());
 
-		sb.AppendLine(indent + "new CliParameterSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var p in flags)
-			sb.AppendLine($"{indent}\t{EmitCliParameterSchemaNewExpression(p, app.EnvironmentPrefix)},");
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitSchemaRootDefaultExpression(StringBuilder sb, CommandModel? rootCmd, string entryAssemblyName,
-		string indent, string? environmentPrefix = null)
+	private static string SchemaDefaultHandlerExpression(string kind, CommandModel? rootCmd, string entryAssemblyName,
+		string? environmentPrefix)
 	{
 		if (rootCmd is not { IsRootDefault: true } rc)
-		{
-			sb.Append(indent);
-			sb.Append("null");
-			return;
-		}
+			return "null";
 
-		sb.AppendLine(indent + "new CliDefaultHandlerSchema(");
-		sb.AppendLine($"{indent}\t\"root\",");
-		EmitNullableStringArg(sb, $"{indent}\t", rc.SummaryOneLiner);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", rc.RemarksRendered);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", BuildCommandUsageSynopsisTail(rc, entryAssemblyName));
-		sb.AppendLine(",");
-		EmitExamplesStringArray(sb, rc.ExamplesRendered, $"{indent}\t");
-		sb.AppendLine(",");
-		EmitSchemaParametersForCommand(sb, rc.Parameters, $"{indent}\t", environmentPrefix);
-		sb.AppendLine();
-		sb.Append(indent);
-		sb.Append(")");
+		return CodeWriter.New("CliDefaultHandlerSchema",
+		[
+			Quote(kind),
+			QuoteOrNull(rc.SummaryOneLiner),
+			QuoteOrNull(rc.RemarksRendered),
+			QuoteOrNull(BuildCommandUsageSynopsisTail(rc, entryAssemblyName)),
+			SchemaExamplesExpression(rc.ExamplesRendered),
+			SchemaParametersExpression(rc.Parameters.Where(static p => p.Kind != ParameterKind.Injected), environmentPrefix),
+		]);
 	}
 
-	private static void EmitSchemaDefaultHandlerForNamespace(StringBuilder sb, CommandModel? rootCmd,
-		string entryAssemblyName, string indent, string? environmentPrefix = null)
+	private static string SchemaCommandsExpression(RegistryNode node, string entryAssemblyName, string? environmentPrefix) =>
+		CodeWriter.NewArray("CliCommandSchema", node.Commands
+			.Where(static c => !c.IsRootDefault)
+			.OrderBy(c => c.CommandName, StringComparer.Ordinal)
+			.Select(c => CliCommandSchemaExpression(c, entryAssemblyName, environmentPrefix))
+			.ToList());
+
+	private static string CliCommandSchemaExpression(CommandModel cmd, string entryAssemblyName, string? environmentPrefix)
 	{
-		if (rootCmd is not { IsRootDefault: true } rc)
+		var args = new List<string>
 		{
-			sb.Append(indent);
-			sb.Append("null");
-			return;
-		}
-
-		sb.AppendLine(indent + "new CliDefaultHandlerSchema(");
-		sb.AppendLine($"{indent}\t\"namespace\",");
-		EmitNullableStringArg(sb, $"{indent}\t", rc.SummaryOneLiner);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", rc.RemarksRendered);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", BuildCommandUsageSynopsisTail(rc, entryAssemblyName));
-		sb.AppendLine(",");
-		EmitExamplesStringArray(sb, rc.ExamplesRendered, $"{indent}\t");
-		sb.AppendLine(",");
-		EmitSchemaParametersForCommand(sb, rc.Parameters, $"{indent}\t", environmentPrefix);
-		sb.AppendLine();
-		sb.Append(indent);
-		sb.Append(")");
-	}
-
-
-	private static void EmitSchemaRootCommandsExpression(StringBuilder sb, AppEmitModel app, string entryAssemblyName,
-		string indent)
-	{
-		var cmds = app.Root.Commands.Where(static c => !c.IsRootDefault).OrderBy(c => c.CommandName, StringComparer.Ordinal)
-			.ToList();
-		if (cmds.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliCommandSchema>()");
-			return;
-		}
-
-		sb.AppendLine(indent + "new CliCommandSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var cmd in cmds)
-		{
-			EmitCliCommandSchemaBody(sb, cmd, entryAssemblyName, indent + "\t", app.EnvironmentPrefix);
-			sb.AppendLine(",");
-		}
-
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitCliCommandSchemaBody(StringBuilder sb, CommandModel cmd, string entryAssemblyName, string indent, string? environmentPrefix = null)
-	{
-		sb.AppendLine(indent + "new CliCommandSchema(");
-		EmitImmutableStringArrayInline(sb, cmd.RoutePrefix, $"{indent}\t");
-		sb.AppendLine(",");
-		sb.AppendLine($"{indent}\t\"{Escape(cmd.CommandName)}\",");
-		EmitNullableStringArg(sb, $"{indent}\t", cmd.SummaryOneLiner);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", cmd.RemarksRendered);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", BuildCommandUsageSynopsisTail(cmd, entryAssemblyName));
-		sb.AppendLine(",");
-		EmitExamplesStringArray(sb, cmd.ExamplesRendered, $"{indent}\t");
-		sb.AppendLine(",");
-		EmitSchemaParametersForCommand(sb, cmd.Parameters, $"{indent}\t", environmentPrefix);
+			StringArrayExpression(cmd.RoutePrefix.IsDefault ? ImmutableArray<string>.Empty : cmd.RoutePrefix),
+			Quote(cmd.CommandName),
+			QuoteOrNull(cmd.SummaryOneLiner),
+			QuoteOrNull(cmd.RemarksRendered),
+			QuoteOrNull(BuildCommandUsageSynopsisTail(cmd, entryAssemblyName)),
+			SchemaExamplesExpression(cmd.ExamplesRendered),
+			SchemaParametersExpression(cmd.Parameters.Where(static p => p.Kind != ParameterKind.Injected), environmentPrefix),
+		};
 		if (!cmd.CommandAliases.IsDefaultOrEmpty)
-		{
-			sb.AppendLine(",");
-			var aliasArr = string.Join(", ", cmd.CommandAliases.Select(a => $"\"{Escape(a)}\""));
-			sb.Append($"{indent}\tAliases: new string[] {{ {aliasArr} }}");
-		}
+			args.Add("Aliases: " + InlineStringArray(cmd.CommandAliases));
 		if (cmd.IsHiddenInSchema)
-		{
-			sb.AppendLine(",");
-			sb.Append($"{indent}\tHidden: true");
-		}
+			args.Add("Hidden: true");
 		if (cmd.IsDeprecated)
-		{
-			sb.AppendLine(",");
-			if (cmd.DeprecationMessage is not null)
-				sb.Append($"{indent}\tDeprecated: new CliDeprecationSchema(Message: \"{Escape(cmd.DeprecationMessage)}\")");
-			else
-				sb.Append($"{indent}\tDeprecated: new CliDeprecationSchema()");
-		}
+			args.Add("Deprecated: " + SchemaDeprecationExpression(cmd.DeprecationMessage));
 		if (cmd.Intent is { } intent)
 		{
-			sb.AppendLine(",");
-			sb.Append($"{indent}\tIntent: new CliIntentSchema(");
-			var intentParts = new System.Collections.Generic.List<string>();
-			if (intent.Destructive is bool d) intentParts.Add($"Destructive: {(d ? "true" : "false")}");
-			if (intent.Idempotent is bool i) intentParts.Add($"Idempotent: {(i ? "true" : "false")}");
-			if (intent.Scope is string sc) intentParts.Add($"Scope: \"{Escape(sc)}\"");
-			if (intent.RequiresConfirmation is bool rc) intentParts.Add($"RequiresConfirmation: {(rc ? "true" : "false")}");
-			if (intent.RequiresAuth is bool ra) intentParts.Add($"RequiresAuth: {(ra ? "true" : "false")}");
-			sb.Append(string.Join(", ", intentParts));
-			sb.Append(")");
+			var intentParts = new List<string>();
+			if (intent.Destructive is bool d) intentParts.Add($"Destructive: {BoolLiteral(d)}");
+			if (intent.Idempotent is bool i) intentParts.Add($"Idempotent: {BoolLiteral(i)}");
+			if (intent.Scope is string sc) intentParts.Add($"Scope: {Quote(sc)}");
+			if (intent.RequiresConfirmation is bool rc) intentParts.Add($"RequiresConfirmation: {BoolLiteral(rc)}");
+			if (intent.RequiresAuth is bool ra) intentParts.Add($"RequiresAuth: {BoolLiteral(ra)}");
+			args.Add($"Intent: new CliIntentSchema({string.Join(", ", intentParts)})");
 		}
+
 		if (cmd.Output is { } output && !output.Formats.IsDefaultOrEmpty)
 		{
-			sb.AppendLine(",");
-			var fmts = string.Join(", ", output.Formats.Select(f => $"\"{Escape(f)}\""));
-			var fflag = output.FormatFlag is not null ? $", FormatFlag: \"{Escape(output.FormatFlag)}\"" : "";
-			sb.Append($"{indent}\tOutput: new CliOutputSchema(Formats: new string[] {{ {fmts} }}{fflag})");
+			var formatFlag = output.FormatFlag is not null ? $", FormatFlag: {Quote(output.FormatFlag)}" : "";
+			args.Add($"Output: new CliOutputSchema(Formats: {InlineStringArray(output.Formats)}{formatFlag})");
 		}
-		sb.AppendLine();
-		sb.Append(indent);
-		sb.Append(")");
+
+		return CodeWriter.New("CliCommandSchema", args);
 	}
 
-	private static void EmitImmutableStringArrayInline(StringBuilder sb, ImmutableArray<string> prefix, string indent)
-	{
-		if (prefix.IsDefaultOrEmpty)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<string>()");
-			return;
-		}
+	private static string SchemaDeprecationExpression(string? message) =>
+		message is not null ? $"new CliDeprecationSchema(Message: {Quote(message)})" : "new CliDeprecationSchema()";
 
-		sb.AppendLine(indent + "new string[]");
-		sb.AppendLine(indent + "{");
-		foreach (var s in prefix)
-			sb.AppendLine($"{indent}\t\"{Escape(s)}\",");
-		sb.Append(indent);
-		sb.Append("}");
-	}
+	private static string StringArrayExpression(IEnumerable<string> values) =>
+		CodeWriter.NewArray("string", values.Select(Quote).ToList());
 
-	private static void EmitSchemaNamespacesExpression(StringBuilder sb,
-		List<RegistryNode.NamedCommandNamespaceChild> children, string entryAssemblyName, string indent, string? environmentPrefix = null)
-	{
-		if (children.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliNamespaceSchema>()");
-			return;
-		}
+	private static string SchemaNamespacesExpression(List<RegistryNode.NamedCommandNamespaceChild> children,
+		string entryAssemblyName, string? environmentPrefix) =>
+		CodeWriter.NewArray("CliNamespaceSchema", children
+			.OrderBy(c => c.Segment, StringComparer.OrdinalIgnoreCase)
+			.Select(ch => CliNamespaceSchemaExpression(ch, entryAssemblyName, environmentPrefix))
+			.ToList());
 
-		sb.AppendLine(indent + "new CliNamespaceSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var ch in children.OrderBy(c => c.Segment, StringComparer.OrdinalIgnoreCase))
-		{
-			EmitCliNamespaceSchemaBody(sb, ch, entryAssemblyName, indent + "\t", environmentPrefix);
-			sb.AppendLine(",");
-		}
-
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitCliNamespaceSchemaBody(StringBuilder sb, RegistryNode.NamedCommandNamespaceChild ch,
-		string entryAssemblyName, string indent, string? environmentPrefix = null)
+	private static string CliNamespaceSchemaExpression(RegistryNode.NamedCommandNamespaceChild ch, string entryAssemblyName,
+		string? environmentPrefix)
 	{
 		var node = ch.Node;
-		var notes = FlattenTypeRemarksInnerXml(node.RemarksInnerXml);
-		sb.AppendLine(indent + "new CliNamespaceSchema(");
-		sb.AppendLine($"{indent}\t\"{Escape(ch.Segment)}\",");
-		EmitNullableStringArg(sb, $"{indent}\t", ch.SummaryOneLiner);
-		sb.AppendLine(",");
-		EmitNullableStringArg(sb, $"{indent}\t", notes);
-		sb.AppendLine(",");
-		EmitSchemaNamespaceOptionsExpression(sb, node, $"{indent}\t", environmentPrefix);
-		sb.AppendLine(",");
-		EmitSchemaDefaultHandlerForNamespace(sb, node.RootCommand, entryAssemblyName, $"{indent}\t", environmentPrefix);
-		sb.AppendLine(",");
-		EmitSchemaNamespaceCommandsExpression(sb, node, entryAssemblyName, $"{indent}\t", environmentPrefix);
-		sb.AppendLine(",");
-		EmitSchemaNamespacesExpression(sb, node.Children, entryAssemblyName, $"{indent}\t", environmentPrefix);
-		sb.AppendLine();
-		sb.Append(indent);
-		sb.Append(")");
+		return CodeWriter.New("CliNamespaceSchema",
+		[
+			Quote(ch.Segment),
+			QuoteOrNull(ch.SummaryOneLiner),
+			QuoteOrNull(FlattenTypeRemarksInnerXml(node.RemarksInnerXml)),
+			SchemaOptionsExpression(node.CommandNamespaceOptionsModel, environmentPrefix),
+			SchemaDefaultHandlerExpression("namespace", node.RootCommand, entryAssemblyName, environmentPrefix),
+			SchemaCommandsExpression(node, entryAssemblyName, environmentPrefix),
+			SchemaNamespacesExpression(node.Children, entryAssemblyName, environmentPrefix),
+		]);
 	}
 
 	private static string FlattenTypeRemarksInnerXml(string? innerXml)
@@ -271,216 +149,91 @@ public sealed partial class CliParserGenerator
 		return Documentation.ParseMethod(wrapped, CSharpParseOptions.Default).RemarksRendered;
 	}
 
-	private static void EmitSchemaNamespaceOptionsExpression(StringBuilder sb, RegistryNode node, string indent, string? environmentPrefix = null)
+	private static string SchemaExamplesExpression(string? examplesRendered) =>
+		StringArrayExpression(string.IsNullOrWhiteSpace(examplesRendered)
+			? Enumerable.Empty<string>()
+			: examplesRendered!.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.None)
+				.Select(s => s.Trim())
+				.Where(s => s.Length > 0));
+
+	private static string? SchemaEnvironmentExpression(AppEmitModel app)
 	{
-		if (node.CommandNamespaceOptionsModel is not { Members.Length: > 0 } nom)
+		var args = new List<string>();
+		if (!app.EnvironmentVars.IsDefaultOrEmpty)
 		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliParameterSchema>()");
-			return;
-		}
-
-		var flags = nom.Members.Where(static p => p.Kind == ParameterKind.Flag).ToList();
-		if (flags.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliParameterSchema>()");
-			return;
-		}
-
-		sb.AppendLine(indent + "new CliParameterSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var p in flags)
-			sb.AppendLine($"{indent}\t{EmitCliParameterSchemaNewExpression(p, environmentPrefix)},");
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitSchemaNamespaceCommandsExpression(StringBuilder sb, RegistryNode node, string entryAssemblyName,
-		string indent, string? environmentPrefix = null)
-	{
-		var cmds = node.Commands.Where(static c => !c.IsRootDefault).OrderBy(c => c.CommandName, StringComparer.Ordinal)
-			.ToList();
-		if (cmds.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliCommandSchema>()");
-			return;
-		}
-
-		sb.AppendLine(indent + "new CliCommandSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var cmd in cmds)
-		{
-			EmitCliCommandSchemaBody(sb, cmd, entryAssemblyName, indent + "\t", environmentPrefix);
-			sb.AppendLine(",");
-		}
-
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitSchemaParametersForCommand(StringBuilder sb, ImmutableArray<ParameterModel> parameters,
-		string indent, string? environmentPrefix = null)
-	{
-		var list = parameters.Where(static p => p.Kind != ParameterKind.Injected).ToList();
-		if (list.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<CliParameterSchema>()");
-			return;
-		}
-
-		sb.AppendLine(indent + "new CliParameterSchema[]");
-		sb.AppendLine(indent + "{");
-		foreach (var p in list)
-			sb.AppendLine($"{indent}\t{EmitCliParameterSchemaNewExpression(p, environmentPrefix)},");
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitNullableStringArg(StringBuilder sb, string indent, string? value)
-	{
-		sb.Append(indent);
-		if (string.IsNullOrWhiteSpace(value))
-			sb.Append("null");
-		else
-			sb.Append('"').Append(Escape(value!)).Append('"');
-	}
-
-	private static void EmitExamplesStringArray(StringBuilder sb, string? examplesRendered, string indent)
-	{
-		if (string.IsNullOrWhiteSpace(examplesRendered))
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<string>()");
-			return;
-		}
-
-		var raw = examplesRendered!;
-		var parts = raw.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.None)
-			.Select(s => s.Trim())
-			.Where(s => s.Length > 0)
-			.ToList();
-		if (parts.Count == 0)
-		{
-			sb.Append(indent);
-			sb.Append("Array.Empty<string>()");
-			return;
-		}
-
-		sb.AppendLine(indent + "new string[]");
-		sb.AppendLine(indent + "{");
-		foreach (var p in parts)
-			sb.AppendLine($"{indent}\t\"{Escape(p)}\",");
-		sb.Append(indent);
-		sb.Append("}");
-	}
-
-	private static void EmitSchemaEnvironmentArg(StringBuilder sb, AppEmitModel app, string indent)
-	{
-		var hasVars = !app.EnvironmentVars.IsDefaultOrEmpty;
-		var hasCfgs = !app.ConfigFiles.IsDefaultOrEmpty;
-		if (!hasVars && !hasCfgs) return;
-
-		sb.AppendLine(",");
-		sb.AppendLine(indent + "Environment: new CliEnvironmentSchema(");
-		if (hasVars)
-		{
-			sb.AppendLine(indent + "\tVariables: new CliEnvVarSchema[]");
-			sb.AppendLine(indent + "\t{");
-			foreach (var v in app.EnvironmentVars)
+			args.Add("Variables: " + CodeWriter.NewArray("CliEnvVarSchema", app.EnvironmentVars.Select(v =>
 			{
-				var desc = v.Description is not null ? $", Description: \"{Escape(v.Description)}\"" : "";
+				var desc = v.Description is not null ? $", Description: {Quote(v.Description)}" : "";
 				var req = v.Required ? ", Required: true" : "";
-				var defVal = v.DefaultValue is not null ? $", DefaultValue: \"{Escape(v.DefaultValue)}\"" : "";
-				sb.AppendLine($"{indent}\t\tnew CliEnvVarSchema(\"{Escape(v.Name)}\"{desc}{req}{defVal}),");
-			}
-			sb.Append(indent + "\t}");
-			if (hasCfgs) sb.AppendLine(",");
+				var defVal = v.DefaultValue is not null ? $", DefaultValue: {Quote(v.DefaultValue)}" : "";
+				return $"new CliEnvVarSchema({Quote(v.Name)}{desc}{req}{defVal})";
+			}).ToList()));
 		}
-		if (hasCfgs)
+
+		if (!app.ConfigFiles.IsDefaultOrEmpty)
 		{
-			sb.AppendLine(indent + "\tConfigFiles: new CliConfigFileSchema[]");
-			sb.AppendLine(indent + "\t{");
-			foreach (var c in app.ConfigFiles)
+			args.Add("ConfigFiles: " + CodeWriter.NewArray("CliConfigFileSchema", app.ConfigFiles.Select(c =>
 			{
-				var desc = c.Description is not null ? $", Description: \"{Escape(c.Description)}\"" : "";
+				var desc = c.Description is not null ? $", Description: {Quote(c.Description)}" : "";
 				var req = c.Required ? ", Required: true" : "";
-				sb.AppendLine($"{indent}\t\tnew CliConfigFileSchema(\"{Escape(c.Path)}\"{desc}{req}),");
-			}
-			sb.Append(indent + "\t}");
+				return $"new CliConfigFileSchema({Quote(c.Path)}{desc}{req})";
+			}).ToList()));
 		}
-		sb.AppendLine();
-		sb.Append(indent + ")");
+
+		return args.Count == 0 ? null : CodeWriter.New("CliEnvironmentSchema", args);
 	}
 
-	private static string EmitCliParameterSchemaNewExpression(ParameterModel p, string? environmentPrefix = null)
+	private static string CliParameterSchemaExpression(ParameterModel p, string? environmentPrefix = null)
 	{
 		var role = p.IsConfirmationSkip ? "confirmationSkip"
 			: p.IsDryRun ? "dryRun"
 			: p.Kind == ParameterKind.Positional ? "positional"
 			: "flag";
-		var shortName = p.ShortOpt is char c ? $"\"{Escape(c.ToString())}\"" : "null";
 		var type = MapToJsonSchemaType(p.ScalarKind, p.TypeName);
-		var req = p.IsRequired ? "true" : "false";
-		var summary = string.IsNullOrEmpty(p.Description) ? "null" : $"\"{Escape(p.Description)}\"";
+		var args = new List<string>
+		{
+			Quote(role),
+			Quote(p.CliLongName),
+			p.ShortOpt is char c ? Quote(c.ToString()) : "null",
+			Quote(type),
+			BoolLiteral(p.IsRequired),
+			string.IsNullOrEmpty(p.Description) ? "null" : Quote(p.Description),
+		};
 
-		var sb = new StringBuilder();
-		sb.Append($"new CliParameterSchema(\"{role}\", \"{Escape(p.CliLongName)}\", {shortName}, \"{type}\", {req}, {summary}");
-
-		var defaultVal = GetSchemaDefaultValue(p);
-		if (defaultVal is not null)
-			sb.Append($", DefaultValue: \"{Escape(defaultVal)}\"");
+		if (GetSchemaDefaultValue(p) is { } defaultVal)
+			args.Add($"DefaultValue: {Quote(defaultVal)}");
 
 		if (p.IsCollection)
-		{
-			if (p.CollectionSeparator is null)
-				sb.Append(", Repeatable: true");
-			else
-				sb.Append($", Separator: \"{Escape(p.CollectionSeparator)}\"");
-		}
+			args.Add(p.CollectionSeparator is null ? "Repeatable: true" : $"Separator: {Quote(p.CollectionSeparator)}");
 
 		if (!p.Aliases.IsDefaultOrEmpty)
-		{
-			var aliasArr = string.Join(", ", p.Aliases.Select(a => $"\"{Escape(a)}\""));
-			sb.Append($", Aliases: new string[] {{ {aliasArr} }}");
-		}
+			args.Add("Aliases: " + InlineStringArray(p.Aliases));
 
 		if (type == "enum" && !p.EnumMemberNames.IsDefaultOrEmpty)
-		{
-			var enumArr = string.Join(", ", p.EnumMemberNames.Select((m, i) => $"\"{Escape(ResolveEnumMemberCliName(p.EnumMemberCliNames, i, m))}\""));
-			sb.Append($", EnumValues: new string[] {{ {enumArr} }}");
-		}
+			args.Add("EnumValues: " + InlineStringArray(p.EnumMemberNames.Select((m, i) => ResolveEnumMemberCliName(p.EnumMemberCliNames, i, m))));
 
 		if (p.IsCollection)
 		{
 			var elemType = MapToJsonSchemaType(p.ElementScalarKind, p.ElementTypeName);
 			// elementType only accepts string/integer/number/boolean per the meta-schema; enum members serialize as strings
 			if (elemType == "enum") elemType = "string";
-			sb.Append($", ElementType: \"{elemType}\"");
+			args.Add($"ElementType: {Quote(elemType)}");
 		}
 
 		if (p.IsHiddenInSchema)
-			sb.Append(", Hidden: true");
+			args.Add("Hidden: true");
 
 		if (p.IsVariadic)
-			sb.Append(", Variadic: true");
+			args.Add("Variadic: true");
 
 		if (p.IsDeprecated)
-		{
-			if (p.DeprecationMessage is not null)
-				sb.Append($", Deprecated: new CliDeprecationSchema(Message: \"{Escape(p.DeprecationMessage)}\")");
-			else
-				sb.Append(", Deprecated: new CliDeprecationSchema()");
-		}
+			args.Add("Deprecated: " + SchemaDeprecationExpression(p.DeprecationMessage));
 
 		var validations = BuildConstraintsExpression(p.Validations, p.ExpandUserProfileBeforeBind);
 		if (validations != "null")
-			sb.Append($", Validations: {validations}");
+			args.Add($"Validations: {validations}");
 
-		sb.Append(")");
-		return sb.ToString();
+		return $"new CliParameterSchema({string.Join(", ", args)})";
 	}
 
 	private static string? GetSchemaDefaultValue(ParameterModel p)
@@ -527,12 +280,12 @@ public sealed partial class CliParserGenerator
 				{
 					case RangeConstraint r:
 						// An unbounded side is left out, which cli-schema v1 allows.
-						var rangeMin = r.SchemaMin is { } sMin ? $"\"{Escape(sMin)}\"" : "null";
-						var rangeMax = r.SchemaMax is { } sMax ? $"\"{Escape(sMax)}\"" : "null";
+						var rangeMin = r.SchemaMin is { } sMin ? Quote(sMin) : "null";
+						var rangeMax = r.SchemaMax is { } sMax ? Quote(sMax) : "null";
 						parts.Add($"new CliConstraintSchema(\"range\", Min: {rangeMin}, Max: {rangeMax})");
 						break;
 					case TimeSpanRangeConstraint ts:
-						parts.Add($"new CliConstraintSchema(\"timeSpanRange\", Min: \"{Escape(ts.MinLiteral)}\", Max: \"{Escape(ts.MaxLiteral)}\")");
+						parts.Add($"new CliConstraintSchema(\"timeSpanRange\", Min: {Quote(ts.MinLiteral)}, Max: {Quote(ts.MaxLiteral)})");
 						break;
 					case CollectionCountConstraint cc:
 						var ccMin = cc.Min.HasValue ? $"\"{cc.Min.Value}\"" : "null";
@@ -545,13 +298,13 @@ public sealed partial class CliParserGenerator
 						parts.Add($"new CliConstraintSchema(\"length\", Min: {slMin}, Max: {slMax})");
 						break;
 					case RegexConstraint re:
-						parts.Add($"new CliConstraintSchema(\"regex\", Pattern: \"{Escape(re.Pattern)}\")");
+						parts.Add($"new CliConstraintSchema(\"regex\", Pattern: {Quote(re.Pattern)})");
 						break;
 					case AllowedValuesConstraint av:
-						parts.Add($"new CliConstraintSchema(\"allowed\", Values: new string[] {{ {string.Join(", ", av.DisplayValues.Select(val => $"\"{Escape(val)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"allowed\", Values: {InlineStringArray(av.DisplayValues)})");
 						break;
 					case DeniedValuesConstraint dv:
-						parts.Add($"new CliConstraintSchema(\"denied\", Values: new string[] {{ {string.Join(", ", dv.DisplayValues.Select(val => $"\"{Escape(val)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"denied\", Values: {InlineStringArray(dv.DisplayValues)})");
 						break;
 					case EmailConstraint:
 						parts.Add("new CliConstraintSchema(\"email\")");
@@ -560,10 +313,10 @@ public sealed partial class CliParserGenerator
 						parts.Add("new CliConstraintSchema(\"url\")");
 						break;
 					case UriSchemeConstraint us:
-						parts.Add($"new CliConstraintSchema(\"uriScheme\", Values: new string[] {{ {string.Join(", ", us.Schemes.Select(s => $"\"{Escape(s)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"uriScheme\", Values: {InlineStringArray(us.Schemes)})");
 						break;
 					case FileExtensionsConstraint fe:
-						parts.Add($"new CliConstraintSchema(\"fileExtensions\", Values: new string[] {{ {string.Join(", ", fe.Extensions.Select(ext => $"\"{Escape(ext)}\""))} }})");
+						parts.Add($"new CliConstraintSchema(\"fileExtensions\", Values: {InlineStringArray(fe.Extensions)})");
 						break;
 					case ExistingPathConstraint:
 						parts.Add("new CliConstraintSchema(\"existing\")");
@@ -571,8 +324,7 @@ public sealed partial class CliParserGenerator
 					case NonExistingPathConstraint:
 						parts.Add("new CliConstraintSchema(\"nonExisting\")");
 						break;
-
-case RejectSymbolicLinksConstraint:
+					case RejectSymbolicLinksConstraint:
 						parts.Add("new CliConstraintSchema(\"rejectSymbolicLinks\")");
 						break;
 				}

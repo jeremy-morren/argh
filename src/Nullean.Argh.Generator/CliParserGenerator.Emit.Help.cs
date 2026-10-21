@@ -2,15 +2,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Operations;
-using Microsoft.CodeAnalysis.Text;
 
 namespace Nullean.Argh;
 
@@ -43,49 +35,62 @@ public sealed partial class CliParserGenerator
 		return "PrintHelp_" + cmd.RunMethodName;
 	}
 
-	/// <summary>Indented body lines for default-handler summary/remarks (one indent step less than before).</summary>
-	private static void EmitRootDefaultDocumentationLines(StringBuilder sb, string indent, string? innerXml, string? plainFallback, bool isRemarks)
-	{
-		if (!string.IsNullOrWhiteSpace(innerXml))
-		{
-			// Concatenate (do not use $"..." interpolation): inner XML can contain `{`/`}` from generic cref text.
-			sb.AppendLine(indent + "global::Nullean.Argh.Help.XmlDocumentationRenderer.WriteIndentedDoc(Console.Out, \"   \", \"" + EscapeDocXml(innerXml!) + "\", " + (isRemarks ? "true" : "false") + ");");
-			return;
-		}
+	private const string HelpBlankLine = "Console.Out.WriteLine();";
 
-		if (string.IsNullOrWhiteSpace(plainFallback))
-			return;
-		var text = plainFallback!;
-		foreach (var part in text.Replace("\r\n", "\n").Split('\n'))
-		{
-			var line = part.TrimEnd('\r');
-			if (string.IsNullOrWhiteSpace(line))
-				sb.AppendLine($"{indent}Console.Out.WriteLine();");
-			else
-				sb.AppendLine($"{indent}Console.Out.WriteLine(\"   \" + \"{Escape(line.Trim())}\");");
-		}
+	private static string HelpSection(string title) => $"Console.Out.WriteLine(CliHelpFormatting.Section({Quote(title)}));";
+
+	private static string HelpUsageLine(string entryAssemblyName, string tail) =>
+		$"Console.Out.WriteLine(CliHelpFormatting.Section(\"Usage: \") + CliHelpFormatting.Accent({Quote(entryAssemblyName)}) + {Quote(tail)});";
+
+	/// <summary>A built-in option row such as <c>-h, --help</c>: the name padded to the option column, then its description.</summary>
+	private static string HelpBuiltInRow(string name, int maxOptWidth, string description) =>
+		$"Console.Out.WriteLine(\"  \" + CliHelpFormatting.Placeholder({Quote(name.PadRight(maxOptWidth))}) + \"  {description}\");";
+
+	/// <summary>The rows of a <c>Namespaces:</c> or <c>Commands:</c> listing, names padded to the longest.</summary>
+	private static void EmitHelpListing(CodeWriter w, bool namespaces, IReadOnlyList<(string Name, string Summary)> rows)
+	{
+		var width = rows.Max(r => r.Name.Length);
+		foreach ((var name, var summary) in rows)
+			w.Line($"CliHelpFormatting.WriteHelpListNameAndDescription({BoolLiteral(namespaces)}, {Quote(name)}, {QuoteOrNull(summary)}, {width});");
 	}
 
-	/// <summary>Summary (white) after usage, or remarks (gray) after options; caller emits <c>Notes:</c> before remarks when using per-command help.</summary>
-	private static void EmitCommandHelpDocPrologue(StringBuilder sb, string indent, string? innerXml, string? plainFallback, bool remarks)
+	/// <summary>A call rendering XML documentation at runtime, indented by <paramref name="indent"/>.</summary>
+	private static string WriteIndentedDocCall(string indent, string innerXml, bool remarks) =>
+		// Concatenate (do not use $"..." interpolation): inner XML can contain `{`/`}` from generic cref text.
+		"global::Nullean.Argh.Help.XmlDocumentationRenderer.WriteIndentedDoc(Console.Out, \"" + indent + "\", \"" + EscapeDocXml(innerXml) + "\", " + BoolLiteral(remarks) + ");";
+
+	/// <summary>Plain documentation text split into lines, each trimmed; a blank line comes back empty.</summary>
+	private static IEnumerable<string> PlainDocLines(string text) =>
+		text.Replace("\r\n", "\n").Split('\n').Select(static part =>
+		{
+			var line = part.TrimEnd('\r');
+			return string.IsNullOrWhiteSpace(line) ? "" : line.Trim();
+		});
+
+	/// <summary>
+	/// Summary or remarks under a usage line, three spaces in: the XML documentation when there is some, the plain text
+	/// otherwise. Plain lines are styled (white summary, gray remarks) unless <paramref name="styled"/> is false, as for a
+	/// default handler's overview.
+	/// </summary>
+	private static void EmitHelpDocLines(CodeWriter w, string? innerXml, string? plainFallback, bool remarks, bool styled = true)
 	{
 		if (!string.IsNullOrWhiteSpace(innerXml))
 		{
-			sb.AppendLine(indent + "global::Nullean.Argh.Help.XmlDocumentationRenderer.WriteIndentedDoc(Console.Out, \"   \", \"" + EscapeDocXml(innerXml!) + "\", " + (remarks ? "true" : "false") + ");");
+			w.Line(WriteIndentedDocCall("   ", innerXml!, remarks));
 			return;
 		}
 
 		if (string.IsNullOrWhiteSpace(plainFallback))
 			return;
-		var text = plainFallback!;
 		var styler = remarks ? "CliHelpFormatting.DocRemarksLine" : "CliHelpFormatting.DocSummaryLine";
-		foreach (var part in text.Replace("\r\n", "\n").Split('\n'))
+		foreach (var line in PlainDocLines(plainFallback!))
 		{
-			var line = part.TrimEnd('\r');
-			if (string.IsNullOrWhiteSpace(line))
-				sb.AppendLine($"{indent}Console.Out.WriteLine();");
+			if (line.Length == 0)
+				w.Line(HelpBlankLine);
+			else if (styled)
+				w.Line($"Console.Out.WriteLine(\"   \" + {styler}({Quote(line)}));");
 			else
-				sb.AppendLine($"{indent}Console.Out.WriteLine(\"   \" + {styler}(\"{Escape(line.Trim())}\"));");
+				w.Line($"Console.Out.WriteLine(\"   \" + {Quote(line)});");
 		}
 	}
 
@@ -107,7 +112,7 @@ public sealed partial class CliParserGenerator
 	/// Single-line remarks are inlined on the same line as "Notes:";
 	/// multi-line remarks follow on the next line with 2-space indent to align with Commands/Options above.
 	/// </summary>
-	private static void EmitNotesSection(StringBuilder sb, string indent, string? innerXml, string plainRendered)
+	private static void EmitNotesSection(CodeWriter w, string? innerXml, string plainRendered)
 	{
 		var flat = string.IsNullOrWhiteSpace(plainRendered)
 			? FlattenRemarksXml(innerXml)
@@ -115,72 +120,63 @@ public sealed partial class CliParserGenerator
 		if (string.IsNullOrWhiteSpace(flat))
 			return;
 
-		var singleLine = !flat.Contains('\n');
-		if (singleLine)
+		if (!flat.Contains('\n'))
 		{
-			sb.AppendLine($"{indent}Console.Out.WriteLine(CliHelpFormatting.Section(\"Notes:\") + \"  \" + CliHelpFormatting.DocRemarksLine(\"{Escape(flat)}\"));");
+			w.Line($"Console.Out.WriteLine(CliHelpFormatting.Section(\"Notes:\") + \"  \" + CliHelpFormatting.DocRemarksLine({Quote(flat)}));");
 			return;
 		}
 
-		sb.AppendLine($"{indent}Console.Out.WriteLine(CliHelpFormatting.Section(\"Notes:\"));");
+		w.Line(HelpSection("Notes:"));
 		if (!string.IsNullOrWhiteSpace(innerXml))
 		{
-			sb.AppendLine(indent + "global::Nullean.Argh.Help.XmlDocumentationRenderer.WriteIndentedDoc(Console.Out, \"  \", \"" + EscapeDocXml(innerXml!) + "\", true);");
+			w.Line(WriteIndentedDocCall("  ", innerXml!, remarks: true));
 			return;
 		}
-		foreach (var part in flat.Split('\n'))
-		{
-			var line = part.TrimEnd('\r');
-			if (string.IsNullOrWhiteSpace(line))
-				sb.AppendLine($"{indent}Console.Out.WriteLine();");
-			else
-				sb.AppendLine($"{indent}Console.Out.WriteLine(\"  \" + CliHelpFormatting.DocRemarksLine(\"{Escape(line.Trim())}\"));");
-		}
+
+		foreach (var line in PlainDocLines(flat))
+			w.Line(line.Length == 0 ? HelpBlankLine : $"Console.Out.WriteLine(\"  \" + CliHelpFormatting.DocRemarksLine({Quote(line)}));");
 	}
 
 	private static void EmitRootCommandHelpOverview(
-		StringBuilder sb,
+		CodeWriter w,
 		CommandModel rootCmd,
-		string indent,
 		AppEmitModel app,
 		string entryAssemblyName,
 		bool includeScopedDefaultHelpOptions = true)
 	{
 		// "(default command)" is not an argv token — labels the opt-in default handler; summary/remarks from XML on the handler.
-		sb.AppendLine($"{indent}Console.Out.WriteLine(\" \" + CliHelpFormatting.DefaultCommandLabel(\"(default command)\"));");
-		EmitRootDefaultDocumentationLines(sb, indent, rootCmd.SummaryInnerXml, rootCmd.SummaryOneLiner, false);
+		w.Line("Console.Out.WriteLine(\" \" + CliHelpFormatting.DefaultCommandLabel(\"(default command)\"));");
+		EmitHelpDocLines(w, rootCmd.SummaryInnerXml, rootCmd.SummaryOneLiner, remarks: false, styled: false);
 		var remarksXml = TransformRemarksInnerXmlForHelp(rootCmd.RemarksInnerXml, rootCmd, app.AllCommands, entryAssemblyName);
-		EmitRootDefaultDocumentationLines(sb, indent, remarksXml, rootCmd.RemarksRendered, true);
+		EmitHelpDocLines(w, remarksXml, rootCmd.RemarksRendered, remarks: true, styled: false);
 		var rootFlags = rootCmd.Parameters.Where(static p => p.Kind == ParameterKind.Flag).ToList();
 		if (includeScopedDefaultHelpOptions && rootFlags.Count > 0)
 		{
 			var mw = Math.Min(
 				Math.Max(rootFlags.Max(p => HelpLayout.FormatOptionLeftCell(p).Length), "-h, --help".Length),
 				40);
-			sb.AppendLine($"{indent}Console.Out.WriteLine();");
-			sb.AppendLine($"{indent}Console.Out.WriteLine(CliHelpFormatting.Section(\"Options for this default:\"));");
+			w.Line(HelpBlankLine);
+			w.Line(HelpSection("Options for this default:"));
 			foreach (var p in rootFlags)
 			{
-				var left = HelpLayout.FormatOptionLeftCell(p).PadRight(mw);
 				var desc = BuildDescriptionSuffix(p, forPositional: false, app.EnvironmentPrefix);
-				sb.AppendLine(
-					$"{indent}Console.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
+				w.Lines(HelpRowStatements("Out", HelpNameCell("Accent", HelpLayout.FormatOptionLeftCell(p).PadRight(mw)), desc, null, null));
 			}
 		}
 
-		sb.AppendLine($"{indent}Console.Out.WriteLine();");
+		w.Line(HelpBlankLine);
 	}
 
-	private static void EmitRootAliasHelpOverview(StringBuilder sb, CommandModel aliasCmd, ImmutableArray<string> path, string indent, string entryAssemblyName)
+	private static void EmitRootAliasHelpOverview(CodeWriter w, CommandModel aliasCmd, ImmutableArray<string> path, string entryAssemblyName)
 	{
 		var fullCommandPath = path.IsDefaultOrEmpty
 			? $"{entryAssemblyName} {aliasCmd.CommandName}"
 			: $"{entryAssemblyName} {string.Join(" ", path)} {aliasCmd.CommandName}";
-		sb.AppendLine($"{indent}Console.Out.WriteLine(\" \" + CliHelpFormatting.DefaultCommandLabel(\"(default: {Escape(aliasCmd.CommandName)})\"));");
+		w.Line($"Console.Out.WriteLine(\" \" + CliHelpFormatting.DefaultCommandLabel({Quote($"(default: {aliasCmd.CommandName})")}));");
 		if (!string.IsNullOrWhiteSpace(aliasCmd.SummaryOneLiner))
-			sb.AppendLine($"{indent}Console.Out.WriteLine(\"    {Escape(aliasCmd.SummaryOneLiner)}\");");
-		sb.AppendLine($"{indent}Console.Out.WriteLine(\"    Alias for '{Escape(fullCommandPath)}'. Run '{Escape(fullCommandPath)} --help' for details.\");");
-		sb.AppendLine($"{indent}Console.Out.WriteLine();");
+			w.Line($"Console.Out.WriteLine({Quote("    " + aliasCmd.SummaryOneLiner)});");
+		w.Line($"Console.Out.WriteLine({Quote($"    Alias for '{fullCommandPath}'. Run '{fullCommandPath} --help' for details.")});");
+		w.Line(HelpBlankLine);
 	}
 
 	/// <summary>Space-separated CLI path for help listings (e.g. <c>storage blob upload</c>).</summary>
@@ -191,161 +187,133 @@ public sealed partial class CliParserGenerator
 		return string.Join(" ", prefix) + " " + segment;
 	}
 
-	private static void EmitArghGeneratedRouteArgsMethod(StringBuilder sb)
+	private static void EmitArghGeneratedRouteArgsMethod(CodeWriter w)
 	{
-		sb.AppendLine("\t\tpublic static RouteMatch? Route(string[] args)");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine("\t\t\tif (args is null)");
-		sb.AppendLine("\t\t\t\tthrow new ArgumentNullException(nameof(args));");
-		sb.AppendLine("\t\t\tif (!TryParseRoute(args, out var m))");
-		sb.AppendLine("\t\t\t\treturn null;");
-		sb.AppendLine("\t\t\treturn m;");
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		using (w.Block("public static RouteMatch? Route(string[] args)"))
+		{
+			w.If("args is null", "throw new ArgumentNullException(nameof(args));");
+			w.If("!TryParseRoute(args, out var m)", "return null;");
+			w.Return("m");
+		}
+
+		w.Line();
 	}
 
 
-	private static void EmitIsIntrinsicCommand(StringBuilder sb, AppEmitModel app)
+	private static void EmitIsIntrinsicCommand(CodeWriter w, AppEmitModel app)
 	{
-		sb.AppendLine("\t\tinternal static bool IsIntrinsicCommand(string[] args)");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine("\t\t\tif (args is null || args.Length == 0) return false;");
-
 		var intrinsicCommands = app.AllCommands.Where(static c => c.IsIntrinsic).ToList();
-		if (intrinsicCommands.Count == 0)
+		using (w.Block("internal static bool IsIntrinsicCommand(string[] args)"))
 		{
-			sb.AppendLine("\t\t\treturn false;");
-			sb.AppendLine("\t\t}");
-			sb.AppendLine();
-			return;
+			w.Line("if (args is null || args.Length == 0) return false;");
+			if (intrinsicCommands.Count == 0)
+				w.Return("false");
+			else
+			{
+				w.Line("var match = Route(args);");
+				w.Line("if (match is null) return false;");
+				using (w.Switch("match.Value.CommandPath"))
+				{
+					foreach (var cmd in intrinsicCommands)
+						w.Line($"case {Quote(GetCommandRoutePath(cmd))}: return true;");
+					w.Line("default: return false;");
+				}
+			}
 		}
 
-		sb.AppendLine("\t\t\tvar match = Route(args);");
-		sb.AppendLine("\t\t\tif (match is null) return false;");
-		sb.AppendLine("\t\t\tswitch (match.Value.CommandPath)");
-		sb.AppendLine("\t\t\t{");
-		foreach (var cmd in intrinsicCommands)
-		{
-			var routePath = Escape(GetCommandRoutePath(cmd));
-			sb.AppendLine($"\t\t\t\tcase \"{routePath}\": return true;");
-		}
-		sb.AppendLine("\t\t\t\tdefault: return false;");
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		w.Line();
 	}
 
-	private static void EmitTryParseRouteHierarchical(StringBuilder sb, AppEmitModel app)
+	/// <summary><c>match = new RouteMatch(…); return true;</c> for a command that takes the rest of the arguments.</summary>
+	private static void EmitRouteMatch(CodeWriter w, CommandModel cmd)
+	{
+		w.Line($"match = new RouteMatch({Quote(GetCommandRoutePath(cmd))}, TailFrom(args, idx[0]));");
+		w.Return("true");
+	}
+
+	private static void EmitTryParseRouteHierarchical(CodeWriter w, AppEmitModel app)
 	{
 		var hasLeadingOptionPrefetch =
 			CollectRootPrefetchGlobalMembers(app).Length > 0 || CollectDeferredRootAliasPrefetchFlags(app).Length > 0;
-		sb.AppendLine("\t\tpublic static bool TryParseRoute(string[] args, out RouteMatch match)");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine("\t\t\tmatch = default;");
-		sb.AppendLine("\t\t\tif (CompletionProtocol.IsArghMetaCompletionInvocation(args)) return false;");
-		sb.AppendLine("\t\t\tvar idx = new int[1];");
-		if (hasLeadingOptionPrefetch)
-			sb.AppendLine("\t\t\tif (!TryParseGlobalOptions(args, idx)) return false;");
-		sb.AppendLine("\t\t\tif (args.Length == 0) return false;");
-		sb.AppendLine("\t\t\tif (idx[0] < args.Length && (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\")) return false;");
-		sb.AppendLine("\t\t\tif (idx[0] < args.Length && args[idx[0]] == \"--version\") return false;");
-		sb.AppendLine("\t\t\tif (idx[0] >= args.Length)");
-		sb.AppendLine("\t\t\t{");
-		if (app.Root.RootCommand is { } routeRoot)
+		using (w.Block("public static bool TryParseRoute(string[] args, out RouteMatch match)"))
 		{
-			var rp = Escape(GetCommandRoutePath(routeRoot));
-			sb.AppendLine($"\t\t\t\tmatch = new RouteMatch(\"{rp}\", TailFrom(args, idx[0]));");
-			sb.AppendLine("\t\t\t\treturn true;");
-		}
-		else if (app.Root.RootAlias is { } routeRa)
-		{
-			var rp = Escape(GetCommandRoutePath(routeRa));
-			sb.AppendLine($"\t\t\t\tmatch = new RouteMatch(\"{rp}\", TailFrom(args, idx[0]));");
-			sb.AppendLine("\t\t\t\treturn true;");
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\treturn false;");
+			w.Line("match = default;");
+			w.Line("if (CompletionProtocol.IsArghMetaCompletionInvocation(args)) return false;");
+			w.Line("var idx = new int[1];");
+			if (hasLeadingOptionPrefetch)
+				w.Line("if (!TryParseGlobalOptions(args, idx)) return false;");
+			w.Line("if (args.Length == 0) return false;");
+			w.Line("if (idx[0] < args.Length && (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\")) return false;");
+			w.Line("if (idx[0] < args.Length && args[idx[0]] == \"--version\") return false;");
+			using (w.If("idx[0] >= args.Length"))
+			{
+				if ((app.Root.RootCommand ?? app.Root.RootAlias) is { } routeRoot)
+					EmitRouteMatch(w, routeRoot);
+				else
+					w.Return("false");
+			}
+
+			w.Return("TryParseRouteRoot(args, idx, out match)");
 		}
 
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t\treturn TryParseRouteRoot(args, idx, out match);");
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
-		EmitTryParseRouteForNode(sb, app, app.Root, ImmutableArray<string>.Empty, "TryParseRouteRoot", isRoot: true);
-		EmitArghGeneratedRouteArgsMethod(sb);
+		w.Line();
+		EmitTryParseRouteForNode(w, app, app.Root, ImmutableArray<string>.Empty, "TryParseRouteRoot", isRoot: true);
+		EmitArghGeneratedRouteArgsMethod(w);
 	}
 
 	private static void EmitTryParseRouteForNode(
-		StringBuilder sb,
+		CodeWriter w,
 		AppEmitModel app,
 		RegistryNode node,
 		ImmutableArray<string> path,
 		string methodName,
 		bool isRoot)
 	{
-		sb.AppendLine($"\t\tprivate static bool {methodName}(string[] args, int[] idx, out RouteMatch match)");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine("\t\t\tmatch = default;");
-		if (!isRoot && node.CommandNamespaceOptionsModel is { FlattenedMembers.Length: > 0 })
-			sb.AppendLine($"\t\t\tif (!{CommandNamespaceOptionsParseMethodName(path)}(args, idx)) return false;");
-		sb.AppendLine("\t\t\tif (idx[0] >= args.Length)");
-		sb.AppendLine("\t\t\t{");
-		if (node.RootCommand is { } routeNsRoot)
+		using (w.Block($"private static bool {methodName}(string[] args, int[] idx, out RouteMatch match)"))
 		{
-			var rnp = Escape(GetCommandRoutePath(routeNsRoot));
-			sb.AppendLine($"\t\t\t\tmatch = new RouteMatch(\"{rnp}\", TailFrom(args, idx[0]));");
-			sb.AppendLine("\t\t\t\treturn true;");
-		}
-		else if (node.RootAlias is { } routeNsRa)
-		{
-			var rnp = Escape(GetCommandRoutePath(routeNsRa));
-			sb.AppendLine($"\t\t\t\tmatch = new RouteMatch(\"{rnp}\", TailFrom(args, idx[0]));");
-			sb.AppendLine("\t\t\t\treturn true;");
-		}
-		else
-		{
-			sb.AppendLine("\t\t\t\treturn false;");
+			w.Line("match = default;");
+			if (!isRoot && node.CommandNamespaceOptionsModel is { FlattenedMembers.Length: > 0 })
+				w.Line($"if (!{CommandNamespaceOptionsParseMethodName(path)}(args, idx)) return false;");
+			using (w.If("idx[0] >= args.Length"))
+			{
+				if ((node.RootCommand ?? node.RootAlias) is { } routeNsRoot)
+					EmitRouteMatch(w, routeNsRoot);
+				else
+					w.Return("false");
+			}
+
+			w.Line("if (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\") return false;");
+			w.Line("var tokKey = args[idx[0]].ToLowerInvariant();");
+			using (w.Switch("tokKey"))
+			{
+				foreach (var cmd in node.Commands)
+				{
+					using (w.CaseBlock(Quote(cmd.CommandName.ToLowerInvariant())))
+					{
+						w.Line("idx[0]++;");
+						EmitRouteMatch(w, cmd);
+					}
+				}
+
+				foreach (var ch in node.Children)
+				{
+					var childMethod = "TryParseRouteCommandNamespace_" + CommandNamespacePathKey(AppendSegment(path, ch.Segment));
+					using (w.CaseBlock(Quote(ch.Segment.ToLowerInvariant())))
+					{
+						w.Line("idx[0]++;");
+						w.Return($"{childMethod}(args, idx, out match)");
+					}
+				}
+
+				w.Case("default", "return false;");
+			}
 		}
 
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t\tif (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\") return false;");
-		sb.AppendLine("\t\t\tvar tokKey = args[idx[0]].ToLowerInvariant();");
-		sb.AppendLine("\t\t\tswitch (tokKey)");
-		sb.AppendLine("\t\t\t{");
-		foreach (var cmd in node.Commands)
-		{
-			var routePath = Escape(GetCommandRoutePath(cmd));
-			var caseLabel = Escape(cmd.CommandName.ToLowerInvariant());
-			sb.AppendLine($"\t\t\t\tcase \"{caseLabel}\":");
-			sb.AppendLine("\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\tidx[0]++;");
-			sb.AppendLine($"\t\t\t\t\tmatch = new RouteMatch(\"{routePath}\", TailFrom(args, idx[0]));");
-			sb.AppendLine("\t\t\t\t\treturn true;");
-			sb.AppendLine("\t\t\t\t}");
-		}
-
+		w.Line();
 		foreach (var ch in node.Children)
 		{
 			var childPath = AppendSegment(path, ch.Segment);
-			var childMethod = "TryParseRouteCommandNamespace_" + CommandNamespacePathKey(childPath);
-			var caseLabel = Escape(ch.Segment.ToLowerInvariant());
-			sb.AppendLine($"\t\t\t\tcase \"{caseLabel}\":");
-			sb.AppendLine("\t\t\t\t{");
-			sb.AppendLine("\t\t\t\t\tidx[0]++;");
-			sb.AppendLine($"\t\t\t\t\treturn {childMethod}(args, idx, out match);");
-			sb.AppendLine("\t\t\t\t}");
-		}
-
-		sb.AppendLine("\t\t\t\tdefault:");
-		sb.AppendLine("\t\t\t\t\treturn false;");
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
-		foreach (var ch in node.Children)
-		{
-			var childPath = AppendSegment(path, ch.Segment);
-			EmitTryParseRouteForNode(sb, app, ch.Node, childPath, "TryParseRouteCommandNamespace_" + CommandNamespacePathKey(childPath), isRoot: false);
+			EmitTryParseRouteForNode(w, app, ch.Node, childPath, "TryParseRouteCommandNamespace_" + CommandNamespacePathKey(childPath), isRoot: false);
 		}
 	}
 
@@ -441,48 +409,65 @@ public sealed partial class CliParserGenerator
 			"",   // UsageHints
 			ImmutableArray<(string, bool)>.Empty);
 
-	private static void EmitAllowedFlagPredicate(StringBuilder sb, ImmutableArray<ParameterModel> members)
+
+	/// <summary>A flag's long name and aliases, plus their <c>no-</c> forms for a nullable bool.</summary>
+	private static void AddFlagNames(HashSet<string> names, ParameterModel p)
+	{
+		var aliases = p.Aliases.Where(al => !string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase)).ToList();
+		names.Add(p.CliLongName);
+		foreach (var al in aliases)
+			names.Add(al);
+		if (p.Special != BoolSpecialKind.NullableBool)
+			return;
+		names.Add("no-" + p.CliLongName);
+		foreach (var al in aliases)
+			names.Add("no-" + al);
+	}
+
+	/// <summary>A local function <c>F(x) =&gt; x switch { pattern =&gt; result, …, _ =&gt; default };</c>.</summary>
+	private static void EmitSwitchExpression(CodeWriter w, string signature, string subject, IEnumerable<(string Pattern, string Result)> arms, string defaultResult)
+	{
+		using (w.Block($"{signature} => {subject} switch", ";"))
+		{
+			foreach ((var pattern, var result) in arms)
+				w.Line($"{pattern} => {result},");
+			w.Line("_ => " + defaultResult);
+		}
+	}
+
+	/// <summary>A local function <c>bool F(x) =&gt; x switch { … =&gt; true, _ =&gt; false };</c> over <paramref name="literals"/>.</summary>
+	private static void EmitSwitchPredicate(CodeWriter w, string signature, string subject, IEnumerable<string> literals) =>
+		EmitSwitchExpression(w, signature, subject, literals.Select(static l => (l, "true")), "false");
+
+	/// <summary>Like <see cref="EmitSwitchPredicate"/> over string names, or <c>=&gt; false;</c> when there are none.</summary>
+	private static void EmitNamePredicate(CodeWriter w, string signature, IReadOnlyCollection<string> names)
+	{
+		if (names.Count == 0)
+			w.Line(signature + " => false;");
+		else
+			EmitSwitchPredicate(w, signature, "name", names.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
+	}
+
+	private static void EmitAllowedFlagPredicate(CodeWriter w, ImmutableArray<ParameterModel> members)
 	{
 		var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var p in members)
 		{
-			if (p.Kind != ParameterKind.Flag)
-				continue;
-			allowed.Add(p.CliLongName);
-			foreach (var al in p.Aliases)
-			{
-				if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-					continue;
-				allowed.Add(al);
-			}
-
-			if (p.Special == BoolSpecialKind.NullableBool)
-			{
-				allowed.Add("no-" + p.CliLongName);
-				foreach (var al in p.Aliases)
-				{
-					if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-						continue;
-					allowed.Add("no-" + al);
-				}
-			}
+			if (p.Kind == ParameterKind.Flag)
+				AddFlagNames(allowed, p);
 		}
 
-		sb.AppendLine("\t\t\tbool IsAllowedFlag(string name) => name switch");
-		sb.AppendLine("\t\t\t{");
-		foreach (var n in allowed.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))
-			sb.AppendLine($"\t\t\t\t\"{Escape(n)}\" => true,");
-
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
+		EmitSwitchPredicate(w, "bool IsAllowedFlag(string name)", "name", allowed.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
 	}
 
-	private static void EmitDeferLeadingRootAliasHelpers(StringBuilder sb, ImmutableArray<ParameterModel> defer)
+	private static void EmitDeferLeadingRootAliasHelpers(CodeWriter w, ImmutableArray<ParameterModel> defer)
 	{
+		const string canonSignature = "bool ShouldDeferLeadingRootAliasCanon(string name)";
+		const string shortSignature = "bool ShouldDeferLeadingShortFlag(char c)";
 		if (defer.IsDefaultOrEmpty)
 		{
-			sb.AppendLine("\t\t\tbool ShouldDeferLeadingRootAliasCanon(string name) => false;");
-			sb.AppendLine("\t\t\tbool ShouldDeferLeadingShortFlag(char c) => false;");
+			w.Line(canonSignature + " => false;");
+			w.Line(shortSignature + " => false;");
 			return;
 		}
 
@@ -490,121 +475,91 @@ public sealed partial class CliParserGenerator
 		var shortChars = new HashSet<char>();
 		foreach (var p in defer)
 		{
-			canonNames.Add(p.CliLongName);
-			foreach (var al in p.Aliases)
-			{
-				if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-					continue;
-				canonNames.Add(al);
-			}
-
-			if (p.Special == BoolSpecialKind.NullableBool)
-			{
-				canonNames.Add("no-" + p.CliLongName);
-				foreach (var al in p.Aliases)
-				{
-					if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-						continue;
-					canonNames.Add("no-" + al);
-				}
-			}
-
+			AddFlagNames(canonNames, p);
 			if (p.ShortOpt is char ch)
 				shortChars.Add(ch);
 		}
 
-		sb.AppendLine("\t\t\tbool ShouldDeferLeadingRootAliasCanon(string name) => name switch");
-		sb.AppendLine("\t\t\t{");
-		foreach (var n in canonNames.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))
-			sb.AppendLine($"\t\t\t\t\"{Escape(n)}\" => true,");
-
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
-
+		EmitSwitchPredicate(w, canonSignature, "name", canonNames.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
 		if (shortChars.Count == 0)
-		{
-			sb.AppendLine("\t\t\tbool ShouldDeferLeadingShortFlag(char c) => false;");
-			return;
-		}
-
-		sb.AppendLine("\t\t\tbool ShouldDeferLeadingShortFlag(char c) => c switch");
-		sb.AppendLine("\t\t\t{");
-		foreach (var ch in shortChars.OrderBy(static x => x))
-			sb.AppendLine($"\t\t\t\t'{ch}' => true,");
-
-		sb.AppendLine("\t\t\t\t_ => false");
-		sb.AppendLine("\t\t\t};");
+			w.Line(shortSignature + " => false;");
+		else
+			EmitSwitchPredicate(w, shortSignature, "c", shortChars.OrderBy(static x => x).Select(static ch => $"'{ch}'"));
 	}
 
 	private static bool HelpUsesEnumChoiceContinuationLayout(ParameterModel p) =>
 		p.ScalarKind == CliScalarKind.Enum
 		|| (p.IsCollection && p.ElementScalarKind == CliScalarKind.Enum && !p.ElementEnumMemberNames.IsDefaultOrEmpty);
 
-	private static void EmitHelpOptionRows(StringBuilder sb, IReadOnlyList<ParameterModel> rows, int maxOptWidth, string? environmentPrefix = null)
+	/// <summary>The start of a help row as interpolated-string text: two spaces, the styled name cell, two spaces.</summary>
+	private static string HelpNameCell(string style, string paddedName) => $"  {{CliHelpFormatting.{style}({Quote(paddedName)})}}  ";
+
+	/// <summary>
+	/// Statements writing one help row to <c>Console.{stream}</c>: <paramref name="nameCell"/>, the description, then the
+	/// validation summary in gray. With a <paramref name="continuationIndent"/> the validation summary goes on a line of its own.
+	/// </summary>
+	private static IEnumerable<string> HelpRowStatements(string stream, string nameCell, string desc, string? validationLine, string? continuationIndent)
 	{
-		var continuationIndent = new string(' ', maxOptWidth + 4);
-		foreach (var p in rows)
-		{
-			var left = HelpLayout.FormatOptionLeftCell(p).PadRight(maxOptWidth);
-			var desc = BuildDescriptionSuffix(p, forPositional: false, environmentPrefix);
-			var validationLine = BuildValidationLine(p);
-			var validationOnNewLine = validationLine != null && HelpUsesEnumChoiceContinuationLayout(p);
+		string WriteLine(string interpolated) => $"Console.{stream}.WriteLine($\"{interpolated}\");";
 
-			if (validationLine is null)
-			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
-			}
-			else if (validationOnNewLine)
-			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
-			}
-			else if (string.IsNullOrEmpty(desc))
-			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
-			}
-			else
-			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
-			}
-		}
-	}
-
-	/// <summary>Same layout as <see cref="EmitHelpOptionRows"/> but to stderr (parse errors).</summary>
-	private static void EmitHelpOptionRowsStdErr(StringBuilder sb, ParameterModel p, int maxOptWidth, string lineIndent, string? environmentPrefix = null)
-	{
-		var continuationIndent = new string(' ', maxOptWidth + 4);
-		var left = HelpLayout.FormatOptionLeftCell(p).PadRight(maxOptWidth);
-		var desc = BuildDescriptionSuffix(p, forPositional: false, environmentPrefix);
-		var validationLine = BuildValidationLine(p);
-		var validationOnNewLine = validationLine != null && HelpUsesEnumChoiceContinuationLayout(p);
-
+		var text = EscapeForHelpInterpolation(desc);
 		if (validationLine is null)
 		{
-			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
+			yield return WriteLine(nameCell + text);
+			yield break;
 		}
-		else if (validationOnNewLine)
+
+		var remarks = $"{{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}";
+		if (continuationIndent is not null)
 		{
-			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
-			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
+			yield return WriteLine(nameCell + text);
+			yield return WriteLine(continuationIndent + remarks);
 		}
-		else if (string.IsNullOrEmpty(desc))
-		{
-			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
-		}
+		else if (desc.Length == 0)
+			yield return WriteLine(nameCell + remarks);
 		else
+			yield return WriteLine(nameCell + text + " " + remarks);
+	}
+
+	/// <summary>A flag's help row, as <c>--help</c> lists it; enum choices continue on the next line.</summary>
+	private static IEnumerable<string> HelpOptionRowStatements(string stream, ParameterModel p, int maxOptWidth, string? environmentPrefix)
+	{
+		var validationLine = BuildValidationLine(p);
+		var continuationIndent = validationLine != null && HelpUsesEnumChoiceContinuationLayout(p) ? new string(' ', maxOptWidth + 4) : null;
+		return HelpRowStatements(
+			stream,
+			HelpNameCell("Accent", HelpLayout.FormatOptionLeftCell(p).PadRight(maxOptWidth)),
+			BuildDescriptionSuffix(p, forPositional: false, environmentPrefix),
+			validationLine,
+			continuationIndent);
+	}
+
+	private static void EmitHelpOptionRows(CodeWriter w, IReadOnlyList<ParameterModel> rows, int maxOptWidth, string? environmentPrefix = null)
+	{
+		foreach (var p in rows)
+			w.Lines(HelpOptionRowStatements("Out", p, maxOptWidth, environmentPrefix));
+	}
+
+	/// <summary><c>switch (canonFlagName)</c> printing one flag's help row to stderr after a parse error.</summary>
+	private static void EmitFlagHelpSwitch(CodeWriter w, IEnumerable<ParameterModel> flags, int maxOptWidth, string? environmentPrefix)
+	{
+		using (w.Switch("canonFlagName"))
 		{
-			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
+			foreach (var p in flags.OrderBy(static x => x.CliLongName, StringComparer.OrdinalIgnoreCase))
+			{
+				using (w.Case(Quote(p.CliLongName)))
+				{
+					w.Lines(HelpOptionRowStatements("Error", p, maxOptWidth, environmentPrefix));
+					w.Line("break;");
+				}
+			}
+
+			w.Case("default", "break;");
 		}
 	}
 
 	private static void EmitOptionsTryParseFlagHelpPrinter(
-		StringBuilder sb,
+		CodeWriter w,
 		string parseMethodName,
 		List<ParameterModel> flagMembers,
 		int maxOptWidth)
@@ -612,67 +567,134 @@ public sealed partial class CliParserGenerator
 		if (flagMembers.Count == 0)
 			return;
 
-		var methodName = parseMethodName + "_FlagHelp_ToStdErr";
-		sb.AppendLine($"\t\tprivate static void {methodName}(string canonFlagName)");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine("\t\t\tswitch (canonFlagName)");
-		sb.AppendLine("\t\t\t{");
-		foreach (var p in flagMembers.OrderBy(static x => x.CliLongName, StringComparer.OrdinalIgnoreCase))
-		{
-			sb.AppendLine($"\t\t\t\tcase \"{Escape(p.CliLongName)}\":");
-			EmitHelpOptionRowsStdErr(sb, p, maxOptWidth, "\t\t\t\t\t");
-			sb.AppendLine("\t\t\t\t\tbreak;");
-		}
-
-		sb.AppendLine("\t\t\t\tdefault:");
-		sb.AppendLine("\t\t\t\t\tbreak;");
-		sb.AppendLine("\t\t\t}");
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		using (w.Block($"private static void {parseMethodName}_FlagHelp_ToStdErr(string canonFlagName)"))
+			EmitFlagHelpSwitch(w, flagMembers, maxOptWidth, null);
+		w.Line();
 	}
 
+	/// <summary><c>Console.Error.WriteLine("…");</c> for text already escaped for a C# string literal, such as a run hint.</summary>
+	private static string ErrorLine(string escapedText) => $"Console.Error.WriteLine(\"{escapedText}\");";
+
+	/// <summary>
+	/// How generated binding code reports a value it can't use: the statement that leaves (<c>return 2</c>, or
+	/// <c>return false</c> for a DTO parser), then the command's help printers and run hint, where it has them.
+	/// </summary>
+	private sealed record ParseFailure(string Exit, string? HelpMethod = null, string? FlagHelpMethod = null, string? RunHint = null);
+
 	/// <summary>After a CLI parse/validation error on stderr: optional flag rows (matching --help), then optional run hint.</summary>
-	private static void EmitAfterCliParseErrorHelp(
-		StringBuilder sb,
-		ParameterModel p,
-		string lineIndent,
-		string? helpMethodName,
-		string? flagHelpStdErrMethodName,
-		string? parseFailureRunHint)
+	private static void EmitAfterCliParseErrorHelp(CodeWriter w, ParameterModel p, ParseFailure failure)
 	{
-		if (p.Kind == ParameterKind.Flag && flagHelpStdErrMethodName is not null)
+		if (p.Kind == ParameterKind.Flag && failure.FlagHelpMethod is not null)
 		{
-			sb.AppendLine($"{lineIndent}Console.Error.WriteLine();");
-			sb.AppendLine($"{lineIndent}{flagHelpStdErrMethodName}(\"{Escape(p.CliLongName)}\");");
-			sb.AppendLine($"{lineIndent}Console.Error.WriteLine();");
-			if (parseFailureRunHint is not null)
-				sb.AppendLine($"{lineIndent}Console.Error.WriteLine(\"{parseFailureRunHint}\");");
+			w.Line("Console.Error.WriteLine();");
+			w.Line($"{failure.FlagHelpMethod}({Quote(p.CliLongName)});");
+			w.Line("Console.Error.WriteLine();");
+			if (failure.RunHint is not null)
+				w.Line(ErrorLine(failure.RunHint));
 		}
-		else if (helpMethodName is not null)
-			sb.AppendLine($"{lineIndent}{helpMethodName}();");
+		else if (failure.HelpMethod is not null)
+			w.Line($"{failure.HelpMethod}();");
+	}
+
+	/// <summary><c>if (condition) { error; help; exit; }</c>: rejects a value the parameter can't take.</summary>
+	private static void EmitParseError(CodeWriter w, string condition, string errorStatement, ParameterModel p, ParseFailure failure)
+	{
+		using (w.If(condition))
+		{
+			w.Line(errorStatement);
+			EmitAfterCliParseErrorHelp(w, p, failure);
+			w.Line(failure.Exit + ";");
+		}
+	}
+
+	/// <summary>A value validation checks run on: the parameter, the local holding it, and how a failure exits and what it prints.</summary>
+	private sealed record ValidationTarget(ParameterModel P, string VarName, string FailureExit, string? FlagHelpMethod, string? RunHint)
+	{
+		public string CliName => P.CliLongName;
 	}
 
 	/// <summary>After a validation-check error: optional flag rows on stderr, then optional run hint.</summary>
-	private static void EmitValidationErrorFooter(
-		StringBuilder sb,
-		ParameterModel p,
-		string cliName,
-		string indent,
-		string? flagHelpStdErrMethodName,
-		string? runHint)
+	private static void EmitValidationErrorFooter(CodeWriter w, ValidationTarget t)
 	{
-		if (p.Kind == ParameterKind.Flag && flagHelpStdErrMethodName is not null)
+		if (t.P.Kind == ParameterKind.Flag && t.FlagHelpMethod is not null)
 		{
-			sb.AppendLine($"{indent}Console.Error.WriteLine();");
-			sb.AppendLine($"{indent}{flagHelpStdErrMethodName}(\"{Escape(cliName)}\");");
-			sb.AppendLine($"{indent}Console.Error.WriteLine();");
+			w.Line("Console.Error.WriteLine();");
+			w.Line($"{t.FlagHelpMethod}({Quote(t.CliName)});");
+			w.Line("Console.Error.WriteLine();");
 		}
 
-		if (runHint is not null)
-			sb.AppendLine($"{indent}Console.Error.WriteLine(\"{runHint}\");");
+		if (t.RunHint is not null)
+			w.Line(ErrorLine(t.RunHint));
 	}
 
-	private static void EmitCommandHelpPrinter(StringBuilder sb, CommandModel cmd, AppEmitModel app, string entryAssemblyName)
+	/// <summary><c>if (condition) { error; help; exit; }</c>: rejects a value that fails a validation check.</summary>
+	private static void EmitValidationFailure(CodeWriter w, ValidationTarget t, string condition, string errorStatement)
+	{
+		using (w.If(condition))
+		{
+			w.Line(errorStatement);
+			EmitValidationErrorFooter(w, t);
+			w.Line(t.FailureExit + ";");
+		}
+	}
+
+	/// <summary>Flags in each namespace's options on <paramref name="path"/> that neither the globals nor an outer namespace already show.</summary>
+	private static List<(string Segment, List<ParameterModel> Rows)> BuildNamespaceOptionSections(
+		AppEmitModel app, ImmutableArray<string> path, List<ParameterModel> globalFlagMembers)
+	{
+		var sections = new List<(string Segment, List<ParameterModel> Rows)>();
+		var suppressedForNamespaceDisplay = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		AddCliKeys(globalFlagMembers, suppressedForNamespaceDisplay);
+		foreach ((var seg, var gom) in GetCommandNamespaceOptionChain(app, path))
+		{
+			var allInNamespace = EnumerateFlagMembers(gom).ToList();
+			var rows = allInNamespace.Where(p => !suppressedForNamespaceDisplay.Contains(p.CliLongName)).ToList();
+			AddCliKeys(allInNamespace, suppressedForNamespaceDisplay);
+			if (rows.Count > 0)
+				sections.Add((seg, rows));
+		}
+
+		return sections;
+	}
+
+	/// <summary>What a command's help lists: global flags, each namespace's own flags, the command's own flags, and the option column width.</summary>
+	private sealed record CommandHelpLayout(
+		List<ParameterModel> GlobalFlags,
+		List<(string Segment, List<ParameterModel> Rows)> NamespaceSections,
+		List<ParameterModel> CommandFlags,
+		int MaxOptWidth);
+
+	private static CommandHelpLayout BuildCommandHelpLayout(CommandModel cmd, AppEmitModel app)
+	{
+		var globalFlagMembers = EnumerateFlagMembers(app.GlobalOptionsModel).ToList();
+		var namespaceOptionSections = BuildNamespaceOptionSections(app, cmd.RoutePrefix, globalFlagMembers);
+
+		var scopedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		AddCliKeys(globalFlagMembers, scopedKeys);
+		foreach ((_, var gom) in GetCommandNamespaceOptionChain(app, cmd.RoutePrefix))
+			AddCliKeys(EnumerateFlagMembers(gom), scopedKeys);
+
+		var commandOnlyFlags = cmd.Parameters
+			.Where(p => p.Kind == ParameterKind.Flag && !CommandFlagMatchesScopedKeys(p, scopedKeys))
+			.ToList();
+
+		var widthCandidates = new List<int> { "-h, --help".Length };
+		widthCandidates.AddRange(globalFlagMembers.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
+		foreach ((_, var rows) in namespaceOptionSections)
+			widthCandidates.AddRange(rows.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
+
+		widthCandidates.AddRange(commandOnlyFlags.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
+		var maxOptWidth = Math.Min(widthCandidates.Max(), 40);
+		maxOptWidth = Math.Max(maxOptWidth, "-h, --help".Length);
+		return new CommandHelpLayout(globalFlagMembers, namespaceOptionSections, commandOnlyFlags, maxOptWidth);
+	}
+
+	private static string PositionalNameCell(ParameterModel p) =>
+		p.IsVariadic
+			? (p.IsRequired ? $"<{p.CliLongName}...>" : $"[<{p.CliLongName}...>]")
+			: (p.IsRequired ? $"<{p.CliLongName}>" : $"[<{p.CliLongName}>]");
+
+	private static void EmitCommandHelpPrinter(CodeWriter w, CommandModel cmd, AppEmitModel app, string entryAssemblyName)
 	{
 		if (cmd.IsRootDefault)
 			return;
@@ -680,212 +702,96 @@ public sealed partial class CliParserGenerator
 		var routeUsage = cmd.RoutePrefix.IsDefaultOrEmpty
 			? ""
 			: string.Join(" ", cmd.RoutePrefix) + " ";
+		var layout = BuildCommandHelpLayout(cmd, app);
+		var maxOptWidth = layout.MaxOptWidth;
+		var positionals = cmd.Parameters.Where(static p => p.Kind == ParameterKind.Positional).ToList();
 
-		var globalFlagMembers = EnumerateFlagMembers(app.GlobalOptionsModel).ToList();
-		List<(string Segment, List<ParameterModel> Rows)> namespaceOptionSections = new();
-		var namespaceOptionChain = GetCommandNamespaceOptionChain(app, cmd.RoutePrefix);
-		var suppressedForNamespaceDisplay = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		AddCliKeys(globalFlagMembers, suppressedForNamespaceDisplay);
-		foreach ((var seg, var gom) in namespaceOptionChain)
+		using (w.Block($"private static void PrintHelp_{cmd.RunMethodName}()"))
 		{
-			var allInNamespace = EnumerateFlagMembers(gom).ToList();
-			var rows = allInNamespace.Where(p => !suppressedForNamespaceDisplay.Contains(p.CliLongName)).ToList();
-			AddCliKeys(allInNamespace, suppressedForNamespaceDisplay);
-			if (rows.Count > 0)
-				namespaceOptionSections.Add((seg, rows));
-		}
+			w.Line(HelpUsageLine(entryAssemblyName, $" {routeUsage}{cmd.CommandName} {cmd.UsageHints}"));
+			w.Line(HelpBlankLine);
 
-		var scopedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		AddCliKeys(globalFlagMembers, scopedKeys);
-		foreach ((_, var gom) in namespaceOptionChain)
-			AddCliKeys(EnumerateFlagMembers(gom), scopedKeys);
+			EmitHelpDocLines(w, cmd.SummaryInnerXml, cmd.SummaryOneLiner, remarks: false);
+			if (!string.IsNullOrWhiteSpace(cmd.SummaryOneLiner) || !string.IsNullOrWhiteSpace(cmd.SummaryInnerXml))
+				w.Line(HelpBlankLine);
 
-		var commandOnlyFlags = cmd.Parameters
-			.Where(p => p.Kind == ParameterKind.Flag && !CommandFlagMatchesScopedKeys(p, scopedKeys))
-			.ToList();
-
-		var widthCandidates = new List<int> { "-h, --help".Length };
-		widthCandidates.AddRange(globalFlagMembers.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-		foreach ((_, var rows) in namespaceOptionSections)
-			widthCandidates.AddRange(rows.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-
-		widthCandidates.AddRange(commandOnlyFlags.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-		var maxOptWidth = Math.Min(widthCandidates.Max(), 40);
-		maxOptWidth = Math.Max(maxOptWidth, "-h, --help".Length);
-
-		sb.AppendLine($"\t\tprivate static void PrintHelp_{cmd.RunMethodName}()");
-		sb.AppendLine("\t\t{");
-		sb.AppendLine(
-			$"\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"Usage: \") + CliHelpFormatting.Accent(\"{Escape(entryAssemblyName)}\") + \" {Escape(routeUsage)}{Escape(cmd.CommandName)} {Escape(cmd.UsageHints)}\");");
-
-		sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-
-		EmitCommandHelpDocPrologue(sb, "\t\t\t", cmd.SummaryInnerXml, cmd.SummaryOneLiner, false);
-		if (!string.IsNullOrWhiteSpace(cmd.SummaryOneLiner) || !string.IsNullOrWhiteSpace(cmd.SummaryInnerXml))
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-
-		var hasArgs = false;
-		foreach (var p in cmd.Parameters)
-		{
-			if (p.Kind == ParameterKind.Positional)
-				hasArgs = true;
-		}
-
-		if (hasArgs)
-		{
-			var maxArgWidth = cmd.Parameters
-				.Where(p => p.Kind == ParameterKind.Positional)
-				.Select(p =>
-				{
-					if (p.IsVariadic)
-						return (p.IsRequired ? $"<{p.CliLongName}...>" : $"[<{p.CliLongName}...>]").Length;
-					return (p.IsRequired ? $"<{p.CliLongName}>" : $"[<{p.CliLongName}>]").Length;
-				})
-				.DefaultIfEmpty(0).Max();
-			maxArgWidth = Math.Min(maxArgWidth, 40);
-
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"Arguments:\"));");
-			foreach (var p in cmd.Parameters)
+			if (positionals.Count > 0)
 			{
-				if (p.Kind != ParameterKind.Positional)
-					continue;
+				var maxArgWidth = Math.Min(positionals.Max(p => PositionalNameCell(p).Length), 40);
+				w.Line(HelpSection("Arguments:"));
+				foreach (var p in positionals)
+				{
+					var nameCell = HelpNameCell("Placeholder", PositionalNameCell(p).PadRight(maxArgWidth));
+					w.Lines(HelpRowStatements("Out", nameCell, BuildDescriptionSuffix(p, forPositional: true), BuildValidationLine(p), null));
+				}
 
-				var nameCell = p.IsVariadic
-					? (p.IsRequired ? $"<{p.CliLongName}...>" : $"[<{p.CliLongName}...>]")
-					: (p.IsRequired ? $"<{p.CliLongName}>" : $"[<{p.CliLongName}>]");
-				var nameCellPadded = nameCell.PadRight(maxArgWidth);
-				var desc = BuildDescriptionSuffix(p, forPositional: true);
-				var argValidationLine = BuildValidationLine(p);
-				if (argValidationLine is null)
-				{
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
-				}
-				else if (string.IsNullOrEmpty(desc))
-				{
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(argValidationLine)})}}\");");
-				}
-				else
-				{
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(argValidationLine)})}}\");");
-				}
+				w.Line(HelpBlankLine);
 			}
 
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-		}
+			w.Line(HelpSection("Global options:"));
+			w.Line(HelpBuiltInRow("-h, --help", maxOptWidth, "Show help."));
+			if (layout.GlobalFlags.Count > 0)
+				EmitHelpOptionRows(w, layout.GlobalFlags, maxOptWidth, app.EnvironmentPrefix);
 
-		sb.AppendLine("\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"Global options:\"));");
-		sb.AppendLine(
-			$"\t\t\tConsole.Out.WriteLine(\"  \" + CliHelpFormatting.Placeholder(\"{Escape("-h, --help".PadRight(maxOptWidth))}\") + \"  Show help.\");");
-		if (globalFlagMembers.Count > 0)
-			EmitHelpOptionRows(sb, globalFlagMembers, maxOptWidth, app.EnvironmentPrefix);
+			w.Line(HelpBlankLine);
 
-		sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-
-		foreach ((var segment, var gRows) in namespaceOptionSections)
-		{
-			sb.AppendLine($"\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"'{Escape(segment)}' options:\"));");
-			EmitHelpOptionRows(sb, gRows, maxOptWidth, app.EnvironmentPrefix);
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-		}
-
-		if (commandOnlyFlags.Count > 0)
-		{
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"Options:\"));");
-			EmitHelpOptionRows(sb, commandOnlyFlags, maxOptWidth, app.EnvironmentPrefix);
-		}
-
-		var remarksXml = TransformRemarksInnerXmlForHelp(cmd.RemarksInnerXml, cmd, app.AllCommands, entryAssemblyName);
-		var hasRemarks = !string.IsNullOrWhiteSpace(cmd.RemarksRendered) || !string.IsNullOrWhiteSpace(remarksXml);
-		if (hasRemarks)
-		{
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-			EmitNotesSection(sb, "\t\t\t", remarksXml, cmd.RemarksRendered);
-		}
-
-		if (!string.IsNullOrWhiteSpace(cmd.ExamplesRendered))
-		{
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-			sb.AppendLine("\t\t\tConsole.Out.WriteLine(CliHelpFormatting.Section(\"Examples:\"));");
-			foreach (var line in cmd.ExamplesRendered.Split('\n'))
+			foreach ((var segment, var gRows) in layout.NamespaceSections)
 			{
-				var trimmed = line.TrimEnd('\r');
-				if (trimmed.Length == 0)
-					sb.AppendLine("\t\t\tConsole.Out.WriteLine();");
-				else
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine(\"  {Escape(trimmed)}\");");
+				w.Line(HelpSection($"'{segment}' options:"));
+				EmitHelpOptionRows(w, gRows, maxOptWidth, app.EnvironmentPrefix);
+				w.Line(HelpBlankLine);
+			}
+
+			if (layout.CommandFlags.Count > 0)
+			{
+				w.Line(HelpSection("Options:"));
+				EmitHelpOptionRows(w, layout.CommandFlags, maxOptWidth, app.EnvironmentPrefix);
+			}
+
+			var remarksXml = TransformRemarksInnerXmlForHelp(cmd.RemarksInnerXml, cmd, app.AllCommands, entryAssemblyName);
+			if (!string.IsNullOrWhiteSpace(cmd.RemarksRendered) || !string.IsNullOrWhiteSpace(remarksXml))
+			{
+				w.Line(HelpBlankLine);
+				EmitNotesSection(w, remarksXml, cmd.RemarksRendered);
+			}
+
+			if (!string.IsNullOrWhiteSpace(cmd.ExamplesRendered))
+			{
+				w.Line(HelpBlankLine);
+				w.Line(HelpSection("Examples:"));
+				foreach (var line in cmd.ExamplesRendered.Split('\n'))
+				{
+					var trimmed = line.TrimEnd('\r');
+					w.Line(trimmed.Length == 0 ? HelpBlankLine : $"Console.Out.WriteLine({Quote("  " + trimmed)});");
+				}
 			}
 		}
 
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		w.Line();
 	}
 
-	private static void EmitCommandFlagHelpToStdErrMethod(StringBuilder sb, CommandModel cmd, AppEmitModel app)
+	private static void EmitCommandFlagHelpToStdErrMethod(CodeWriter w, CommandModel cmd, AppEmitModel app)
 	{
 		if (cmd.IsRootDefault)
 			return;
 
-		var globalFlagMembers = EnumerateFlagMembers(app.GlobalOptionsModel).ToList();
-		List<(string Segment, List<ParameterModel> Rows)> namespaceOptionSections = new();
-		var namespaceOptionChain = GetCommandNamespaceOptionChain(app, cmd.RoutePrefix);
-		var suppressedForNamespaceDisplay = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		AddCliKeys(globalFlagMembers, suppressedForNamespaceDisplay);
-		foreach ((var seg, var gom) in namespaceOptionChain)
-		{
-			var allInNamespace = EnumerateFlagMembers(gom).ToList();
-			var rows = allInNamespace.Where(p => !suppressedForNamespaceDisplay.Contains(p.CliLongName)).ToList();
-			AddCliKeys(allInNamespace, suppressedForNamespaceDisplay);
-			if (rows.Count > 0)
-				namespaceOptionSections.Add((seg, rows));
-		}
-
-		var scopedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		AddCliKeys(globalFlagMembers, scopedKeys);
-		foreach ((_, var gom) in namespaceOptionChain)
-			AddCliKeys(EnumerateFlagMembers(gom), scopedKeys);
-
-		var commandOnlyFlags = cmd.Parameters
-			.Where(p => p.Kind == ParameterKind.Flag && !CommandFlagMatchesScopedKeys(p, scopedKeys))
-			.ToList();
-
-		var widthCandidates = new List<int> { "-h, --help".Length };
-		widthCandidates.AddRange(globalFlagMembers.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-		foreach ((_, var rows) in namespaceOptionSections)
-			widthCandidates.AddRange(rows.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-
-		widthCandidates.AddRange(commandOnlyFlags.Select(p => HelpLayout.FormatOptionLeftCell(p).Length));
-		var maxOptWidth = Math.Min(widthCandidates.Max(), 40);
-		maxOptWidth = Math.Max(maxOptWidth, "-h, --help".Length);
-
+		var layout = BuildCommandHelpLayout(cmd, app);
 		var byCanon = new Dictionary<string, ParameterModel>(StringComparer.OrdinalIgnoreCase);
-		foreach (var p in globalFlagMembers)
+		foreach (var p in layout.GlobalFlags)
 			byCanon[p.CliLongName] = p;
-		foreach ((_, var rows) in namespaceOptionSections)
+		foreach ((_, var rows) in layout.NamespaceSections)
 			foreach (var p in rows)
 				byCanon[p.CliLongName] = p;
-		foreach (var p in commandOnlyFlags)
+		foreach (var p in layout.CommandFlags)
 			byCanon[p.CliLongName] = p;
 
-		sb.AppendLine($"\t\tprivate static void PrintHelp_{cmd.RunMethodName}_Flag_ToStdErr(string canonFlagName)");
-		sb.AppendLine("\t\t{");
-		if (byCanon.Count > 0)
+		using (w.Block($"private static void PrintHelp_{cmd.RunMethodName}_Flag_ToStdErr(string canonFlagName)"))
 		{
-			sb.AppendLine("\t\t\tswitch (canonFlagName)");
-			sb.AppendLine("\t\t\t{");
-			foreach (var p in byCanon.Values.OrderBy(static x => x.CliLongName, StringComparer.OrdinalIgnoreCase))
-			{
-				sb.AppendLine($"\t\t\t\tcase \"{Escape(p.CliLongName)}\":");
-				EmitHelpOptionRowsStdErr(sb, p, maxOptWidth, "\t\t\t\t\t", app.EnvironmentPrefix);
-				sb.AppendLine("\t\t\t\t\tbreak;");
-			}
-
-			sb.AppendLine("\t\t\t\tdefault:");
-			sb.AppendLine("\t\t\t\t\tbreak;");
-			sb.AppendLine("\t\t\t}");
+			if (byCanon.Count > 0)
+				EmitFlagHelpSwitch(w, byCanon.Values, layout.MaxOptWidth, app.EnvironmentPrefix);
 		}
 
-		sb.AppendLine("\t\t}");
-		sb.AppendLine();
+		w.Line();
 	}
 
 	private static string BuildDescriptionSuffix(ParameterModel p, bool forPositional, string? environmentPrefix = null)
@@ -1029,21 +935,6 @@ public sealed partial class CliParserGenerator
 		};
 	}
 
-	/// <summary>
-	/// Emits: if (string.Equals({varName}, "{value}", StringComparison.OrdinalIgnoreCase)) { {body} }
-	/// </summary>
-	private static void EmitOrdinalIgnoreCaseIf(
-		StringBuilder sb,
-		string indent,
-		string varName,
-		string value,
-		Action<StringBuilder> body)
-	{
-		sb.AppendLine($"{indent}if (string.Equals({varName}, \"{Escape(value)}\", StringComparison.OrdinalIgnoreCase))");
-		sb.AppendLine($"{indent}{{");
-		body(sb);
-		sb.AppendLine($"{indent}}}");
-	}
 
 	private static class UsageSynopsis
 	{
