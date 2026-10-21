@@ -125,7 +125,6 @@ internal static class Registration
 		Bug69.Register(app);
 
 		// Third pass: parsing and runtime (bug78 and bug79 live in bugs/hosted)
-		Bug71.Register(app);
 		Bug73.Register(app);
 		Bug74.Register(app);
 		Bug75.Register(app);
