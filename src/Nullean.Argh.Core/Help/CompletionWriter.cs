@@ -1,7 +1,8 @@
 namespace Nullean.Argh.Help;
 
 /// <summary>
-/// Writes shell completion candidates to <see cref="Console.Out"/>, one per line.
+/// Writes shell completion candidates to <see cref="Console.Out"/>, one per line. Lines end in <c>LF</c> on every OS:
+/// bash's <c>read</c> and zsh's line splitting would keep the <c>CR</c> of a Windows <c>CRLF</c> in each candidate.
 /// </summary>
 public static class CompletionWriter
 {
@@ -26,7 +27,10 @@ public static class CompletionWriter
 		foreach (var c in arr)
 		{
 			if (prefix.Length == 0 || c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-				Console.Out.WriteLine(insertPrefix + c);
+			{
+				Console.Out.Write(insertPrefix + c);
+				Console.Out.Write('\n');
+			}
 		}
 	}
 }

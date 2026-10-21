@@ -1,0 +1,4 @@
+# Cases that fail today, by target (CI matrix entry) and case name from cases.txt, with the reason.
+# A driver fails the job when a listed case starts passing, so this list stays accurate.
+# Format: target case reason
+windows-powershell flags Windows PowerShell 5.1 never calls argument completers for a bare -- (documented in docs/features/completions.md)

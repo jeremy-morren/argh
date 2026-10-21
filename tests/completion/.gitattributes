@@ -1,0 +1,2 @@
+# Shell scripts and the case lists they read must keep LF endings, also in a Windows checkout.
+* text eol=lf
