@@ -1,6 +1,6 @@
 # Bugs in Argh
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. **New bugs go here, on the `bugs` branch:** add a numbered section to this file (next free number) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
