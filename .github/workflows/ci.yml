@@ -71,10 +71,23 @@ jobs:
         git fetch --prune --unshallow --tags
         echo exit code $?
         git tag --list
+    # The older runtimes run the framework tests (tests/Nullean.Argh.Tests.FrameworkHost); global.json still picks the 10.0 SDK.
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: |
+          3.1.x
+          5.0.x
+          6.0.x
+          8.0.x
           10.0.x
+
+    # .NET Core 3.1 and .NET 5 abort with "No usable version of libssl was found" without OpenSSL 1.1, which this
+    # Ubuntu release no longer ships; Ubuntu 20.04's security repository still has it.
+    - name: Install OpenSSL 1.1 for the netcoreapp3.1 and net5.0 test hosts
+      run: |
+        echo "deb http://security.ubuntu.com/ubuntu focal-security main" | sudo tee /etc/apt/sources.list.d/focal-security.list
+        sudo apt-get update -q
+        sudo apt-get install -y -q libssl1.1
 
     # Build the local Nullean.Make.Fs DLL (only needed while it isn't on NuGet yet;
     # once published, replace with #r "nuget: Nullean.Make.Fs" in build.fsx)
@@ -85,6 +98,9 @@ jobs:
       name: Build
     - run: ./build.fsx test -s
       name: Test
+      env:
+        # Fail, rather than skip, any framework host whose runtime is missing.
+        ARGH_REQUIRE_ALL_FRAMEWORKS: "1"
     - run: ./build.fsx schema validate -s
       name: Validate schema/argh-cli-schema.json is up to date
     - run: ./build.fsx pkg generate -s

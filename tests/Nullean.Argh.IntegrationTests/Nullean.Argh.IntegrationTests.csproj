@@ -11,7 +11,29 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Nullean.Argh.Tests.CliHost\Nullean.Argh.Tests.CliHost.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Nullean.Argh.Tests.NetstandardHost\Nullean.Argh.Tests.NetstandardHost.csproj" ReferenceOutputAssembly="false" />
+    <!-- Builds every target framework of the multi-targeted host (the outer build), not just the nearest one. -->
+    <ProjectReference Include="..\Nullean.Argh.Tests.FrameworkHost\Nullean.Argh.Tests.FrameworkHost.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
+
+  <!--
+    The hosts load an assembly named Nullean.Argh.Tests.Netstandard built for different frameworks, so each host is
+    copied into its own folder instead of next to the tests: netstandard-host/ and framework-hosts/<config>_<tfm>/.
+  -->
+  <Target Name="CopyFrameworkHostsToIntegrationTestOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <_NsHostCfg>$([System.String]::Copy('$(Configuration)').ToLowerInvariant())</_NsHostCfg>
+      <_NsHostDir>$([System.IO.Path]::Combine('$(ArtifactsPath)', 'bin', 'Nullean.Argh.Tests.NetstandardHost', '$(_NsHostCfg)'))\</_NsHostDir>
+      <_FwHostDir>$([System.IO.Path]::Combine('$(ArtifactsPath)', 'bin', 'Nullean.Argh.Tests.FrameworkHost'))\</_FwHostDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NsHostFiles Include="$(_NsHostDir)*.*" Exclude="$(_NsHostDir)*.pdb" />
+      <_FwHostAll Include="$(_FwHostDir)**\*.*" Exclude="$(_FwHostDir)**\*.pdb" />
+      <_FwHostFiles Include="@(_FwHostAll)" Condition="$([System.String]::Copy('%(RecursiveDir)').StartsWith('$(_NsHostCfg)_'))" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_NsHostFiles)" DestinationFolder="$(OutputPath)netstandard-host" SkipUnchangedFiles="true" Condition="'@(_NsHostFiles)' != ''" />
+    <Copy SourceFiles="@(_FwHostFiles)" DestinationFolder="$(OutputPath)framework-hosts\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'@(_FwHostFiles)' != ''" />
+  </Target>
 
   <Target Name="CopyCliHostToIntegrationTestOutput" AfterTargets="Build">
     <PropertyGroup>
@@ -27,6 +49,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Proc" />
+    <PackageReference Include="Xunit.SkippableFact" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

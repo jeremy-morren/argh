@@ -99,6 +99,18 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 		return compilation.Assembly.Identity.Version?.ToString() ?? "0.0.0.0";
 	}
 
+	/// <summary>Names of the tracked pipeline steps, for incremental-caching tests.</summary>
+	internal static class TrackingNames
+	{
+		public const string AssemblyInfo = "Argh.AssemblyInfo";
+		public const string ParseOptions = "Argh.ParseOptions";
+		public const string Capabilities = "Argh.Capabilities";
+		public const string ArtifactsPath = "Argh.ArtifactsPath";
+		public const string AnalyzedInvocation = "Argh.AnalyzedInvocation";
+		public const string AnalyzedInvocations = "Argh.AnalyzedInvocations";
+		public const string Polyfills = "Argh.Polyfills";
+	}
+
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
 		// ── Assembly metadata ── stable, only changes on version bump
@@ -106,16 +118,28 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 			.Select(static (c, _) => (
 				Name: c.Assembly.Identity.Name ?? "app",
 				Ver: GetEntryAssemblyDisplayVersion(c),
-				SchemaVer: GetEntryAssemblyMajorVersion(c)));
+				SchemaVer: GetEntryAssemblyMajorVersion(c)))
+			.WithTrackingName(TrackingNames.AssemblyInfo);
+
+		// ── Polyfills ── which compiler-recognised attributes this target lacks. A few metadata-name lookups per
+		// compilation, reduced to a flags value, so the polyfill output re-runs only when the answer changes. It is
+		// independent of the command models; API differences inside generated code use #if instead, which keeps the
+		// target framework out of the pipeline.
+		var polyfills = context.CompilationProvider
+			.Select(static (c, _) => DetectPolyfillNeeds(c))
+			.WithTrackingName(TrackingNames.Polyfills);
+		context.RegisterSourceOutput(polyfills, static (spc, needs) => EmitPolyfills(spc, needs));
 
 		// ── Parse options ── changes only when LangVersion/nullable/defines change
 		var parseOpts = context.ParseOptionsProvider
-			.Select(static (o, _) => o as CSharpParseOptions ?? CSharpParseOptions.Default);
+			.Select(static (o, _) => o as CSharpParseOptions ?? CSharpParseOptions.Default)
+			.WithTrackingName(TrackingNames.ParseOptions);
 
 		// ── Capabilities from metadata references ──
 		var capabilities = context.MetadataReferencesProvider
 			.Collect()
-			.Select(static (refs, _) => ReferenceMetadataCapabilities.Compute(refs));
+			.Select(static (refs, _) => ReferenceMetadataCapabilities.Compute(refs))
+			.WithTrackingName(TrackingNames.Capabilities);
 
 		// ── Artifacts layout — used for robust XML doc resolution from cross-assembly references ──
 		// ArtifactsPath (from <ArtifactsPath>) is exposed via CompilerVisibleProperty in
@@ -126,7 +150,8 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 			{
 				opts.GlobalOptions.TryGetValue("build_property.ArtifactsPath", out var path);
 				return string.IsNullOrWhiteSpace(path) ? null : path!.Trim();
-			});
+			})
+			.WithTrackingName(TrackingNames.ArtifactsPath);
 
 		// ── Per-invocation semantic analysis — cached per-invocation by Roslyn ──
 		// Each invocation is analyzed independently and produces a symbol-free AnalyzedInvocation.
@@ -171,9 +196,11 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 					static bool IsArghNamespace(ITypeSymbol t) =>
 						t.ContainingNamespace?.ToDisplayString().StartsWith("Nullean.Argh", StringComparison.Ordinal) == true;
 				})
+			.WithTrackingName(TrackingNames.AnalyzedInvocation)
 			.Where(x => x is not null)
 			.Select(static (x, _) => x!)
-			.Collect();
+			.Collect()
+			.WithTrackingName(TrackingNames.AnalyzedInvocations);
 
 		var combined = analyzed
 			.Combine(assemblyInfo)

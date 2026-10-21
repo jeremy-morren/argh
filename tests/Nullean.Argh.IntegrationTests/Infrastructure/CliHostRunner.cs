@@ -15,11 +15,25 @@ internal static class CliHostRunner
 
 	/// <param name="environment">Extra or replacement variables merged on top of <see cref="Environment.GetEnvironmentVariables()"/>.</param>
 	/// <param name="cliArgs">Arguments after <c>dotnet exec</c> and the host DLL.</param>
-	internal static ProcessCaptureResult Run(IReadOnlyDictionary<string, string>? environment, params string[] cliArgs)
+	internal static ProcessCaptureResult Run(IReadOnlyDictionary<string, string>? environment, params string[] cliArgs) =>
+		RunHost(Path.Combine(AppContext.BaseDirectory, CliHostPaths.CliHostDllFileName), environment, cliArgs);
+
+	/// <summary>
+	/// Runs another host build output, such as the framework fixture hosts. A <c>.dll</c> runs through <c>dotnet exec</c>;
+	/// a <c>.exe</c> (a .NET Framework host) runs directly.
+	/// </summary>
+	internal static ProcessCaptureResult RunHost(string dll, IReadOnlyDictionary<string, string>? environment, params string[] cliArgs)
 	{
-		var dll = Path.Combine(AppContext.BaseDirectory, CliHostPaths.CliHostDllFileName);
 		if (!File.Exists(dll))
-			throw new InvalidOperationException($"CliHost not found next to tests: {dll}. Build Nullean.Argh.Tests.CliHost first.");
+			throw new InvalidOperationException($"Host not found next to tests: {dll}. Build the host project first.");
+
+		if (dll.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+		{
+			var exe = new StartArguments(dll, cliArgs) { Timeout = s_timeout };
+			if (environment is { Count: > 0 })
+				exe.Environment = MergeProcessEnvironment(environment);
+			return Proc.Start(exe);
+		}
 
 		var allArgs = new string[2 + cliArgs.Length];
 		allArgs[0] = "exec";
