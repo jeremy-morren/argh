@@ -302,6 +302,8 @@ Cause: `Emit.Runner.cs:1284` has an `IsNullOrWhiteSpace` guard for the optional 
 
 **Expected (clap/cobra):** clap's `PathBufValueParser` rejects an empty value, and a `value_parser!(Url)` rejects a non-URL. Reject empty and whitespace; decide whether relative URIs are intended.
 
+Dev note: separate pr: add UriOptionsAttribute(UriKind). If not provided use UriKind.Absolute. Reject empty string.
+
 ### 74. `--help` anywhere in the arguments wins
 
 ```
@@ -315,6 +317,8 @@ EXE ns --bogus --help            → error             (namespaces don't pre-sca
 Cause: `Emit.Runner.cs:72-79` scans every argument for `--help`/`-h` before parsing.
 
 **Expected (clap/cobra):** both bind `--help` as the value of `--name` when it follows a value-taking flag, and everything after `--` is positional.
+
+Dev note: garden variety bug, fix.
 
 ### 75. A repeated scalar flag silently takes the last value
 
