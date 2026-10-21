@@ -44,6 +44,7 @@ internal static class CliRegistrationModule
 		app.Map("uri-cmd", CliTestHandlers.UriCmd);
 		app.Map("temporal-cmd", CliTestHandlers.TemporalCmd);
 		app.Map("time-only-cmd", CliTestHandlers.TimeOnlyCmd);
+		app.Map("params-items", CliTestHandlers.ParamsItems);
 		app.Map("unicode-docs", CliTestHandlers.UnicodeDocs);
 		app.Map("point-cmd", CliTestHandlers.PointCmd);
 		app.Map("point-as-params-cmd", CliTestHandlers.PointAsParamsCmd);
@@ -102,6 +103,7 @@ internal static class CliRegistrationModule
 		app.Map("env-required", EnvBindingHandlers.EnvRequired);
 		app.Map("env-bool", EnvBindingHandlers.EnvBool);
 		app.Map("env-global", EnvBindingHandlers.EnvGlobal);
+		app.Map("env-positional", EnvBindingHandlers.EnvPositional);
 		app.MapNamespace("env-ns", "Env binding namespace options tests.", g =>
 		{
 			g.UseNamespaceOptions<EnvTestNamespaceOptions>();

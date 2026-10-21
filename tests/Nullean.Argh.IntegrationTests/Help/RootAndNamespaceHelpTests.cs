@@ -96,6 +96,8 @@ public class RootAndNamespaceHelpTests
 			                                                flag or an env var fallback.
 			  env-global                                    Echo global option api-url which
 			                                                is env-bound to TEST_API_URL.
+			  env-positional                                Echo positional arguments that
+			                                                fall back to env vars.
 			  env-required                                  Echo a required value that can
 			                                                come from an env var.
 			  exit-code-cmd
@@ -137,6 +139,7 @@ public class RootAndNamespaceHelpTests
 			  optional-uri-as-params
 			  other
 			  param-comment-record
+			  params-items                                  Echo a params array flag.
 			  parsable-dto                                  IParsable members on an
 			                                                [AsParameters] DTO.
 			  parsable-with-parser                          An [ArgumentParser] on an

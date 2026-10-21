@@ -183,8 +183,8 @@ public sealed class EnumValueAttribute : Attribute
 }
 
 /// <summary>
-/// Binds a CLI flag to a named environment variable. When the flag is not provided on the command line,
-/// the generator reads the specified environment variable as a fallback value.
+/// Binds a CLI flag or positional argument to a named environment variable. When the value is not provided on the
+/// command line, the generator reads the specified environment variable as a fallback value.
 /// </summary>
 [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
 public sealed class EnvAttribute : Attribute

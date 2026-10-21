@@ -357,7 +357,7 @@ public class NumericLiteralGeneratorTests
 		AssertCompiles(output);
 		Assert.Contains("if (__ropt___p_Limit.HasValue && (__ropt___p_Limit.Value < 1))", generated);
 		Assert.Contains("!__ropt___p_Ratio.Value.Equals(global::System.Double.NaN)", generated);
-		Assert.Contains("string.Equals(__ropt___p_Name, \"x\", global::System.StringComparison.Ordinal)", generated);
+		Assert.Contains("string.Equals(__denied___ropt___p_Name, \"x\", global::System.StringComparison.Ordinal)", generated);
 		Assert.Contains("Error: --limit: value must be at least", generated);
 		Assert.DoesNotContain("__ropt___p_Anything.Value <", generated);
 		// The checks run on the merged values, before the options object is handed to the command.

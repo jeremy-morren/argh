@@ -1095,28 +1095,9 @@ public sealed partial class CliParserGenerator
 			return "string";
 		}
 
-		private static bool ComputeRequired(IParameterSymbol p, BoolSpecialKind bs)
-		{
-			if (bs == BoolSpecialKind.Bool)
-				return false;
-
-			if (p.HasExplicitDefaultValue)
-				return false;
-
-			if (p.Type.NullableAnnotation == NullableAnnotation.Annotated)
-				return false;
-
-			if (p.Type.IsReferenceType && p.Type.NullableAnnotation == NullableAnnotation.Annotated)
-				return false;
-
-			if (p.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T })
-				return false;
-
-			if (p.Type.IsReferenceType && p.Type.NullableAnnotation != NullableAnnotation.Annotated)
-				return true;
-
-			return p.Type.IsValueType && !p.HasExplicitDefaultValue && p.Type.NullableAnnotation != NullableAnnotation.Annotated;
-		}
+		/// <summary>A parameter is required unless it's a plain <c>bool</c>, has a default, is nullable or is <c>params</c>.</summary>
+		private static bool ComputeRequired(IParameterSymbol p, BoolSpecialKind bs) =>
+			bs != BoolSpecialKind.Bool && !p.HasExplicitDefaultValue && !p.IsParams && ComputeRequiredForOptionsType(p.Type, bs);
 
 		private static string? TryGetDefaultLiteral(IParameterSymbol p, BoolSpecialKind bs)
 		{

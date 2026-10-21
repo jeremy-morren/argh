@@ -60,6 +60,25 @@ public sealed partial class CliParserGenerator
 	private static string FlagFuzzyCandidates(IEnumerable<ParameterModel> flags) =>
 		$"var __flagFuzzyCands = {InlineStringArray(flags.Select(static p => p.CliLongName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))};";
 
+	/// <summary>The static that records the long names of the options flags the leading options parsers saw, for the required checks.</summary>
+	private const string OptionFlagsSeenField = "s_optionFlagsSeen";
+
+	/// <summary>
+	/// For each member long name, <c>{static}.{member}</c> from the last of <paramref name="options"/> that declares it, so
+	/// a later (more specific) options type wins over an earlier one.
+	/// </summary>
+	private static Dictionary<string, string> OptionsMemberStatics(IEnumerable<(string StaticFieldName, ImmutableArray<ParameterModel> Members)> options)
+	{
+		var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var (staticField, members) in options)
+		{
+			foreach (var m in members)
+				result[m.CliLongName] = staticField + "." + m.SymbolName;
+		}
+
+		return result;
+	}
+
 	private static void EmitOptionsTryParse(
 		CodeWriter w,
 		string methodName,
@@ -68,7 +87,8 @@ public sealed partial class CliParserGenerator
 		string? storeFieldName = null,
 		ImmutableArray<string>? storeBestCtorParamOrder = null,
 		string? entryAssemblyName = null,
-		ImmutableArray<ParameterModel>? deferLeadingRootAliasFlags = null)
+		ImmutableArray<ParameterModel>? deferLeadingRootAliasFlags = null,
+		IReadOnlyDictionary<string, string>? inheritedValues = null)
 	{
 		var defer = deferLeadingRootAliasFlags ?? ImmutableArray<ParameterModel>.Empty;
 
@@ -231,7 +251,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			if (storeTypeFq is not null && storeFieldName is not null && members.Length > 0)
-				EmitOptionsConstructAndStore(w, storeTypeFq, members, storeFieldName, storeBestCtorParamOrder);
+				EmitOptionsConstructAndStore(w, storeTypeFq, members, storeFieldName, storeBestCtorParamOrder, inheritedValues);
 			w.Return("true");
 		}
 
@@ -240,7 +260,10 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>
 	/// After <see cref="EmitOptionsTryParse"/> parses flags into a <c>flags</c> dict, extract member values and
-	/// construct the options instance, then store it in <paramref name="storeFieldName"/>.
+	/// construct the options instance, then store it in <paramref name="storeFieldName"/> and note the flags it saw in
+	/// <see cref="OptionFlagsSeenField"/>. A member whose flag isn't here keeps the value from
+	/// <paramref name="inheritedValues"/> (keyed by long name), the enclosing options that already read it, or else its
+	/// default. Required members are checked by the command, which also reads the options given after it.
 	/// Injected just before <c>return true</c> of the parse method.
 	/// </summary>
 	private static void EmitOptionsConstructAndStore(
@@ -248,7 +271,8 @@ public sealed partial class CliParserGenerator
 		string typeFq,
 		ImmutableArray<ParameterModel> members,
 		string storeFieldName,
-		ImmutableArray<string>? bestCtorParamOrder)
+		ImmutableArray<string>? bestCtorParamOrder,
+		IReadOnlyDictionary<string, string>? inheritedValues)
 	{
 		var byName = members.ToDictionary(static m => m.SymbolName, StringComparer.OrdinalIgnoreCase);
 		var failure = new ParseFailure("return false");
@@ -264,40 +288,29 @@ public sealed partial class CliParserGenerator
 		{
 			if (m.Kind != ParameterKind.Flag)
 				continue;
+			string? inherited = null;
+			inheritedValues?.TryGetValue(m.CliLongName, out inherited);
 			if (m.Special == BoolSpecialKind.Bool)
-				w.Line($"var {m.LocalVarName} = flags.ContainsKey({Quote(m.CliLongName)});");
+				w.Line($"var {m.LocalVarName} = flags.ContainsKey({Quote(m.CliLongName)}){(inherited is null ? "" : " || " + inherited)};");
 			else if (m.Special == BoolSpecialKind.NullableBool)
 			{
-				w.Line($"bool? {m.LocalVarName} = null;");
+				w.Line($"bool? {m.LocalVarName} = {inherited ?? "null"};");
 				EmitNullableBoolFromFlags(w, m, m.LocalVarName, "_yv", "_nv");
 			}
 			else
 			{
 				// Declare the local variable first (EmitParseAndAssign only assigns, does not declare).
 				// For cross-assembly runtime-default properties, seed from the pre-created instance.
-				var initializer = m.UsesRuntimeDefault && hasRtDefaults
-					? $"__rt_default.{m.SymbolName}"
-					: GetCliInitializer(m);
+				var initializer = inherited
+					?? (m.UsesRuntimeDefault && hasRtDefaults ? $"__rt_default.{m.SymbolName}" : GetCliInitializer(m));
 				var text = m.LocalVarName + "Text";
 				w.Line($"{GetCSharpCliType(m)} {m.LocalVarName} = {initializer};");
-				var canOmitFlag = !m.IsRequired || m.DefaultValueLiteral is not null;
-				if (canOmitFlag)
-				{
-					using (w.If($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text}) && {text} is not null"))
-						EmitParseAndAssign(w, m, text, m.LocalVarName, failure);
-				}
-				else
-				{
-					using (w.If($"!flags.TryGetValue({Quote(m.CliLongName)}, out var {text}) || {text} is null"))
-					{
-						w.Line($"Console.Error.WriteLine($\"Error: missing required flag --{Escape(m.CliLongName)}.\");");
-						w.Return("false");
-					}
-
+				using (w.If($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text}) && {text} is not null"))
 					EmitParseAndAssign(w, m, text, m.LocalVarName, failure);
-				}
 			}
 		}
+
+		w.Foreach("var __seen in flags.Keys", $"{OptionFlagsSeenField}.Add(__seen);");
 
 		// Construct using the primary constructor if all members align, otherwise property assignment.
 		if (bestCtorParamOrder is { } ctorOrder && ctorOrder.Length == members.Length)
@@ -326,26 +339,20 @@ public sealed partial class CliParserGenerator
 	/// Emits local variable reconstruction for each options type in the injection chain.
 	/// For every member: prefer the value from the command's <c>flags</c> dict (post-command flags),
 	/// fall back to the pre-parsed static field (pre-command flags). This ensures flags work in
-	/// either position: <c>myapp --verbose cmd</c> or <c>myapp cmd --verbose</c>.
+	/// either position: <c>myapp --verbose cmd</c> or <c>myapp cmd --verbose</c>. A required member given
+	/// nowhere fails here, once the whole command line has been read.
 	/// </summary>
 	private static void EmitOptionsReconstructLocals(
 		CodeWriter w,
 		ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> chain,
+		ParseFailure failure,
 		string? environmentPrefix = null)
 	{
 		if (chain.IsDefaultOrEmpty) return;
 
-		// Track which static provides the fallback for each CLI name (first in chain that declares it).
-		// Key = CliLongName, Value = "{staticFieldName}.{SymbolName}"
-		var fallbackMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var (_, _, _, staticField, _, flatMembers, _) in chain)
-		{
-			foreach (var m in flatMembers)
-			{
-				if (!fallbackMap.ContainsKey(m.CliLongName))
-					fallbackMap[m.CliLongName] = staticField + "." + m.SymbolName;
-			}
-		}
+		// Each member falls back to the most specific options in the chain that declare it: each namespace's options
+		// start from the values the enclosing options read, so that static holds the flag wherever it was given.
+		var fallbackMap = OptionsMemberStatics(chain.Select(static o => (o.StaticFieldName, o.FlatMembers)));
 
 		// Track which member vars have already been emitted (across chain entries, to avoid re-declaration).
 		var emittedTmpVars = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -379,7 +386,7 @@ public sealed partial class CliParserGenerator
 					EmitNullableBoolFromFlags(w, m, tmpName, "_yv", "_nv");
 				}
 				else
-					EmitReparseOptionsMember(w, m, tmpName, fallback, environmentPrefix);
+					EmitReparseOptionsMember(w, m, tmpName, fallback, environmentPrefix, failure);
 			}
 
 			// Construct the local options instance using pre-computed constructor order.
@@ -398,7 +405,7 @@ public sealed partial class CliParserGenerator
 	/// A value-typed options member: its text from the command's flags, else its environment variable, re-parsed over the
 	/// pre-parsed static value. A value that doesn't parse keeps the static value; leading globals were already validated.
 	/// </summary>
-	private static void EmitReparseOptionsMember(CodeWriter w, ParameterModel m, string tmpName, string fallback, string? environmentPrefix)
+	private static void EmitReparseOptionsMember(CodeWriter w, ParameterModel m, string tmpName, string fallback, string? environmentPrefix, ParseFailure failure)
 	{
 		var text = tmpName + "Txt";
 		w.Line($"flags.TryGetValue({Quote(m.CliLongName)}, out var {text});");
@@ -407,6 +414,10 @@ public sealed partial class CliParserGenerator
 			using (w.If($"{text} == null"))
 				EmitEnvironmentFallback(w, m, optEnvVar, text, tmpName + "EnvVal");
 		}
+
+		if (m.IsRequired)
+			EmitParseError(w, $"{text} == null && !{OptionFlagsSeenField}.Contains({Quote(m.CliLongName)})",
+				$"Console.Error.WriteLine($\"Error: missing required flag --{Escape(m.CliLongName)}.\");", m, failure);
 
 		w.Line($"var {tmpName} = {fallback};");
 		if (m.ScalarKind == CliScalarKind.Primitive)
@@ -746,14 +757,15 @@ public sealed partial class CliParserGenerator
 		&& p.TypeName.EndsWith("?", StringComparison.Ordinal);
 
 	/// <summary>
-	/// For a reference type: <c>value != null &amp;&amp; </c> when it may be unset, and how the check reads it. <paramref name="bangRequired"/>
-	/// puts <c>!</c> on a required value (a string, so the condition adds no null path the compiler would flag at the
-	/// handler call); otherwise the <c>!</c> goes on an optional value, which the guard has already checked.
+	/// For a reference type: <c>value is { } __check_value &amp;&amp; </c>, so an unset value passes, and the copy the
+	/// <paramref name="check"/> reads. Unlike <c>value != null</c>, the pattern isn't a pure null test, so the compiler
+	/// keeps a non-nullable value not-null afterwards and doesn't warn where it's passed on (CS8601, CS8604).
 	/// </summary>
-	private static (string NullGuard, string Access) ReferenceCheckAccess(ValidationTarget t, bool bangRequired) =>
-		t.P.IsRequired
-			? ("", bangRequired ? t.VarName + "!" : t.VarName)
-			: ($"{t.VarName} != null && ", bangRequired ? t.VarName : t.VarName + "!");
+	private static (string NullGuard, string Access) ReferenceCheckAccess(ValidationTarget t, string check)
+	{
+		var access = $"__{check}_{t.VarName}";
+		return ($"{t.VarName} is {{ }} {access} && ", access);
+	}
 
 	private static void EmitRangeConstraintCheck(CodeWriter w, ValidationTarget t, RangeConstraint r)
 	{
@@ -822,17 +834,14 @@ public sealed partial class CliParserGenerator
 
 	private static void EmitStringLengthConstraintCheck(CodeWriter w, ValidationTarget t, StringLengthConstraint s)
 	{
-		// For required non-nullable strings: access with ! to avoid introducing a null-path
-		// in the condition (which would cause CS8604 at the handler call site).
-		// For optional strings: wrap with a null guard.
-		var (nullGuard, sv) = ReferenceCheckAccess(t, bangRequired: true);
+		var (nullGuard, sv) = ReferenceCheckAccess(t, "length");
 		var (condition, limit) = LengthLimit($"{sv}.Length", s.Min, s.Max, nullGuard, "characters");
 		EmitValidationFailure(w, t, condition, FlagErrorLine(t, Escape("value must be " + limit)));
 	}
 
 	private static void EmitRegexConstraintCheck(CodeWriter w, ValidationTarget t, RegexConstraint rx)
 	{
-		var (nullGuard, rv) = ReferenceCheckAccess(t, bangRequired: true);
+		var (nullGuard, rv) = ReferenceCheckAccess(t, "pattern");
 		EmitValidationFailure(w, t,
 			$"{nullGuard}!global::System.Text.RegularExpressions.Regex.IsMatch({rv}, @\"{EscapeVerbatimString(rx.Pattern)}\")",
 			FlagErrorLine(t, $"value does not match required pattern {Escape(rx.Pattern)}."));
@@ -848,7 +857,7 @@ public sealed partial class CliParserGenerator
 		var join = negate ? " && " : " || ";
 		if (t.P.TypeName == "string")
 		{
-			var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: true);
+			var (nullGuard, access) = ReferenceCheckAccess(t, negate ? "allowed" : "denied");
 			return $"{nullGuard}({string.Join(join, values.Select(v => $"{not}string.Equals({access}, {v}, global::System.StringComparison.Ordinal)"))})";
 		}
 
@@ -881,7 +890,7 @@ public sealed partial class CliParserGenerator
 	private static void EmitEmailConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
 		// Simple email check: at least one char, @, at least one char (DataAnnotations-compatible)
-		var (nullGuard, ev) = ReferenceCheckAccess(t, bangRequired: true);
+		var (nullGuard, ev) = ReferenceCheckAccess(t, "email");
 		EmitValidationFailure(w, t, $"{nullGuard}({ev}.IndexOf('@') < 1 || {ev}.IndexOf('@') == {ev}.Length - 1)",
 			FlagErrorLine(t, "value is not a valid email address."));
 	}
@@ -889,18 +898,16 @@ public sealed partial class CliParserGenerator
 	private static void EmitUrlConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
 		// Validates absolute URL with http, https, or ftp scheme
-		var v = t.VarName;
-		var nullGuard = t.P.IsRequired ? "" : $"{v} != null && ";
+		var (nullGuard, v) = ReferenceCheckAccess(t, "url");
 		var check = CodeWriter.IndentLines(
-			$"(global::System.Uri.TryCreate({v}, global::System.UriKind.Absolute, out var __urlCheck_{v}) &&\n" +
-			$" (__urlCheck_{v}.Scheme == \"http\" || __urlCheck_{v}.Scheme == \"https\" || __urlCheck_{v}.Scheme == \"ftp\"))");
+			$"(global::System.Uri.TryCreate({v}, global::System.UriKind.Absolute, out var __urlCheck_{t.VarName}) &&\n" +
+			$" (__urlCheck_{t.VarName}.Scheme == \"http\" || __urlCheck_{t.VarName}.Scheme == \"https\" || __urlCheck_{t.VarName}.Scheme == \"ftp\"))");
 		EmitValidationFailure(w, t, $"{nullGuard}!\n{check}", FlagErrorLine(t, "value is not a valid URL."));
 	}
 
 	private static void EmitUriSchemeConstraintCheck(CodeWriter w, ValidationTarget t, UriSchemeConstraint us)
 	{
-		// varName is a Uri? or Uri instance (already parsed)
-		var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: false);
+		var (nullGuard, access) = ReferenceCheckAccess(t, "scheme");
 		var schemeChecks = us.Schemes.Select(s => $"{access}.Scheme == {Quote(s)}");
 		EmitValidationFailure(w, t, $"{nullGuard}(!{access}.IsAbsoluteUri || !({string.Join(" || ", schemeChecks)}))",
 			FlagErrorLine(t, $"URI scheme must be one of: {Escape(string.Join(", ", us.Schemes))}."));
@@ -908,14 +915,14 @@ public sealed partial class CliParserGenerator
 
 	private static void EmitRejectSymbolicLinksConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
-		var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: false);
+		var (nullGuard, access) = ReferenceCheckAccess(t, "link");
 		EmitValidationFailure(w, t, $"{nullGuard}global::Nullean.Argh.ArghIO.PathIsSymbolicOrReparsePoint({access}.FullName)",
 			FlagErrorLine(t, "path must not be a symbolic link or reparse point."));
 	}
 
 	private static void EmitExistingPathConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
-		var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: false);
+		var (nullGuard, access) = ReferenceCheckAccess(t, "exists");
 		var isFile = t.P.ScalarKind == CliScalarKind.FileInfo;
 		EmitValidationFailure(w, t, $"{nullGuard}!global::System.IO.{(isFile ? "File" : "Directory")}.Exists({access}.FullName)",
 			FlagErrorLine(t, isFile ? "file does not exist." : "directory does not exist."));
@@ -923,7 +930,7 @@ public sealed partial class CliParserGenerator
 
 	private static void EmitNonExistingPathConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
-		var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: false);
+		var (nullGuard, access) = ReferenceCheckAccess(t, "free");
 		EmitValidationFailure(w, t, $"{nullGuard}(global::System.IO.File.Exists({access}.FullName) || global::System.IO.Directory.Exists({access}.FullName))",
 			FlagErrorLine(t, t.P.ScalarKind == CliScalarKind.FileInfo ? "path already exists or is occupied by a directory." : "path already exists."));
 	}
@@ -935,8 +942,7 @@ public sealed partial class CliParserGenerator
 
 	private static void EmitFileExtensionsConstraintCheck(CodeWriter w, ValidationTarget t, FileExtensionsConstraint fe)
 	{
-		// varName is a FileInfo? or FileInfo instance
-		var (nullGuard, access) = ReferenceCheckAccess(t, bangRequired: false);
+		var (nullGuard, access) = ReferenceCheckAccess(t, "extension");
 		EmitValidationFailure(w, t, $"{nullGuard}({FileExtensionMismatch(access, fe.Extensions)})",
 			FlagErrorLine(t, $"extension must be one of: {Escape(string.Join(", ", fe.Extensions))}."));
 	}

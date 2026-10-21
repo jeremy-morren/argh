@@ -455,6 +455,8 @@ public sealed partial class CliParserGenerator
 
 		foreach (var fq in optionsTypes)
 			w.Line($"private static {fq} {OptionsStaticFieldNameFq(fq)} = new {fq}();");
+		if (HasOptionsTypes(app))
+			w.Line($"private static readonly HashSet<string> {OptionFlagsSeenField} = new HashSet<string>(StringComparer.OrdinalIgnoreCase);");
 		w.Line();
 
 		EmitCompletionForApp(w, app);
@@ -515,7 +517,8 @@ public sealed partial class CliParserGenerator
 					storeTypeFq: nsModel.TypeFq,
 					storeFieldName: OptionsStaticFieldNameFq(nsModel.TypeFq),
 					storeBestCtorParamOrder: nsModel.BestCtorParamOrder,
-					entryAssemblyName: entryAssemblyName);
+					entryAssemblyName: entryAssemblyName,
+					inheritedValues: InheritedOptionsValues(app, path, nsModel));
 		}
 
 		EmitTryParseRouteHierarchical(w, app);
@@ -556,6 +559,38 @@ public sealed partial class CliParserGenerator
 		EmitDtoBindingMethods(w, dtoTargets);
 		w.Line();
 		EmitBuildCliSchemaDocumentHierarchical(w, app, entryAssemblyName, app.SchemaVersionOverride ?? entrySchemaVersion);
+	}
+
+	private static bool HasOptionsTypes(AppEmitModel app) =>
+		app.GlobalOptionsModel is not null
+		|| EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty).Any(static n => n.node.CommandNamespaceOptionsModel is not null);
+
+	/// <summary>
+	/// For the options of the namespace at <paramref name="path"/>, the static each inherited member starts from: the
+	/// innermost enclosing options (global or an outer namespace) that declare the same member, already parsed by then.
+	/// </summary>
+	private static Dictionary<string, string> InheritedOptionsValues(AppEmitModel app, ImmutableArray<string> path, OptionsTypeModel options) =>
+		OptionsMemberStatics(EnclosingOptions(app, path).Select(o => (
+			OptionsStaticFieldNameFq(o.TypeFq),
+			o.FlattenedMembers.Where(m => options.FlattenedMembers.Any(own =>
+				string.Equals(own.CliLongName, m.CliLongName, StringComparison.OrdinalIgnoreCase)
+				&& own.SymbolName == m.SymbolName && own.TypeName == m.TypeName)).ToImmutableArray())));
+
+	/// <summary>The options that enclose the namespace at <paramref name="path"/>: the global options, then each outer namespace's.</summary>
+	private static IEnumerable<OptionsTypeModel> EnclosingOptions(AppEmitModel app, ImmutableArray<string> path)
+	{
+		if (app.GlobalOptionsModel is { } global)
+			yield return global;
+		var node = app.Root;
+		for (var i = 0; i < path.Length - 1; i++)
+		{
+			var child = node.Children.FirstOrDefault(c => string.Equals(c.Segment, path[i], StringComparison.OrdinalIgnoreCase));
+			if (child is null)
+				yield break;
+			node = child.Node;
+			if (node.CommandNamespaceOptionsModel is { } outer)
+				yield return outer;
+		}
 	}
 
 	private static IEnumerable<(RegistryNode node, ImmutableArray<string> path)> EnumerateCommandNamespaceNodesWithPath(
@@ -604,6 +639,8 @@ public sealed partial class CliParserGenerator
 			EmitRootCompleteBlock(w);
 			EmitRootSchemaBlock(w);
 			w.Line("var idx = new int[1];");
+			if (HasOptionsTypes(app))
+				w.Line($"{OptionFlagsSeenField}.Clear();");
 			if (hasLeadingOptionPrefetch)
 				w.Line("if (!TryParseGlobalOptions(args, idx)) return 2;");
 

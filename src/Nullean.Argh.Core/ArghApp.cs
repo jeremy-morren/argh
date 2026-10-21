@@ -191,6 +191,27 @@ public sealed partial class ArghApp : IArghRootBuilder
 
 	private static bool IsArghBuiltinIntrinsic(string[] args) =>
 		args is { Length: > 0 } &&
-		(CompletionProtocol.IsArghMetaCompletionInvocation(args) ||
-		 Array.Exists(args, static a => a is "--help" or "-h" or "--version"));
+		(CompletionProtocol.IsArghMetaCompletionInvocation(args) || AsksForHelpOrVersion(args));
+
+	/// <summary>
+	/// Whether <c>--help</c>, <c>-h</c> or <c>--version</c> appears as an option of its own. Right after another option
+	/// with no <c>=value</c> it may be that option's value (<c>--name --help</c>), and after <c>--</c> it's an operand, so
+	/// neither counts. Errs towards <see langword="false"/>, which only means the command line runs the normal way.
+	/// </summary>
+	private static bool AsksForHelpOrVersion(string[] args)
+	{
+		for (var i = 0; i < args.Length; i++)
+		{
+			var a = args[i];
+			if (a == "--")
+				return false;
+			if (a is "--help" or "-h" or "--version" && (i == 0 || !MayTakeNextAsValue(args[i - 1])))
+				return true;
+		}
+
+		return false;
+
+		static bool MayTakeNextAsValue(string option) =>
+			option.Length > 1 && option[0] == '-' && option.IndexOf('=') < 0;
+	}
 }

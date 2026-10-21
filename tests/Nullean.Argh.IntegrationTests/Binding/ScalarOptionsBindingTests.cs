@@ -119,4 +119,38 @@ public class ScalarOptionsBindingTests
 
 	private static string[] Lines(ProcNet.ProcessCaptureResult result) =>
 		CliHostRunner.StdoutText(result).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+	[Fact]
+	public void NamespaceOptions_required_scalars_bind_after_the_command()
+	{
+		var result = CliHostRunner.Run(["scalars-ns", "show", .. PlainArgs]);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		Lines(result).Should().BeEquivalentTo([.. PlainOutput, .. NullableOmittedOutput]);
+	}
+
+	[Fact]
+	public void NamespaceOptions_required_scalars_bind_on_both_sides_of_the_command()
+	{
+		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgs[..8], "show", .. PlainArgs[8..]]);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		Lines(result).Should().BeEquivalentTo([.. PlainOutput, .. NullableOmittedOutput]);
+	}
+
+	[Fact]
+	public void NamespaceOptions_missing_required_member_is_reported_after_the_whole_line_is_read()
+	{
+		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgs[2..], "show"]);
+		result.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(result))
+			.Should().StartWith("Error: missing required flag --span.")
+			.And.Contain("Run 'Nullean.Argh.Tests.CliHost scalars-ns show --help' for usage.");
+	}
+
+	[Fact]
+	public void NamespaceOptions_with_required_members_show_namespace_help_without_a_command()
+	{
+		var result = CliHostRunner.Run("scalars-ns");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Should().Contain("show");
+	}
 }

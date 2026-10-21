@@ -135,4 +135,47 @@ public class EnvVarBindingTests
 		result.ExitCode.Should().Be(0);
 		CliHostRunner.StdoutText(result).Trim().Should().Be("env-ns-key:from-cli");
 	}
+
+	[Fact]
+	public void Env_on_positional_arguments_falls_back_to_env_vars()
+	{
+		var env = new Dictionary<string, string> { ["ARGH_TEST_POS_NAME"] = "from-env", ["ARGH_TEST_POS_COUNT"] = "3" };
+		var result = CliHostRunner.Run(env, "env-positional");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be("env-positional:from-env:3");
+	}
+
+	[Fact]
+	public void Env_on_positional_argument_cli_value_wins_over_env_var()
+	{
+		var env = new Dictionary<string, string> { ["ARGH_TEST_POS_NAME"] = "from-env", ["ARGH_TEST_POS_COUNT"] = "3" };
+		var result = CliHostRunner.Run(env, "env-positional", "from-cli");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be("env-positional:from-cli:3");
+	}
+
+	[Fact]
+	public void Env_on_optional_positional_argument_keeps_its_default_when_unset()
+	{
+		var result = CliHostRunner.Run("env-positional", "x");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be("env-positional:x:1");
+	}
+
+	[Fact]
+	public void Env_on_required_positional_argument_fails_when_neither_cli_nor_env_provided()
+	{
+		var result = CliHostRunner.Run("env-positional");
+		result.ExitCode.Should().Be(2);
+		CliHostRunner.StderrText(result).Should().Contain("missing required argument <name>");
+	}
+
+	[Fact]
+	public void Env_on_positional_argument_rejects_an_invalid_value()
+	{
+		var env = new Dictionary<string, string> { ["ARGH_TEST_POS_COUNT"] = "many" };
+		var result = CliHostRunner.Run(env, "env-positional", "x");
+		result.ExitCode.Should().Be(2);
+		CliHostRunner.StderrText(result).Should().Contain("'many'");
+	}
 }

@@ -35,8 +35,10 @@ public class OptionsMemberValidationTests
 	[InlineData("Error: --ratio: value must be between 0.5 and 1.5.", "numeric-ns", "show", "--ratio", "1.6")]
 	[InlineData("Error: --ratio: value must be between 0.5 and 1.5.", "numeric-ns", "--ratio", "0.4", "show")]
 	[InlineData("Error: --tag: value must be between 2 and 5 characters.", "numeric-ns", "show", "--tag", "a")]
-	// Global options member, before the namespace, after the command, and around a root command.
+	// Global options member, before the namespace, between it and the command, after the command, and around a root command.
 	[InlineData("Error: --quota: value must be at least 1.", "--quota", "0", "numeric-ns", "show")]
+	[InlineData("Error: --quota: value must be at least 1.", "numeric-ns", "--quota", "0", "show")]
+	[InlineData("Error: --zone: value must be one of: eu, us.", "numeric-ns", "--zone", "EU", "show")]
 	[InlineData("Error: --quota: value must be at least 1.", "numeric-ns", "show", "--quota", "0")]
 	[InlineData("Error: --quota: value must be at least 1.", "--quota", "0", "numeric-defaults")]
 	[InlineData("Error: --quota: value must be at least 1.", "numeric-defaults", "--quota", "-5")]
@@ -94,6 +96,14 @@ public class OptionsMemberValidationTests
 		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
 		LastOutputLine(result).Should().Be(
 			"0.25|1.5|NaN|18446744073709551615|-7|High|100|0.5|4|7|1.5|-9223372036854775808|abcde|3|us|0.5");
+	}
+
+	[Fact]
+	public void Global_options_members_between_the_namespace_and_the_command_bind()
+	{
+		var result = CliHostRunner.Run(Env(), "numeric-ns", "--quota", "3", "--zone", "us", "--weight", "0.5", "show");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		LastOutputLine(result).Should().EndWith("|3|us|0.5");
 	}
 
 	[Theory]

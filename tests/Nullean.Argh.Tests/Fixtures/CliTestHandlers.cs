@@ -251,6 +251,12 @@ internal static class CliTestHandlers
 		WriteScalars(a.Span, a.SpanOpt, a.Stamp, a.StampOpt, a.Offset, a.OffsetOpt, a.Day, a.DayOpt,
 			a.Clock, a.ClockOpt, a.Link, a.LinkOpt, a.Doc, a.DocOpt, a.Folder, a.FolderOpt);
 
+	/// <summary>Echo a params array flag.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="items">Any number of items.</param>
+	public static void ParamsItems(TestGlobalCliOptions g, params string[] items) =>
+		Console.Out.WriteLine($"items:{items.Length}:{string.Join(",", items)}");
+
 	public static void ScalarsNsShow(ScalarNamespaceOptions o) =>
 		WriteScalars(o.Span, o.SpanOpt, o.Stamp, o.StampOpt, o.Offset, o.OffsetOpt, o.Day, o.DayOpt,
 			o.Clock, o.ClockOpt, o.Link, o.LinkOpt, o.Doc, o.DocOpt, o.Folder, o.FolderOpt);
@@ -511,6 +517,13 @@ internal static class EnvBindingHandlers
 	/// <param name="g">Injected global CLI options.</param>
 	public static void EnvGlobal(TestGlobalCliOptions g) =>
 		Console.Out.WriteLine($"env-global-api-url:{g.ApiUrl}");
+
+	/// <summary>Echo positional arguments that fall back to env vars.</summary>
+	/// <param name="name">The name.</param>
+	/// <param name="count">How many.</param>
+	[NoOptionsInjection]
+	public static void EnvPositional([Argument, Env("ARGH_TEST_POS_NAME")] string name, [Argument, Env("ARGH_TEST_POS_COUNT")] int count = 1) =>
+		Console.Out.WriteLine($"env-positional:{name}:{count}");
 
 	/// <summary>Echo namespace option key which is env-bound to TEST_NS_KEY.</summary>
 	/// <param name="o">Namespace-scoped options with env binding.</param>

@@ -75,19 +75,6 @@ public sealed partial class CliParserGenerator
 		{
 			if (emitDtoTryParse)
 				w.Line("value = null;");
-			else
-			{
-				using (w.For("var i = 0; i < args.Length; i++"))
-				{
-					using (w.If("args[i] == \"--help\" || args[i] == \"-h\""))
-					{
-						w.Line($"{helpMethodName}();");
-						w.Return("0");
-					}
-				}
-
-				w.Line();
-			}
 
 			EmitCliValueDeclarations(w, cmd, dtoOptionsTypeFq);
 
@@ -121,6 +108,16 @@ public sealed partial class CliParserGenerator
 			using (w.For("var i = 0; i < args.Length;"))
 			{
 				w.Line("var a = args[i];");
+				// Help is a flag like any other: read in order, so it can be the value of a flag before it.
+				if (helpMethodName is not null)
+				{
+					using (w.If("a == \"--help\" || a == \"-h\""))
+					{
+						w.Line($"{helpMethodName}();");
+						w.Return("0");
+					}
+				}
+
 				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
 				{
 					w.Line("var eq = a.IndexOf('=');");
@@ -346,9 +343,21 @@ public sealed partial class CliParserGenerator
 					continue;
 				}
 
+				// Without the argument, the value comes from its [Env] variable when it has one.
+				var raw = $"positionals[{posIndex}]";
+				var missing = $"positionals.Count <= {posIndex}";
+				if (!string.IsNullOrEmpty(p.EnvVarName))
+				{
+					raw = p.LocalVarName + "Text";
+					missing = $"{raw} == null";
+					w.Line($"var {raw} = positionals.Count > {posIndex} ? positionals[{posIndex}] : null;");
+					using (w.If(missing))
+						EmitEnvironmentFallback(w, p, p.EnvVarName!, raw, p.LocalVarName + "EnvVal");
+				}
+
 				if (p.IsRequired)
 				{
-					using (w.If($"positionals.Count <= {posIndex}"))
+					using (w.If(missing))
 					{
 						w.Line($"Console.Error.WriteLine(\"Error: missing required argument <{Escape(p.CliLongName)}>.\");");
 						if (helpMethodName is not null)
@@ -357,10 +366,10 @@ public sealed partial class CliParserGenerator
 					}
 				}
 				else
-					w.If($"positionals.Count <= {posIndex}", $"{p.LocalVarName} = {p.DefaultValueLiteral ?? "default!"};");
+					w.If(missing, $"{p.LocalVarName} = {p.DefaultValueLiteral ?? "default!"};");
 
 				using (w.Else())
-					EmitParseFromString(w, p, $"positionals[{posIndex}]", p.LocalVarName, outVarKeyword: false, failure);
+					EmitParseFromString(w, p, raw, p.LocalVarName, outVarKeyword: false, failure);
 
 				posIndex++;
 			}
@@ -374,7 +383,7 @@ public sealed partial class CliParserGenerator
 					EmitAsParametersConstructionForDto(w, cmd);
 			}
 			else
-				EmitCommandInvocationTail(w, cmd, globalMiddleware, injectedOptions, failureExit, entryAssemblyName, environmentPrefix, flagHelpStdErrMethodName, parseFailureRunHint);
+				EmitCommandInvocationTail(w, cmd, globalMiddleware, injectedOptions, failure, entryAssemblyName, environmentPrefix);
 		}
 
 		w.Line();
@@ -405,18 +414,19 @@ public sealed partial class CliParserGenerator
 		CommandModel cmd,
 		ImmutableArray<GlobalMiddlewareRegistration> globalMiddleware,
 		ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> injectedOptions,
-		string failureExit,
+		ParseFailure failure,
 		string? entryAssemblyName,
-		string? environmentPrefix,
-		string? flagHelpStdErrMethodName,
-		string? parseFailureRunHint)
+		string? environmentPrefix)
 	{
+		var failureExit = failure.Exit;
+		var flagHelpStdErrMethodName = failure.FlagHelpMethod;
+		var parseFailureRunHint = failure.RunHint;
 		EmitAsParametersConstruction(w, cmd);
 
 		EmitValidationChecks(w, cmd, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
 
 		// Reconstruct options instances merging command-level flags with pre-parsed statics.
-		EmitOptionsReconstructLocals(w, injectedOptions, environmentPrefix);
+		EmitOptionsReconstructLocals(w, injectedOptions, failure, environmentPrefix);
 		EmitOptionsMemberValidation(w, cmd, injectedOptions, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
 		EmitRegisteredValidation(w, cmd, injectedOptions, failureExit, flagHelpStdErrMethodName, parseFailureRunHint);
 

@@ -134,4 +134,18 @@ public class GlobalOptionsAfterCommandTests
 		result.ExitCode.Should().Be(0);
 		CliHostRunner.StdoutText(result).Trim().Should().Be("as-params-referenced:docs:null:null");
 	}
+
+	/// <summary>A global option between the namespace and its command reaches the handler, like one before the namespace.</summary>
+	[Theory]
+	[InlineData("storage", "--mode", "between", "list")]
+	[InlineData("storage", "-m", "between", "list")]
+	[InlineData("--mode", "between", "storage", "list")]
+	[InlineData("--mode", "before", "storage", "--mode", "between", "list")]
+	[InlineData("--mode", "before", "storage", "--prefix", "p", "list", "--mode", "between")]
+	public void Storage_list_global_option_after_the_namespace_segment_is_applied(params string[] args)
+	{
+		var result = CliHostRunner.Run(args);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be("storage-list:between");
+	}
 }
