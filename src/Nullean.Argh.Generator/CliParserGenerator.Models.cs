@@ -54,6 +54,11 @@ public sealed partial class CliParserGenerator
 		public readonly List<ArglessNamespaceCodegenEntry> ArglessNamespaceCodegen = new();
 		public ImmutableArray<EnvVarDocEntry> EnvironmentVars = ImmutableArray<EnvVarDocEntry>.Empty;
 		public ImmutableArray<ConfigFileDocEntry> ConfigFiles = ImmutableArray<ConfigFileDocEntry>.Empty;
+		/// <summary>
+		/// The <c>#pragma warning disable</c> line at the top of every generated file. Generated code can reference
+		/// <c>[Obsolete]</c> and <c>[Experimental]</c> APIs; <see cref="SymbolUsage"/> reports them at the registration instead.
+		/// </summary>
+		public string GeneratedCodeSuppressionPragma = "#pragma warning disable CS0612, CS0618";
 		/// <summary>Pre-computed injection chains per command (keyed by <see cref="CommandModel.RunMethodName"/>). Set once in <c>TryBuildAppEmitModel</c> after <c>AllCommands</c> is populated.</summary>
 		public ImmutableDictionary<string, ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)>> InjectionChains
 			= ImmutableDictionary<string, ImmutableArray<(string, string, ImmutableArray<string>, string, string, ImmutableArray<ParameterModel>, ImmutableArray<string>?)>>.Empty;
@@ -152,7 +157,11 @@ public sealed partial class CliParserGenerator
 	// ImmutableArrays. No ISymbol references. This ensures Roslyn's pipeline can cache them by
 	// structural equality between compilations.
 
-	private abstract record AnalyzedInvocation(string FilePath, int SpanStart);
+	private abstract record AnalyzedInvocation(string FilePath, int SpanStart)
+	{
+		/// <summary>Obsolete and experimental symbols the generated code references for this invocation, reported at the call.</summary>
+		public ImmutableArray<SymbolUsage> SymbolUsages { get; init; } = ImmutableArray<SymbolUsage>.Empty;
+	}
 
 	/// <summary>A <c>GlobalOptions&lt;T&gt;()</c> invocation — only valid at root scope.</summary>
 	private sealed record AIUseGlobalOptions(string FilePath, int SpanStart, OptionsTypeModel Model)

@@ -12,6 +12,7 @@ internal sealed record ValidatedDtoArgs([Range(1, 100)] int Count);
 internal static class ValidationCliHandlers
 {
 	/// <summary>Validate numeric range on --port.</summary>
+	/// <param name="g">Injected global CLI options.</param>
 	/// <param name="port">port the client is listening on.</param>
 	public static void ValidateRange(TestGlobalCliOptions g, [Range(1, 65535)] int? port) =>
 		Console.Out.WriteLine($"port:{port}");

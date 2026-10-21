@@ -69,8 +69,10 @@ internal static partial class SchemaDeprecatedHandlers
 {
 	/// <summary>A command with a deprecated parameter via [AsParameters].</summary>
 	[NoOptionsInjection]
+#pragma warning disable CS0618 // OldName is [Obsolete] on purpose: the schema tests read it as deprecated.
 	public static void SchemaDeprecatedParam([AsParameters] SchemaDeprecatedParamArgs args) =>
 		Console.Out.WriteLine($"name:{args.Name ?? args.OldName}");
+#pragma warning restore CS0618
 }
 
 /// <summary>Schema test: intent annotation on a destructive command.</summary>

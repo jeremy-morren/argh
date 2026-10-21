@@ -23,6 +23,18 @@ public sealed partial class CliParserGenerator
 	{
 		if (semanticModel.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method)
 			return null;
+		if (AnalyzeInvocationCore(invocation, method, semanticModel, ct) is not { } analyzed)
+			return null;
+		var usages = CollectSymbolUsages(invocation, method, semanticModel, ct);
+		return usages.IsEmpty ? analyzed : analyzed with { SymbolUsages = usages };
+	}
+
+	private static AnalyzedInvocation? AnalyzeInvocationCore(
+		InvocationExpressionSyntax invocation,
+		IMethodSymbol method,
+		SemanticModel semanticModel,
+		CancellationToken ct)
+	{
 
 		var filePath = invocation.SyntaxTree.FilePath;
 		var spanStart = invocation.SpanStart;

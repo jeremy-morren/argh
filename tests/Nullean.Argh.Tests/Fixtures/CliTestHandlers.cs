@@ -359,10 +359,25 @@ internal static class SupportToolsHandlers
 		Console.Out.WriteLine("support-tools-status");
 }
 
-/// <summary>
-/// Cross-assembly [AsParameters] handler.
-/// Tests that non-nullable init properties with C# initializers are not required when the
-/// [AsParameters] DTO type comes from a referenced assembly.
+/// <summary>Release stage with an <c>[Experimental]</c> member, which the generated parse switch references.</summary>
+internal enum FixtureStage
+{
+	Stable,
+
+	[System.Diagnostics.CodeAnalysis.Experimental("ARGHTEST001")]
+	Preview
+}
+
+/// <summary>Handlers for obsolete and experimental APIs used by generated code.</summary>
+internal static class ExperimentalApiHandlers
+{
+	/// <summary>Uses an experimental enum member through the generated code.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="stage">Release stage.</param>
+	public static void ExperimentalApi(TestGlobalCliOptions g, FixtureStage stage = FixtureStage.Stable) =>
+		Console.Out.WriteLine($"stage:{stage}");
+}
+
 /// <summary>Handlers for environment variable binding tests.</summary>
 internal static class EnvBindingHandlers
 {
@@ -395,6 +410,10 @@ internal static class EnvBindingHandlers
 		Console.Out.WriteLine($"env-ns-key:{o.Key}");
 }
 
+/// <summary>
+/// Cross-assembly [AsParameters] handler.
+/// Tests that non-nullable init properties with C# initializers are not required when the
+/// [AsParameters] DTO type comes from a referenced assembly.
 /// </summary>
 internal static class CrossAssemblyHandlers
 {

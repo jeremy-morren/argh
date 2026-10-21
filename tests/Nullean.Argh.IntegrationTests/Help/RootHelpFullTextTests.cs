@@ -90,6 +90,8 @@ public class RootHelpFullTextTests
 			                                                come from an env var.
 			  exit-code-cmd
 			  exit-code-lambda
+			  experimental-api                              Uses an experimental enum member
+			                                                through the generated code.
 			  ext-ns-as-params-echo                         Echo verbose and tag from an
 			                                                [AsParameters] DTO in an
 			                                                unrelated external namespace.

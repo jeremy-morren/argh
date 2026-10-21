@@ -88,6 +88,27 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	/// <summary>
+	/// Generated code references an <c>[Obsolete]</c> API for this registration. Generated files suppress
+	/// <c>CS0612</c>/<c>CS0618</c>, so this takes their place at the registration call.
+	/// </summary>
+	private static readonly DiagnosticDescriptor ObsoleteApiInGeneratedCode = new(
+		"AGH0036",
+		"API used by generated code is obsolete",
+		"{0}",
+		"Argh",
+		DiagnosticSeverity.Warning,
+		isEnabledByDefault: true);
+
+	/// <summary>Like <see cref="ObsoleteApiInGeneratedCode"/>, for <c>[Obsolete(..., error: true)]</c>.</summary>
+	private static readonly DiagnosticDescriptor ObsoleteApiErrorInGeneratedCode = new(
+		"AGH0037",
+		"API used by generated code is obsolete",
+		"{0}",
+		"Argh",
+		DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
+
 	private static readonly DiagnosticDescriptor AsParametersEmptyType = new(
 		"AGH0009",
 		"AsParameters type has no bindable members",

@@ -1163,7 +1163,6 @@ public sealed partial class CliParserGenerator
 	private static void EmitEnumParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var e = Escape(p.CliLongName);
-		string Out(string name) => outVarKeyword ? "out var " + name : "out " + name;
 var evVar = ParamTemp(p, "ev");
 var evParsed = ParamTemp(p, "evp");
 sb.AppendLine($"{ind}var {evParsed} = false;");
