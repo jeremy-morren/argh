@@ -24,6 +24,7 @@ What `--help` prints: rendering of XML doc tags, defaults, layout and colour.
 | 69 | [Help pads columns by UTF-16 length, so CJK command names misalign](#69-help-pads-columns-by-utf-16-length-so-cjk-command-names-misalign) | Cosmetic | `bug69.cs` |
 | 88 | [`[AllowedValues]` with enum arguments shows C# member names in help](#88-allowedvalues-with-enum-arguments-shows-c-member-names-in-help) | Wrong output | `bug88.cs` |
 | 91 | [Negative range bounds render ambiguously in help: `[range: -5-5]`](#91-negative-range-bounds-render-ambiguously-in-help-range--5-5) | Cosmetic | `bug91.cs` |
+| 94 | [Root and namespace `--help` list no global or namespace options unless there is a default handler](#94-root-and-namespace---help-list-no-global-or-namespace-options-unless-there-is-a-default-handler) | Wrong output | `bug94.cs` |
 
 ## Background
 
@@ -195,6 +196,25 @@ Bugs.exe bug91 --help
 The error message is unambiguous (`value must be between -5 and 5`); only the help hint is. Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug91.cs`.
 
 **Expected (clap/cobra):** clap writes ranges in Rust's notation in its range errors (`-5..=5`). Use an unambiguous form such as `[range: -5..5]` or `[range: -5 to 5]`.
+
+### 94. Root and namespace `--help` list no global or namespace options unless there is a default handler
+
+```
+Bugs.exe bug94 --help
+Usage: Bugs bug94 <command> [options]
+
+Global options:
+  -h, --help  Show help.
+
+Commands:
+  bug94 show  Prints the region.
+```
+
+Neither the global options (`--api-url`, `--severity`, `--port`) nor the namespace's own `--region` are listed, although every command in the namespace accepts them and `bug94 show --help` lists them all. The root help is the same: `Bugs.exe --help` lists only `-h, --help` and `--version`, while `EXE --help` (the test host has a root default command) lists every global option. A namespace with a default handler (`Bugs.exe bug37 --help`) also lists them. Reproduced in `bugs/bug94.cs`.
+
+Cause: the listing help shows the global options only when the root has a default command or alias (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Dispatch.cs:635-636`), and a namespace shows the global options and its own options only when it has a default command or an XML `<summary>` (`:729-731`, `hasNsDoc`). A namespace mapped with a description string, as `MapNamespace("bug94", "...", ...)` is, has neither. The conditions are the same on `main` (`45954b6`) and on the current base.
+
+**Expected (clap/cobra):** both list them on a parent that only has subcommands. cobra's default usage template prints `Flags:` (the command's own and persistent flags) and `Global Flags:` (persistent flags inherited from its parents) for every command ([`command.go` template](https://github.com/spf13/cobra/blob/v1.10.2/command.go#L1959-L1965), [`UsageFunc`](https://github.com/spf13/cobra/blob/v1.10.2/command.go#L2019-L2026)). clap copies every `global(true)` argument into each subcommand ([`_propagate_global_args`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/command.rs#L4739-L4772)), and the help template lists every non-positional argument of the command under `Options:` ([`write_all_args`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/output/help_template.rs#L385-L390), [`Options` heading](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/output/help_template.rs#L429-L437)). List the global options, and the namespace options under their `'<ns>' options:` heading, in root and namespace help regardless of a default handler.
 
 ### Checked and refuted
 
