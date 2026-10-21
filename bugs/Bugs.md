@@ -17,7 +17,7 @@ Every `bugNN.cs` starts with a comment giving the exact command, the actual outp
 dotnet build bugs -c Release -p:DefineConstants=BUG10
 ```
 
-`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_CULTURE` (bug72) and `BUGS_RUN_TWICE` (bug77). `bug31`, `bug32`, `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
+`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_CULTURE` (bug72) and `BUGS_RUN_TWICE` (bug77). `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
 
 ## Proposed issues
 
@@ -121,8 +121,6 @@ The shell scripts, the `__complete` engine, and the cli-schema JSON that agents 
 
 | # | Bug | Scratch file |
 |---|---|---|
-| 31 | Fish completion never descends below the root | `bug31.cs` |
-| 32 | The zsh script drops the first CLI word | `bug32.cs` |
 | 33 | Hidden commands, namespaces and flags are completed | `bug33.cs` |
 | 34 | `__schema` advertises command aliases that don't route or complete | `bug34.cs` |
 | 35 | `timeSpanRange` constraint values carry C# quotes | `bug35.cs` |
@@ -134,8 +132,6 @@ The shell scripts, the `__complete` engine, and the cli-schema JSON that agents 
 | 41 | A committed `--flag=value` breaks bash completion | `bug41.cs` |
 | 62 | Completion lists flags after `--`, an unknown flag or a positional inside a command, but not at the root or in a namespace | `bug62.cs` |
 | 63 | Enum collections lose their member names in `__schema` | `bug63.cs` |
-| 86 | The bash completion script needs bash 4 (`mapfile`), so macOS's system bash can't complete anything | `bug86.cs` (comment only) |
-| 87 | On Windows every completion candidate ends in `\r`, so Git Bash never matches one | `bug87.cs` (comment only) |
 
 ## Background
 
@@ -146,7 +142,7 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, and the `allowed`/`denied` part of 35 on `enum-completion`. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, the `allowed`/`denied` part of 35 on `enum-completion`, and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` (commit `92d5c2d`, every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). The remaining bugs keep their numbers, because entries refer to each other by number.
 
 ## Summary
 
@@ -180,8 +176,6 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 28 | Namespace-option parse errors always hint at root help | Runtime | Misleading message |
 | 29 | An unknown flag in a namespace without a root handler is reported as a command typo | Runtime | Misleading message |
 | 30 | ANSI colour on stderr is decided by whether stdout is redirected | Runtime | Minor |
-| 31 | Fish completion never descends below the root | Completion | Wrong result |
-| 32 | The zsh script drops the first CLI word | Completion | Wrong result |
 | 33 | Hidden commands, namespaces and flags are completed | Completion | Wrong result |
 | 34 | `__schema` advertises command aliases that don't route or complete | Schema | Wrong result |
 | 35 | `timeSpanRange` constraint values carry C# quotes | Schema | Wrong result |
@@ -232,8 +226,6 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | Parsing | Minor |
 | 84 | Moved to feature F1: `HashSet<T>` and the other collection shapes | Generator | See Feature requests |
 | 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | Generator | Performance |
-| 86 | The bash completion script needs bash 4 (`mapfile`), so macOS's system bash can't complete anything | Completion | Wrong result |
-| 87 | On Windows every completion candidate ends in `\r`, so Git Bash never matches one | Completion | Wrong result |
 
 ## Parsing and binding
 
@@ -588,25 +580,6 @@ Cause: `Emit.Dispatch.cs:878-890` only falls through to flag handling when a roo
 ## Completion and schema
 
 Bugs 31 and 32 come from reading the templates against the shells' documented behaviour; zsh and fish aren't installed on this machine. Both were confirmed by sending the exe exactly what the script would send.
-
-### 31. Fish completion never descends below the root
-
-The fish template (`src/Nullean.Argh.Core/Help/CompletionScriptTemplates.cs:61`) sends `(commandline -opc)[2..-1]`. With `-c`, fish cuts at the cursor and excludes the token being typed, so the partial word is never sent, and the engine treats the last committed word as the partial:
-
-```
-EXE __complete fish -- storage     (what fish sends for `myapp storage <TAB>`)
-storage                            (expected: blob, list)
-```
-
-Only root-level names ever complete in fish.
-
-**Expected (clap/cobra):** cobra's fish script runs `$args[1] __complete $args[2..-1] $lastArg`, with `lastArg` from `commandline -ct` ([fish_completions.go#L48-L56](https://github.com/spf13/cobra/blob/v1.10.2/fish_completions.go#L48-L56)). clap's dynamic fish integration does the same: `(commandline --current-process --tokenize --cut-at-cursor) (commandline --current-token)` ([shells.rs#L221](https://github.com/clap-rs/clap/blob/v4.6.7/clap_complete/src/env/shells.rs#L221)).
-
-### 32. The zsh script drops the first CLI word
-
-The zsh template (`:49`) uses `"${words[@]:2}"`. In zsh the `${name:offset}` form is zero-based, for bash compatibility, so offset 2 skips both `words[1]` (the program) and `words[2]`. For `myapp storage li<TAB>` the engine receives `li` and returns nothing. The comment on line 47 says `words[2]..`, which is the 1-based intent. It works at the root by accident: `myapp sto<TAB>` sends nothing, the engine prints every root name, and zsh filters them.
-
-**Expected (clap/cobra):** cobra's zsh script truncates `words` at `CURRENT` and passes `${words[2,-1]}`, the 1-based subscript form, appending `""` when the cursor follows a space ([zsh_completions.go#L124-L145](https://github.com/spf13/cobra/blob/v1.10.2/zsh_completions.go#L124-L145)). The zsh manual confirms `${name:offset}` is zero-based: "0 refers to the first character or element regardless of the setting of the option KSH_ARRAYS" ([Parameter Expansion](https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion)).
 
 ### 33. Hidden commands, namespaces and flags are completed
 
@@ -1031,24 +1004,6 @@ With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` aft
 Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
-
-### 86. The bash completion script needs bash 4, so macOS's system bash can't complete anything
-
-The bash template (`CompletionScriptTemplates.GetBash`, `src/Nullean.Argh.Core/Help/CompletionScriptTemplates.cs:35-40`) reads the candidates with `mapfile -t COMPREPLY < <(...)`. `mapfile`/`readarray` exist only in bash 4+, and macOS ships `/bin/bash` 3.2, so every completion there fails with `bash: mapfile: command not found`. Confirmed live by the `completion-test` CI job on the `completion-test` branch ([run 39528730773](https://github.com/jeremy-morren/argh/actions/runs/39528730773)), which also confirmed bugs 31 (fish 3.7 and 4.9) and 32 (zsh 5.9): every non-root case fails in both, and root-level completion passes only because the app returns every command and the shell filters.
-
-**Expected (clap/cobra):** cobra's bash script avoids `mapfile` for this reason and reads the output with a `while IFS='' read -r` loop.
-
-### 87. On Windows every completion candidate ends in `\r`, so Git Bash never matches one
-
-`CompletionWriter.WriteFiltered` writes each candidate with `Console.Out.WriteLine`, which is `\r\n` on Windows:
-
-```
-Bugs.exe __complete bash -- bug0 | od -c    →   b u g 0 1 \r \n ...
-```
-
-In Git Bash (bash 5.3) `mapfile -t` strips only the `\n`, so each `COMPREPLY` entry keeps a trailing `\r` and nothing the user typed matches. Found by the same CI job.
-
-**Expected (clap/cobra):** both write `\n` regardless of platform. Have `__complete` write `\n` explicitly so the protocol has one line ending everywhere; stripping `\r` in the bash template is the fallback.
 
 ### By design, after checking
 
