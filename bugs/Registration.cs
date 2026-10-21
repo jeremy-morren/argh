@@ -149,7 +149,7 @@ internal static class Registration
 #endif
 		Bug83.Register(app);
 
-		// Feature requests (see the Feature requests section of Bugs.md)
+		// Feature requests (see the Feature requests section of BugsB.md)
 #if FEAT01
 		Feat01.Register(app);
 #endif

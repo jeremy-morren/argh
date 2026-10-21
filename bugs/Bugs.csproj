@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Scratch app that exercises the bugs listed in Bugs.md: one bugNN.cs per bug.
+    Scratch app that exercises the bugs listed in BugsA.md to BugsE.md: one bugNN.cs per bug.
 
       dotnet build bugs -c Release
       .artifacts/bin/Bugs/release/Bugs.exe bug01 ...

@@ -1,5 +1,5 @@
 // Feature F1 - Support the common collection shapes, not only T[], IEnumerable<T>, IReadOnlyList<T>, List<T> and IReadOnlySet<T>
-// Feature request (see the "Feature requests" section of Bugs.md); formerly bug 84 (HashSet<T>)
+// Feature request (see the "Feature requests" section of BugsB.md); formerly bug 84 (HashSet<T>)
 //
 // Build:    dotnet build bugs -c Release -p:DefineConstants=FEAT01
 // Actual:   IList<T>, ICollection<T>, IReadOnlyCollection<T>, ISet<T>, HashSet<T>, ImmutableArray<T> and

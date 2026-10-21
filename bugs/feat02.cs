@@ -1,5 +1,5 @@
 // Feature F2 - Dictionary parameters: IReadOnlyDictionary<K,V>, Dictionary<K,V>, ImmutableDictionary<K,V>
-// Feature request (see the "Feature requests" section of Bugs.md)
+// Feature request (see the "Feature requests" section of BugsB.md)
 //
 // Today a Dictionary<string, int> parameter fails exactly like feat01's types: CS1503 in the generated code,
 // no Argh diagnostic (confirmed with IReadOnlyDictionary<string,int>, Dictionary<string,int>, ImmutableDictionary<string,int>).
