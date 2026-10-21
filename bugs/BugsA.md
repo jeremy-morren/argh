@@ -13,6 +13,7 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 76 | [A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete](#76-a-bare-number-is-a-timespan-in-days-and-the-compact-format-is-undocumented-and-incomplete) | Misleading | `bug76.cs` |
 | 81 | [Combined short flags are rejected, and the limitation isn't documented](#81-combined-short-flags-are-rejected-and-the-limitation-isnt-documented) | Minor | `bug81.cs` |
 | 83 | [Command names are case-insensitive but flags aren't](#83-command-names-are-case-insensitive-but-flags-arent) | Minor | `bug83.cs` |
+| 95 | [A value-taking flag followed by another flag takes that flag as its value](#95-a-value-taking-flag-followed-by-another-flag-takes-that-flag-as-its-value) | Wrong result | `bug95.cs` |
 
 ## Background
 
@@ -140,6 +141,28 @@ Dev note: support combined short flags, PR combine with #75.
 Dev note: separate PR: add CommandStringComparer (default to OrdinalIgnoreCase) and ArgumentStringComparer (default to Ordinal) to parser options. These should be used for all matching. Analyzer warning if 2 commands are defined that are case-insensitive equal. Ensure parser options are documented in docs/, including the dateonly and timeonly parts.
 
 **Partly fixed on `unmatched-args` (no PR yet):** `-V` now gives `unknown short option '-V'` before and after the command. Command names are still matched case-insensitively and flags case-sensitively.
+
+### 95. A value-taking flag followed by another flag takes that flag as its value
+
+```
+Bugs.exe bug95 --name --port 5             → Error: unexpected argument '5' found.              exit 2
+Bugs.exe bug95 --port --severity warning   → Error: unexpected argument 'warning' found.        exit 2
+Bugs.exe bug95 --port --severity=warning   → Error: invalid int for --port: '--severity=warning'.
+Bugs.exe --port --severity warning bug95   → Error: invalid int for --port: '--severity'.       (root position)
+Bugs.exe bug95 --name --help               → name:--help, exit 0                                (no help)
+Bugs.exe bug95 --name -x                   → name:-x, exit 0
+Bugs.exe bug95 --offset -5                 → offset:-5                                          (negative numbers work)
+```
+
+The token after a value-taking flag is always its value, even when it is another known flag, so the error names the wrong token or the wrong problem, and `--name --help` binds `--help` instead of failing. `--name --help` binding is the deliberate behaviour of the `small-fixes` branch (it was the expected behaviour of the removed bug 74, which said both clap and cobra bind it); it matches pflag but not clap. Negative numbers (`--offset -5`, `numeric-defaults --limit -2.5`, `--factor -0.25` in the test host) are values today and must stay so. Reproduced in `bugs/bug95.cs` on `unmatched-args`.
+
+Cause: the value-taking branch checks only that another token exists (`if (i + 1 >= args.Length)`, `src/Nullean.Argh.Generator/CliParserGenerator.Emit.Runner.cs:182-196`, and the root parser at `CliParserGenerator.Emit.Parsing.cs:171-180`, both at `45954b6`; the same check is on the current base) and never whether that token is a flag. Before `unmatched-args` the left-over `5` or `warning` was silently ignored (the removed bug 4); now it is reported as an unexpected argument.
+
+**Expected (clap/cobra):** they differ; follow clap.
+- clap: when an option is waiting for its value and the next token is a long flag, it starts that flag, and starting any argument first resolves the pending option ([`parse_opt_value`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L1077), [`react`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L1150)), which fails with no values ([`verify_num_args`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L1335-L1346)): `error: a value is required for '--name <NAME>' but none was supplied` ([format.rs#L219](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/error/format.rs#L219)). That includes `--name --help`: `--help` is an argument too, so the pending `--name` fails before help runs. The token is taken as a value only if the option has `allow_hyphen_values` ([long](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L776-L781), [short](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L894-L899)), or `allow_negative_numbers` for a negative number ([arg.rs#L1549-L1552](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/arg.rs#L1549-L1552)). By default `--offset -5` is therefore `error: unexpected argument '-5' found` ([parser.rs#L186-L195](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L186-L195), [format.rs#L358](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/error/format.rs#L358)); `--offset=-5` always works.
+- pflag takes the next token whatever it is (`'--flag arg'`, [flag.go#L1020-L1023](https://github.com/spf13/pflag/blob/v1.0.10/flag.go#L1020-L1023); `'-f arg'`, [#L1092-L1095](https://github.com/spf13/pflag/blob/v1.0.10/flag.go#L1092-L1095)), which is what Argh does now.
+
+Follow clap for tokens that are known flags (`--port`, `--severity`, `--help`, `-h`): report `a value is required for '--name'`. Keep negative numbers as values of numeric options, as if `allow_negative_numbers` were on, so `--offset -5` and `--limit -2.5` keep working; `--name=--help` stays the way to pass a flag-like string.
 
 ### By design, after checking
 

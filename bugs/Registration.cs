@@ -127,6 +127,7 @@ internal static class Registration
 		Bug88.Register(app);
 		Bug91.Register(app);
 		Bug94.Register(app);
+		Bug95.Register(app);
 
 		// Feature requests (see the Feature requests section of BugsB.md)
 #if FEAT01
