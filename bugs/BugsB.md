@@ -20,7 +20,6 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 82 | [AGH0003 fires when injected options precede an `[Argument]` parameter](#82-agh0003-fires-when-injected-options-precede-an-argument-parameter) | Wrong diagnostic | `bug82.cs` (build break, `#if BUG82`) |
 | 84 | [Moved to feature F1](#84-moved-to-feature-f1) | See Feature requests |  |
 | 85 | [The incremental generator's cache never hits, so every edit re-runs the whole emit](#85-the-incremental-generators-cache-never-hits-so-every-edit-re-runs-the-whole-emit) | Performance | `bug85.cs` (comment only) |
-| 93 | [An optional non-nullable `string` with a string validation attribute gives CS8601/CS8604 nullable warnings in generated code](#93-an-optional-non-nullable-string-with-a-string-validation-attribute-gives-cs8601cs8604-nullable-warnings-in-generated-code) | Build warning | `bug93.cs` (warnings, `#if BUG93`) |
 | F1 | [Support the common collection shapes, and lift the `IReadOnlySet<T>` value-type restriction](#f1-support-the-common-collection-shapes) | Feature request | `feat01.cs` (build break, `#if FEAT01`) |
 | F2 | [Dictionary parameters](#f2-dictionary-parameters) | Feature request | `feat02.cs` (comment only) |
 
@@ -32,11 +31,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. On `small-fixes` (on top of [#91](https://github.com/nullean/argh/pull/91), no PR yet): 19 (`[Env]` on a positional argument is read), 20 (a `params` array is optional), 67 (a required namespace option is accepted after the command, and a namespace with required options and no command shows its help), 74 (`--help` after a value-taking flag is that flag's value, and an unknown option before `--help` is an error), 92 (a global option between the namespace and the command is bound and validated) and 93 (no nullable warnings for an optional non-nullable `string` with a string validation attribute). The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Each of these was reproduced with a small console project referencing the framework. "Doesn't compile" means the generated `ArghGenerated.g.cs` fails to compile, with no Argh diagnostic to explain why.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `emitter-cleanup` ([#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `small-fixes` (no PR yet; it sits on `emitter-cleanup`, [#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -186,53 +185,6 @@ With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` aft
 Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
-
-### 93. An optional non-nullable `string` with a string validation attribute gives CS8601/CS8604 nullable warnings in generated code
-
-```csharp
-public sealed class N : G                     // namespace options; a member of the global options type G warns too
-{
-    [AllowedValues("fast", "slow")]           // also [StringLength], [RegularExpression], [DeniedValues], [EmailAddress]
-    public string Mode { get; set; } = "fast";
-}
-
-static void Run([AllowedValues("fast", "slow")] string mode = "fast") { }
-```
-
-```
-dotnet build bugs -c Release -p:DefineConstants=BUG93
-ArghGenerated.g.cs: warning CS8601: Possible null reference assignment.     (x2 per member)
-ArghGenerated.g.cs: warning CS8604: Possible null reference argument for parameter 'mode' in 'void Bug93.Run(string mode = "fast")'.
-```
-
-The default build of `bugs/` has no warnings. Probe builds of each shape:
-
-| Shape | Warnings |
-|---|---|
-| Namespace options member, `string` with a default, `[AllowedValues]` | 2 × CS8601 |
-| The same with `[StringLength]`, `[RegularExpression]`, `[DeniedValues]` or `[EmailAddress]` | 2 × CS8601 each |
-| Global options member, `string` with a default, `[AllowedValues]` | 4 × CS8601 (the global type and the namespace type that inherits it) |
-| Method parameter, `string mode = "fast"`, `[AllowedValues]` | 1 × CS8604 |
-| The same member with no attribute | none |
-| `string?` member with `[AllowedValues]` | none |
-
-The `[AllowedValues]`, `[StringLength]`, method-parameter and no-warning rows give the same result on `main` (`45954b6`) as on `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)), and the options rows also before #90's options-validation change, so none of the open PRs introduced it. The options-member warnings are in `TryParseDto_*` and `TryParseDtoExact_*`, which the `[AsParameters]` binding extensions in `ArghTypeBindingExtensions.g.cs` call:
-
-```csharp
-string? __p_Mode = "fast";
-...
-if (__p_ModeText is null) __p_Mode = "fast"; else { __p_Mode = __p_ModeText; }
-if (__p_Mode != null && (!string.Equals(__p_Mode, "fast", ...) && !string.Equals(__p_Mode, "slow", ...)))
-{ Console.Error.WriteLine($"Error: --mode: value must be one of: fast, slow."); return false; }
-var __dto = new global::Bugs.Bug93NsOpts();
-__dto.Mode = __p_Mode;                         // CS8601
-```
-
-For the method parameter, `global::Bugs.Bug93.Run(__p_mode);` follows the same check (CS8604). Validation itself works (`bug93-param --mode bogus` exits 2 with the allowed-values error). Found while removing bug 89, whose scratch file had this shape; reproduced in `bugs/bug93.cs` (behind `#if BUG93`, so the default build stays warning-free).
-
-Cause: the local is declared `string?`, and its flow state is not-null until the constraint check tests it with `x != null &&`. After that test the compiler treats it as maybe-null, so the assignment to the non-nullable member or argument warns. The emitters add the guard when the value is optional (`var isNullable = !p.IsRequired;`), not when its declared type is nullable: `[StringLength]` ([`Emit.Parsing.cs:943-948`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L943-L948)), `[RegularExpression]` ([`:978-981`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L978-L981)), `[AllowedValues]` ([`:995-1008`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L995-L1008)), `[DeniedValues]` ([`:1030-1043`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L1030-L1043)) and `[EmailAddress]` ([`:1065-1069`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L1065-L1069)). The comment at `:944-945` already avoids the guard for required strings, to prevent CS8604; an optional non-nullable `string` with a default needs the same treatment. The URL, URI-scheme, filesystem and `[FileExtensions]` emitters (`:1083-1185`) use the same `isNullable` pattern; not probed.
-
-**Fix:** emit the null guard only when the declared type is nullable (`string?`), and use the non-null access (`x!`) otherwise, as the required-string path already does.
 
 ### Checked and refuted
 

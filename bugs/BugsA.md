@@ -15,16 +15,11 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 7 | [`--` isn't a terminator](#7----isnt-a-terminator) | Misleading message | `bug07.cs` |
 | 8 | [`bool?` with an unparseable value becomes `true`](#8-bool-with-an-unparseable-value-becomes-true) | Minor | `bug08.cs` |
 | 9 | [A required separator collection accepts zero items](#9-a-required-separator-collection-accepts-zero-items) | Minor | `bug09.cs` |
-| 19 | [`[Env]` on a positional argument is shown in help but never read](#19-env-on-a-positional-argument-is-shown-in-help-but-never-read) | Wrong result | `bug19.cs` |
-| 20 | [`params string[]` is treated as required](#20-params-string-is-treated-as-required) | Minor | `bug20.cs` |
-| 67 | [A required namespace option is only accepted before the command](#67-a-required-namespace-option-is-only-accepted-before-the-command) | Wrong result | `bug67.cs` |
 | 73 | [A required `Uri` binds empty, whitespace and garbage values as relative URIs](#73-a-required-uri-binds-empty-whitespace-and-garbage-values-as-relative-uris) | Wrong result | `bug73.cs` |
-| 74 | [`--help` anywhere in the arguments wins](#74---help-anywhere-in-the-arguments-wins) | Wrong result | `bug74.cs` |
 | 75 | [A repeated scalar flag silently takes the last value](#75-a-repeated-scalar-flag-silently-takes-the-last-value) | Design | `bug75.cs` |
 | 76 | [A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete](#76-a-bare-number-is-a-timespan-in-days-and-the-compact-format-is-undocumented-and-incomplete) | Misleading | `bug76.cs` |
 | 81 | [Combined short flags are rejected, and the limitation isn't documented](#81-combined-short-flags-are-rejected-and-the-limitation-isnt-documented) | Minor | `bug81.cs` |
 | 83 | [Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position](#83-command-names-are-case-insensitive-but-flags-arent-and-the-unknown--v-message-depends-on-position) | Minor | `bug83.cs` |
-| 92 | [A global option written after the namespace segment is silently dropped](#92-a-global-option-written-after-the-namespace-segment-is-silently-dropped) | Wrong result | `bug92.cs` |
 
 ## Background
 
@@ -34,11 +29,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. On `small-fixes` (on top of [#91](https://github.com/nullean/argh/pull/91), no PR yet): 19 (`[Env]` on a positional argument is read), 20 (a `params` array is optional), 67 (a required namespace option is accepted after the command, and a namespace with required options and no command shows its help), 74 (`--help` after a value-taking flag is that flag's value, and an unknown option before `--help` is an error), 92 (a global option between the namespace and the command is bound and validated) and 93 (no nullable warnings for an optional non-nullable `string` with a string validation attribute). The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Bugs 71 to 83: these started as suspicions and were confirmed with a repro app that has a global options class (`int Port = 80`, `long Big`, `double Ratio`, `float? Scale`, `decimal Money`, `DateTime? When`, `TimeSpan? Span`) and commands for each value type, in every binding path: method parameter, `[AsParameters]` DTO, environment variable, positional, and leading or trailing global.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `emitter-cleanup` ([#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `small-fixes` (no PR yet; it sits on `emitter-cleanup`, [#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -230,44 +225,6 @@ The flag is `[required]` in help. The repeatable-flag path checks the item count
 
 Dev note: Separate PR: handle collections: parse into empty strings, then pass to the underlying type parser, who can then reject them if necessary. Add tests that a parameter of T (or T?) is parsed in the same way as a parameter of type T[] i.e. a user can define a custom argument parser on a collection parameter T?[] for type T and it is used. As a result, the default path for e.g. int (empty string is invalid) is handled correctly.
 
-### 19. `[Env]` on a positional argument is shown in help but never read
-
-```csharp
-static void EnvPos([Argument, Env("HUNT_NAME")] string name) { }
-```
-
-`HUNT_NAME=x app env-pos` → `Error: missing required argument <name>`, while help prints `<name>  [env: HUNT_NAME]`.
-
-Cause: `Emit.Runner.cs:289` skips positionals (`if (p.Kind == ParameterKind.Positional) continue;`) in env binding; the help emitter still appends the tag. Either bind it or report a diagnostic.
-
-**Expected (clap/cobra):** clap's `env` works on positionals the same as on options.
-
-Dev note: garden variety bug, fix.
-
-### 20. `params string[]` is treated as required
-
-A handler with `params string[] items`, run with no arguments → `missing required flag --items`.
-
-Cause: `ComputeRequired` (`ParameterModel.cs:953`) ignores `IParameterSymbol.IsParams`.
-
-Dev note: garden variety bug, fix.
-
-### 67. A required namespace option is only accepted before the command
-
-```
-EXE scalars-ns show P        → Error: missing required flag --span.   exit 2
-EXE scalars-ns P show        → runs
-```
-
-`P` is the required options, as in [bug 3](#3-a-global-enum-flag-or-a-namespace-option-of-any-special-type-after-the-command-accepts-any-value-silently). Optional namespace options are accepted on either side of the command.
-
-Cause: the required check runs in the namespace pre-parse, before the command is matched (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:302-309`), and fails before the command's own arguments are read.
-
-**Expected (clap/cobra):** clap's `global(true)` arguments and cobra's persistent flags can appear before or after the subcommand, and required checks run after the whole command line is parsed.
-
-
-Dev note: garden variety bug: match clap/cobra, fix.
-
 ### 73. A required `Uri` binds empty, whitespace and garbage values as relative URIs
 
 ```
@@ -284,22 +241,6 @@ Cause: `Emit.Runner.cs:1284` has an `IsNullOrWhiteSpace` guard for the optional 
 **Expected (clap/cobra):** clap's `PathBufValueParser` rejects an empty value, and a `value_parser!(Url)` rejects a non-URL. Reject empty and whitespace; decide whether relative URIs are intended.
 
 Dev note: Combine with #5. add UriOptionsAttribute(UriKind). If not provided use UriKind.Absolute. Reject empty string.
-
-### 74. `--help` anywhere in the arguments wins
-
-```
-EXE hello --name --help          → help, exit 0     (expected: name = "--help")
-EXE hello --name x -- --help     → help              (bug 7: `--` is no terminator)
-EXE hello --bogus --help         → help, no error
-EXE hello --name=--help          → binds             (the only way)
-EXE ns --bogus --help            → error             (namespaces don't pre-scan: inconsistent)
-```
-
-Cause: `Emit.Runner.cs:72-79` scans every argument for `--help`/`-h` before parsing.
-
-**Expected (clap/cobra):** both bind `--help` as the value of `--name` when it follows a value-taking flag, and everything after `--` is positional.
-
-Dev note: garden variety bug, fix.
 
 ### 75. A repeated scalar flag silently takes the last value
 
@@ -338,23 +279,6 @@ Dev note: support combined short flags, PR combine with #75.
 **Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
 
 Dev note: separate PR: add CommandStringComparer (default to OrdinalIgnoreCase) and ArgumentStringComparer (default to Ordinal) to parser options. These should be used for all matching. Analyzer warning if 2 commands are defined that are case-insensitive equal. Ensure parser options are documented in docs/, including the dateonly and timeonly parts.
-
-### 92. A global option written after the namespace segment is silently dropped
-
-```
-Bugs.exe bug92 --port 5 show              → port:80, exit 0                    (expected port:5)
-Bugs.exe bug92 --severity warning show    → severity:Information, exit 0       (expected Warning)
-Bugs.exe --port 5 bug92 show              → port:5
-Bugs.exe bug92 show --port 5              → port:5
-EXE numeric-ns --zone EU show             → runs, zone none, exit 0            (Zone has [AllowedValues("eu", "us")])
-EXE --zone EU numeric-ns show             → Error: --zone: value must be one of: eu, us.   exit 2
-```
-
-`Port`, `Severity` and the fixture's `Zone` are members of the global options type, which the namespace options type inherits. Written between the namespace and the command, the value is parsed (`bug92 --severity bogus show` is rejected) but never reaches the handler, so validation attributes on it are skipped as well. Members declared on the namespace options type itself work in that position (`bug92 --region eu show`). Reported by session `argh-a5` while building `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)); reproduced in `bugs/bug92.cs`.
-
-Cause: the namespace pre-parse stores the value only on the namespace options' static (`s_opts_Bugs_Bug92NsOpts.Port`), but the command runner takes each member from the first static in the options chain that declares it (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:371-381`), which for an inherited global member is the global static (`s_opts_Bugs_GlobalOpts.Port`). The runner should read the static that saw the flag.
-
-**Expected (clap/cobra):** a global argument can be used at any level: clap's [`Arg::global`](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/arg.rs#L877-L885) ("it doesn't matter where the user *uses* the global argument"), and cobra adds every parent's persistent flags to each subcommand's flag set ([`mergePersistentFlags`](https://github.com/spf13/cobra/blob/v1.10.2/command.go#L1896-L1923)). Bind `bug92 --port 5 show` exactly like `--port 5 bug92 show`.
 
 ### By design, after checking
 

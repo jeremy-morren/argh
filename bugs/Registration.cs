@@ -61,8 +61,6 @@ internal static class Registration
 		Bug16.Register(app);
 #endif
 		Bug18.Register(app);
-		Bug19.Register(app);
-		Bug20.Register(app);
 #if BUG21
 		Bug21.Register(app);
 #endif
@@ -120,13 +118,11 @@ internal static class Registration
 		Bug63.Register(app);
 
 		// Found on other branches
-		Bug67.Register(app);
 		Bug68.Register(app);
 		Bug69.Register(app);
 
 		// Third pass: parsing and runtime (bug78 and bug79 live in bugs/hosted)
 		Bug73.Register(app);
-		Bug74.Register(app);
 		Bug75.Register(app);
 		Bug76.Register(app);
 		Bug77.Register(app);
@@ -140,10 +136,6 @@ internal static class Registration
 		// Found while building range-unbounded (#90)
 		Bug88.Register(app);
 		Bug91.Register(app);
-		Bug92.Register(app);
-#if BUG93
-		Bug93.Register(app);
-#endif
 
 		// Feature requests (see the Feature requests section of BugsB.md)
 #if FEAT01
