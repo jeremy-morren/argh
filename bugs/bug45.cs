@@ -10,7 +10,7 @@
 //           pflag prints %q on purpose; follow clap)
 //
 // Cause: Emit.Help.cs:939 only trims the quotes from the SymbolDisplay literal
-//        (the same root cause as the [AllowedValues] quoting fixed in a1a542c).
+//        (the same root cause as the [AllowedValues] quoting fixed in #82).
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;

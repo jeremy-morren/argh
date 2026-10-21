@@ -7,7 +7,7 @@
 //
 // Help renders it correctly: [time-span-range: 5m-2h].
 // Cause: Validation.cs:287 stores ToCSharpString() for the bounds. The allowed/denied values had the same
-//        bug; that part is fixed on the enum-completion branch (a1a542c).
+//        bug; that part is fixed on the enum-completion branch (#82).
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;
