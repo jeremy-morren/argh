@@ -1,7 +1,7 @@
 using System.Globalization;
 using Nullean.Argh.Runtime;
 
-// BUGS_CULTURE=sv-SE   sets the current culture before parsing (bug72).
+// BUGS_CULTURE=sv-SE   sets the current culture before parsing (was for bug72, fixed on parse-culture).
 var culture = Environment.GetEnvironmentVariable("BUGS_CULTURE");
 if (!string.IsNullOrEmpty(culture))
 	CultureInfo.CurrentCulture = CultureInfo.DefaultThreadCurrentCulture = new CultureInfo(culture);

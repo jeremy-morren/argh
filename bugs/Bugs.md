@@ -17,7 +17,7 @@ Every `bugNN.cs` starts with a comment giving the exact command, the actual outp
 dotnet build bugs -c Release -p:DefineConstants=BUG10
 ```
 
-`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_CULTURE` (bug72) and `BUGS_RUN_TWICE` (bug77). `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
+`lib/` holds the types that must live in another assembly (bug16, bug56), and `hosted/` the bugs that need the hosting package (22, 25, 78, 79). `Program.cs` reads `BUGS_RUN_TWICE` (bug77) and `BUGS_CULTURE`. `bug40` and `bug41` are comment-only, because the bug is in a generated shell script or in the schema shape rather than in a handler.
 
 ## Proposed issues
 
@@ -40,7 +40,6 @@ Wrong results when reading argv and environment variables. The parser is generat
 | 20 | `params string[]` is treated as required | `bug20.cs` |
 | 67 | A required namespace option is only accepted before the command | `bug67.cs` |
 | 71 | `float`, `double` and `decimal` accept thousands separators, so `1,5` parses as `15` | `bug71.cs` |
-| 72 | The trailing re-parse of global `int`/`long` is culture-sensitive, and trailing `double` disagrees with leading | `bug72.cs` |
 | 73 | A required `Uri` binds empty, whitespace and garbage values as relative URIs | `bug73.cs` |
 | 74 | `--help` anywhere in the arguments wins, so it can't be passed as a value | `bug74.cs` |
 | 75 | A repeated scalar flag silently takes the last value | `bug75.cs` |
@@ -142,7 +141,7 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, the `allowed`/`denied` part of 35 on `enum-completion`, and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` (commit `92d5c2d`, every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, the `allowed`/`denied` part of 35 on `enum-completion`, and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` (commit `92d5c2d`, every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` (stacked on [#87](https://github.com/nullean/argh/pull/87), PR pending): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
 
 ## Summary
 
@@ -212,7 +211,6 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 69 | Help pads columns by UTF-16 length, so CJK command names misalign | Help | Cosmetic |
 | 70 | A positional `bool` parameter doesn't compile | Generator | Build break |
 | 71 | `float`, `double` and `decimal` accept thousands separators, so `1,5` parses as `15` | Parsing | Wrong result |
-| 72 | The trailing re-parse of global `int`/`long` is culture-sensitive, and trailing `double` disagrees with leading | Parsing | Wrong result |
 | 73 | A required `Uri` binds empty, whitespace and garbage values as relative URIs | Parsing | Wrong result |
 | 74 | `--help` anywhere in the arguments wins, so it can't be passed as a value | Parsing | Wrong result |
 | 75 | A repeated scalar flag silently takes the last value | Parsing | Design |
@@ -418,6 +416,8 @@ Unrecognised collection shapes (`IList<T>`, `HashSet<T>`, `ImmutableArray<T>`, d
 
 **Expected:** either support the type or report an Argh diagnostic naming the parameter and type. clap's derive macro fails at compile time with a message naming the type.
 
+
+**Partly fixed on `parsable-types`** (stacked on `parse-culture`, PR pending): on .NET 7 and later, any type implementing `IParsable<T>` binds automatically, which covers `Guid`, `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`, `Half`, `Int128`, `BigInteger` and user `IParsable`/`ISpanParsable` types (including explicit implementations), as plain, nullable, collection, DTO, options and env values. Still broken: those types on target frameworks before .NET 7, where `IParsable<T>` doesn't exist, and any type that is neither built in nor `IParsable`, which still fails with CS1503 and no diagnostic.
 ### 14. A command and a namespace with the same name don't compile
 
 ```csharp
@@ -892,21 +892,8 @@ Cause: `NumberStyles.Float | NumberStyles.AllowThousands` at `Emit.Runner.cs:137
 
 **Expected (clap/cobra):** both reject `1,5`: Rust's `f64::from_str` and Go's `strconv.ParseFloat` take no thousands separators, and both are culture-independent.
 
-### 72. The trailing re-parse of global `int`/`long` is culture-sensitive
 
-With the current culture set to `sv-SE` and a U+2212 minus sign:
-
-```
-EXE glob --port −5     → port=-5                                   (trailing: current culture)
-EXE --port −5 glob     → Error: invalid int for --port: '-5'       (leading: invariant)
-```
-
-Also, trailing `double` uses `NumberStyles.Float` without `AllowThousands` while leading and `double?` allow it, so in `de-DE` `--ratio 1,5 glob` gives `15` and `glob --ratio 1,5` keeps the default. `DateTime` is invariant in every path.
-
-Cause: `Emit.Parsing.cs:439, 442` call `int.TryParse(txt, out ...)` with the current culture; `:446` for `double`.
-
-**Expected (clap/cobra):** culture-independent parsing in every position.
-
+**Partly addressed on `parse-culture`:** the default is unchanged (.NET's own number styles, which allow thousands separators), but `ParserOptions.NumberStyles` now lets an app exclude `AllowThousands`.
 ### 73. A required `Uri` binds empty, whitespace and garbage values as relative URIs
 
 ```
