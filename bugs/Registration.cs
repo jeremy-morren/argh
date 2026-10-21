@@ -39,14 +39,10 @@ internal static class Registration
 		app.UseMiddleware<Bug27Middleware>();
 
 		// A. Parsing and binding
-		Bug01.Register(app);
-		Bug02.Register(app);
 		Bug03.Register(app);
 		Bug04.Register(app);
 		Bug05.Register(app);
-		Bug06.Register(app);
 		Bug07.Register(app);
-		Bug08.Register(app);
 		Bug09.Register(app);
 
 		// B. Generator: uncompilable output and missing diagnostics.
@@ -74,9 +70,6 @@ internal static class Registration
 		Bug60.Register(app);
 #endif
 		Bug61.Register(app);
-#if BUG70
-		Bug70.Register(app);
-#endif
 
 		// C. Runtime, dispatch and hosting (bug22 and bug25 live in bugs/hosted)
 		Bug23.Register(app);
