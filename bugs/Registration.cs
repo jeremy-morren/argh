@@ -39,10 +39,7 @@ internal static class Registration
 		app.UseMiddleware<Bug27Middleware>();
 
 		// A. Parsing and binding
-		Bug03.Register(app);
-		Bug04.Register(app);
 		Bug05.Register(app);
-		Bug07.Register(app);
 		Bug09.Register(app);
 
 		// B. Generator: uncompilable output and missing diagnostics.

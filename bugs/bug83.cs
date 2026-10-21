@@ -1,12 +1,12 @@
-// Bug 83 - Command names are case-insensitive but flags aren't, and the unknown -V message depends on position
+// Bug 83 - Command names are case-insensitive but flags aren't
 // Group A: parsing and binding
 //
 // Run:      Bugs.exe BUG83 --name x       -> name:x          (command matched case-insensitively)
 // Run:      Bugs.exe bug83 --NAME x       -> Error: unknown option '--NAME'
-// Run:      Bugs.exe -V bug83             -> Error: unknown short option '-V'
-// Run:      Bugs.exe bug83 -V             -> Error: missing value for short flag '-V'    (misleading: -V doesn't exist)
-// Expected: one rule for both (clap and cobra are case-sensitive for commands and flags by default),
-//           and one "unknown option" message whatever the position
+// Expected: one rule for both (clap and cobra are case-sensitive for commands and flags by default)
+//
+// Partly fixed on unmatched-args: -V now gives "unknown short option '-V'" before and after the command
+// (it used to say "missing value for short flag '-V'" after it).
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;
