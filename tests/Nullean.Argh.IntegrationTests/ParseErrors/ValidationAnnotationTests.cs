@@ -234,10 +234,11 @@ public class ValidationAnnotationTests
 	[Fact]
 	public void UriScheme_relative_uri_returns_exit_2_with_clean_error()
 	{
+		// A Uri is absolute by default, so a relative value fails to parse before the scheme check.
 		var r = CliHostRunner.Run(NoColor, "validate-uri-scheme", "--endpoint", "not-an-url");
 		r.ExitCode.Should().Be(2);
 		ConsoleOutput.Normalize(CliHostRunner.StderrText(r))
-			.Should().Contain("Error: --endpoint: URI scheme must be one of: https.");
+			.Should().Contain("Error: invalid URI for --endpoint: 'not-an-url'. Expected an absolute URI.");
 	}
 
 	[Fact]

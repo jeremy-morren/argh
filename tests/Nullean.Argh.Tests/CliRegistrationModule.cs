@@ -139,6 +139,15 @@ internal static class CliRegistrationModule
 			g.UseNamespaceOptions<ScalarNamespaceOptions>();
 			g.Map("show", CliTestHandlers.ScalarsNsShow);
 		});
+		app.Map("path-inputs", PathUriHandlers.PathInputs);
+		app.Map("uri-inputs", PathUriHandlers.UriInputs);
+		app.Map("uri-variadic", PathUriHandlers.UriVariadic);
+		app.Map("uri-dto", PathUriHandlers.UriDto);
+		app.MapNamespace("path-uri-ns", "Files and URIs as namespace options.", g =>
+		{
+			g.UseNamespaceOptions<PathUriNamespaceOptions>();
+			g.Map("show", PathUriHandlers.NsShow);
+		});
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);

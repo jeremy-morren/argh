@@ -109,7 +109,7 @@ public sealed class TimeSpanRangeAttribute : Attribute
 /// <summary>
 /// Restricts the allowed URI schemes for a <see cref="System.Uri"/> parameter (e.g. <c>http</c>, <c>https</c>).
 /// Emits a parse error when the provided URI does not use one of the listed schemes.
-/// Only valid on <c>Uri</c> or <c>Uri?</c> parameters; applying it to other types produces diagnostic AGH0023.
+/// Only valid on <c>Uri</c> or <c>Uri?</c> parameters; applying it to other types produces diagnostic AGH0024.
 /// </summary>
 [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
 public sealed class UriSchemeAttribute : Attribute
@@ -117,6 +117,23 @@ public sealed class UriSchemeAttribute : Attribute
 	public string[] Schemes { get; }
 
 	public UriSchemeAttribute(params string[] schemes) => Schemes = schemes;
+}
+
+/// <summary>
+/// Sets which kind of URI a <see cref="System.Uri"/> parameter or property accepts. Without it, a value must be an
+/// absolute URI (<see cref="System.UriKind.Absolute"/>). An empty value is an error whatever the kind.
+/// Valid on <c>Uri</c>, <c>Uri?</c> and collections of <c>Uri</c>, where it applies to each element; on other types
+/// it produces diagnostic AGH0024.
+/// </summary>
+/// <example><c>[UriOptions(UriKind.RelativeOrAbsolute)] Uri link</c> accepts <c>https://example.com</c> and <c>docs/index.html</c>.</example>
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
+public sealed class UriOptionsAttribute : Attribute
+{
+	/// <param name="kind">The kind of URI a value must be.</param>
+	public UriOptionsAttribute(UriKind kind) => Kind = kind;
+
+	/// <summary>The kind of URI a value must be.</summary>
+	public UriKind Kind { get; }
 }
 
 /// <summary>

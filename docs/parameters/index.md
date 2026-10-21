@@ -54,6 +54,41 @@ Things to know about cultures:
 - .NET Framework uses Windows culture data (NLS), and .NET 5 and later use ICU, so some details differ. For example, ICU accepts the Unicode minus sign `−` under `sv-SE` and uses `٫` as the `fa-IR` decimal separator, where NLS rejects `−` and uses `/`.
 - With `InvariantGlobalization` enabled and `PredefinedCulturesOnly` set to `false`, every culture carries invariant data, so a configured culture has no effect.
 
+### Files, directories and URIs
+
+An empty value for a `FileInfo`, `DirectoryInfo` or `Uri` is an error (exit code 2), as in clap. Any other value goes to the type's constructor, and a value it rejects is an error with the constructor's message:
+
+```
+$ myapp build --output ""
+Error: invalid path for --output: ''. The path is empty.
+```
+
+Whitespace isn't rejected up front, because it can name a file, but some platforms refuse it: Windows does, Linux doesn't. Which paths a constructor rejects depends on the runtime too. .NET Framework rejects characters such as `|` that .NET Core accepts:
+
+```
+$ myapp build --output "a|b"     # on .NET Framework
+Error: invalid path for --output: 'a|b'. Illegal characters in path.
+```
+
+A `Uri` must be absolute. `[UriOptions]` accepts relative URIs too, or only relative ones:
+
+```csharp
+public static void Fetch(
+    Uri server,                                          // https://example.com
+    [UriOptions(UriKind.Relative)] Uri path,             // docs/index.html
+    [UriOptions(UriKind.RelativeOrAbsolute)] Uri? link = null)
+{ … }
+```
+
+```
+$ myapp fetch --server example.com --path docs
+Error: invalid URI for --server: 'example.com'. Expected an absolute URI.
+```
+
+Help shows `[relative]` or `[relative or absolute]` after the description. `[UriOptions]` also applies to each element of a `Uri` collection. On another type it does nothing, and the generator reports `AGH0024`, as it does for `[UriScheme]` on a type other than `Uri` and for `UriKind.Relative` with `[UriScheme]` or `[Url]`, which no value can pass.
+
+These rules apply wherever the value comes from: a flag, a positional, a collection element, an `[AsParameters]` or options member, or an environment variable.
+
 ### Collections
 
 Collection flags accept the flag multiple times by default. Use `[CollectionSyntax(Separator=",")]` for comma-separated input instead. For variadic positionals, use `[Argument] T[]` or `[Argument] params T[]`.

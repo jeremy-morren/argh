@@ -35,6 +35,7 @@ public static class NetstandardCli
 		app.Map("checks", NsHandlers.Checks);
 		app.Map("env", NsHandlers.Env);
 		app.Map("files", NsHandlers.Files);
+		app.Map("paths", NsHandlers.Paths);
 		app.Map("copy", NsHandlers.Copy);
 		app.Map("sets", NsHandlers.Sets);
 		app.Map("pause", NsHandlers.Pause);
@@ -232,6 +233,16 @@ public static class NsHandlers
 	/// <param name="output">A directory under the user profile.</param>
 	public static void Files(NsGlobalOptions g, [Existing] FileInfo input, [ExpandUserProfile] DirectoryInfo? output = null) =>
 		Console.Out.WriteLine($"files:{input.Name}:{output?.Name ?? "none"}");
+
+	/// <summary>Paths and URIs, which each runtime's constructors may reject differently.</summary>
+	/// <param name="g">Global options.</param>
+	/// <param name="file">A file.</param>
+	/// <param name="dir">A directory.</param>
+	/// <param name="link">An absolute URI.</param>
+	/// <param name="rel">A relative URI.</param>
+	public static void Paths(NsGlobalOptions g, FileInfo? file = null, DirectoryInfo? dir = null, Uri? link = null,
+		[UriOptions(UriKind.Relative)] Uri? rel = null) =>
+		Console.Out.WriteLine($"paths:{file?.Name ?? "none"};{dir?.Name ?? "none"};{link?.ToString() ?? "none"};{rel?.ToString() ?? "none"}");
 
 	/// <summary>Positional arguments and an array flag.</summary>
 	/// <param name="g">Global options.</param>

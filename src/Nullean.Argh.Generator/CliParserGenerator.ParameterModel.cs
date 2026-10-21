@@ -143,7 +143,7 @@ public sealed partial class CliParserGenerator
 			var eCliMem = elemSk == CliScalarKind.Enum ? TryGetEnumCliNames(elementType) : default;
 			var elemEnumDocs = elemSk == CliScalarKind.Enum ? TryGetEnumDocs(elementType) : null;
 			if (reportAcc is not null)
-				ReportFilesystemPathAttributeIssues(attributeHost, CliScalarKind.Collection, symbolName, reportAcc,
+				ReportPathAndUriAttributeIssues(attributeHost, CliScalarKind.Collection, symbolName, reportAcc,
 					reportFallbackLocation, filesystemScalarKind: elemSk);
 			var sep = TryGetCollectionSeparatorFromAttribute(attributeHost);
 			var required = isSeparateType
@@ -265,7 +265,7 @@ public sealed partial class CliParserGenerator
 			ClassifyScalarUnified(p.Type, p, bs, isSeparateType: false,
 				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
-				ReportFilesystemPathAttributeIssues(p, sk, p.Name, reportAcc, reportFallbackLocation);
+				ReportPathAndUriAttributeIssues(p, sk, p.Name, reportAcc, reportFallbackLocation);
 			ReportRangeAttributeIssues(p, p.Name, reportAcc, reportFallbackLocation);
 
 			var required = ComputeRequired(p, bs);
@@ -515,7 +515,7 @@ public sealed partial class CliParserGenerator
 			ClassifyScalarUnified(cp.Type, cp, bs, isSeparateType: false,
 				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
-				ReportFilesystemPathAttributeIssues(cp, sk, cp.Name, reportAcc,
+				ReportPathAndUriAttributeIssues(cp, sk, cp.Name, reportAcc,
 					cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
 			ReportRangeAttributeIssues(cp, cp.Name, reportAcc, cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
 
@@ -628,7 +628,7 @@ public sealed partial class CliParserGenerator
 			ClassifyScalarUnified(prop.Type, prop, bs, isSeparateType: true,
 				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
-				ReportFilesystemPathAttributeIssues(prop, sk, prop.Name, reportAcc,
+				ReportPathAndUriAttributeIssues(prop, sk, prop.Name, reportAcc,
 					prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
 			ReportRangeAttributeIssues(prop, prop.Name, reportAcc, prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
 

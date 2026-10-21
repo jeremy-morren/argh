@@ -46,6 +46,7 @@ public class RootAndNamespaceHelpTests
 			  ls              A default command that takes positionals.
 			  numeric-ns      Numeric defaults and limits as namespace options.
 			  parsable-ns     IParsable types as namespace options.
+			  path-uri-ns     Files and URIs as namespace options.
 			  scalars-ns      Special scalar types as namespace options.
 			  storage         Commands under storage. Nested BlobCommands must be registered
 			                  explicitly via MapNamespace<BlobCommands>.
@@ -156,6 +157,9 @@ public class RootAndNamespaceHelpTests
 			                                                IParsable type wins.
 			  parsables                                     Types parsed through IParsable,
 			                                                without an [ArgumentParser].
+			  path-inputs                                   Files and directories as a
+			                                                positional, flags, collections
+			                                                and an environment variable.
 			  ping
 			  point-as-params-cmd
 			  point-cmd
@@ -192,6 +196,13 @@ public class RootAndNamespaceHelpTests
 			  unicode-docs                                  XML docs with non-ASCII text in
 			                                                the remarks and parameters.
 			  uri-cmd
+			  uri-dto                                       URIs of each kind on an
+			                                                [AsParameters] DTO.
+			  uri-inputs                                    URIs of each kind as a
+			                                                positional, flags, a collection
+			                                                and an environment variable.
+			  uri-variadic                                  Relative URIs as a variadic
+			                                                positional.
 			  validate-allowed                              Validate allowed values on
 			                                                --env.
 			  validate-dto                                  Validate DTO fields with range

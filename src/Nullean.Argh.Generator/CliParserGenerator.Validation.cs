@@ -339,13 +339,19 @@ public sealed partial class CliParserGenerator
 					break;
 				}
 				case "global::Nullean.Argh.UriSchemeAttribute":
-					if (attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
+					// Elsewhere AGH0024 reports it: the check reads Uri.Scheme.
+					if (scalarKind == CliScalarKind.Uri && attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
 					{
 						var schemes = attr.ConstructorArguments[0].Values
 							.Select(v => v.Value as string).Where(s => s is not null).Select(s => s!)
 							.ToImmutableArray();
 						if (!schemes.IsEmpty) builder.Add(new UriSchemeConstraint(schemes));
 					}
+					break;
+				case UriOptionsAttributeFq:
+					// Absolute, the default, needs no constraint. On a collection it applies to each element.
+					if (fsKind == CliScalarKind.Uri && ReadUriKind(attr) is var uriKind && uriKind != UriKindAbsolute)
+						builder.Add(new UriKindConstraint(uriKind == UriKindRelative ? "relative" : "relativeOrAbsolute"));
 					break;
 				case "global::Nullean.Argh.ExistingAttribute":
 					if (fsKind is CliScalarKind.FileInfo or CliScalarKind.DirectoryInfo)
@@ -492,6 +498,9 @@ public sealed partial class CliParserGenerator
 						break;
 					case UriSchemeConstraint us:
 						tokens.Add("[schemes: " + string.Join("|", us.Schemes) + "]");
+						break;
+					case UriKindConstraint uk:
+						tokens.Add(uk.Kind == "relative" ? "[relative]" : "[relative or absolute]");
 						break;
 					case FileExtensionsConstraint fe:
 						tokens.Add("[extensions: " + string.Join("|", fe.Extensions) + "]");
@@ -904,6 +913,12 @@ public sealed partial class CliParserGenerator
 	private sealed record EmailConstraint : ValidationConstraint;
 	private sealed record UrlConstraint : ValidationConstraint;
 	private sealed record UriSchemeConstraint(ImmutableArray<string> Schemes) : ValidationConstraint;
+	/// <summary>
+	/// A <c>Uri</c> that isn't absolute, from <c>[UriOptions]</c>: <paramref name="Kind"/> is <c>relative</c> or
+	/// <c>relativeOrAbsolute</c>. Parsing applies it, not a check after binding. Help shows it; <c>__schema</c> doesn't,
+	/// because cli-schema v1 has no such constraint kind.
+	/// </summary>
+	private sealed record UriKindConstraint(string Kind) : ValidationConstraint;
 	private sealed record FileExtensionsConstraint(ImmutableArray<string> Extensions) : ValidationConstraint;
 	private sealed record ExistingPathConstraint : ValidationConstraint;
 	private sealed record NonExistingPathConstraint : ValidationConstraint;

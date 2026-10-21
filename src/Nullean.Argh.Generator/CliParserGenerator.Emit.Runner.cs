@@ -1035,11 +1035,11 @@ public sealed partial class CliParserGenerator
 		if (p.ScalarKind == CliScalarKind.Enum && p.EnumTypeFq is not null && !p.EnumMemberNames.IsDefaultOrEmpty)
 			EmitEnumParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
 		else if (p.ScalarKind == CliScalarKind.FileInfo)
-			EmitFileSystemInfoParseFromString(w, p, rawExpr, targetVar, outVarKeyword, "global::System.IO.FileInfo", "nullableFileInfo", "path");
+			EmitPathOrUriParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure, "TryFile", BoolLiteral(p.ExpandUserProfileBeforeBind));
 		else if (p.ScalarKind == CliScalarKind.DirectoryInfo)
-			EmitFileSystemInfoParseFromString(w, p, rawExpr, targetVar, outVarKeyword, "global::System.IO.DirectoryInfo", "nullableDirectoryInfo", "dir");
+			EmitPathOrUriParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure, "TryDirectory", BoolLiteral(p.ExpandUserProfileBeforeBind));
 		else if (p.ScalarKind == CliScalarKind.Uri)
-			EmitUriParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
+			EmitPathOrUriParseFromString(w, p, rawExpr, targetVar, outVarKeyword, failure, "TryUri", UriKindExpression(p));
 		else if (p.ScalarKind == CliScalarKind.CustomParser && p.ParserTypeFq is not null && p.CustomValueTypeFq is not null)
 			EmitCustomParserFromString(w, p, rawExpr, targetVar, outVarKeyword, failure);
 		// A Nullable<T> goes through the same lifting as the built-in value types.
@@ -1109,60 +1109,49 @@ public sealed partial class CliParserGenerator
 		EmitAssign(w, outVarKeyword, targetVar, evVar);
 	}
 
-	/// <summary>A <c>FileInfo</c> or <c>DirectoryInfo</c>, after expanding <c>~</c> when the parameter asks for it.</summary>
-	private static void EmitFileSystemInfoParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword,
-		string infoTypeFq, string nullableTemp, string pathTemp)
+	private const string ArghPathBindingFq = "global::Nullean.Argh.Runtime.ArghPathBinding";
+
+	/// <summary>
+	/// A <c>FileInfo</c>, <c>DirectoryInfo</c> or <c>Uri</c> through <c>ArghPathBinding.<paramref name="tryMethod"/></c>, which
+	/// rejects an empty value and whatever the type's constructor rejects. <paramref name="option"/> is the method's third
+	/// argument: whether to expand <c>~</c>, or the <c>UriKind</c>.
+	/// </summary>
+	private static void EmitPathOrUriParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword,
+		ParseFailure failure, string tryMethod, string option)
 	{
-		string PathSource()
+		// Per-parameter names: two such parameters in one method must not both declare the same local.
+		var value = ParamTemp(p, "pathValue");
+		var error = ParamTemp(p, "pathError");
+		var fails = $"!{ArghPathBindingFq}.{tryMethod}(\"{ErrorArgName(p)}\", {rawExpr}!, {option}, out var {value}, out var {error})";
+		if (p.IsRequired)
 		{
-			if (!p.ExpandUserProfileBeforeBind)
-				return $"{rawExpr}!";
-			var expanded = ParamTemp(p, pathTemp);
-			w.Line($"var {expanded} = global::Nullean.Argh.ArghPath.ExpandUserProfilePath({rawExpr}!);");
-			return expanded;
-		}
-
-		// An optional one must stay null when the flag was not provided, not pass null into the constructor (ArgumentNullException).
-		if (!p.IsRequired)
-		{
-			var tmp = ParamTemp(p, nullableTemp);
-			w.Line($"{GetCSharpCliType(p)} {tmp} = null;");
-			using (w.If($"!string.IsNullOrWhiteSpace({rawExpr})"))
-			{
-				var optionalSource = PathSource();
-				w.Line($"{tmp} = new {infoTypeFq}({optionalSource});");
-			}
-
-			EmitAssign(w, outVarKeyword, targetVar, tmp);
+			EmitParseError(w, fails, $"Console.Error.WriteLine({error});", p, failure);
+			EmitAssign(w, outVarKeyword, targetVar, value + "!");
 			return;
 		}
 
-		var source = PathSource();
-		EmitAssign(w, outVarKeyword, targetVar, $"new {infoTypeFq}({source})");
+		// An optional one stays null when no value was given.
+		var tmp = ParamTemp(p, "pathOrNull");
+		w.Line($"{GetCSharpCliType(p)} {tmp} = null;");
+		using (w.If($"{rawExpr} is not null"))
+		{
+			EmitParseError(w, fails, $"Console.Error.WriteLine({error});", p, failure);
+			w.Line($"{tmp} = {value};");
+		}
+
+		EmitAssign(w, outVarKeyword, targetVar, tmp);
 	}
 
-	private static void EmitUriParseFromString(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, bool outVarKeyword, ParseFailure failure)
+	/// <summary>The <c>UriKind</c> a <c>Uri</c> must be: <c>Absolute</c> unless <c>[UriOptions]</c> says otherwise.</summary>
+	private static string UriKindExpression(ParameterModel p)
 	{
-		// Per-parameter name: two Uri parameters in one method must not both declare the same local.
-		var uriOut = ParamTemp(p, "uri");
-		var tryCreateFails = $"!global::System.Uri.TryCreate({rawExpr}, global::System.UriKind.RelativeOrAbsolute, out var {uriOut})";
-		// Optional Uri? must treat omitted flags as null (raw text is null), not run Uri.TryCreate on null/whitespace.
-		if (!p.IsRequired)
+		var kind = p.Validations.IsDefaultOrEmpty ? null : p.Validations.OfType<UriKindConstraint>().FirstOrDefault()?.Kind;
+		return "global::System.UriKind." + kind switch
 		{
-			var tmpUri = ParamTemp(p, "nullableUriParsed");
-			w.Line($"{GetCSharpCliType(p)} {tmpUri} = null;");
-			using (w.If($"!string.IsNullOrWhiteSpace({rawExpr})"))
-			{
-				EmitParseError(w, tryCreateFails, InvalidValueError("URI", p, rawExpr), p, failure);
-				w.Line($"{tmpUri} = {uriOut};");
-			}
-
-			EmitAssign(w, outVarKeyword, targetVar, tmpUri);
-			return;
-		}
-
-		EmitParseError(w, tryCreateFails, InvalidValueError("URI", p, rawExpr), p, failure);
-		EmitAssign(w, outVarKeyword, targetVar, uriOut);
+			"relative" => "Relative",
+			"relativeOrAbsolute" => "RelativeOrAbsolute",
+			_ => "Absolute"
+		};
 	}
 
 	/// <summary>
@@ -1497,11 +1486,11 @@ public sealed partial class CliParserGenerator
 
 
 	/// <summary>
-	/// Diagnoses misuse of the filesystem-path attribute family. <paramref name="filesystemScalarKind"/> lets
-	/// collection call sites pass the *element* kind (e.g. <c>FileInfo</c> for <c>List&lt;FileInfo&gt;</c>) so these
-	/// attributes are correctly recognized on collections of FileInfo/DirectoryInfo, not just scalars.
+	/// Diagnoses misuse of the filesystem-path attribute family and of the <c>Uri</c> attributes. <paramref name="filesystemScalarKind"/>
+	/// lets collection call sites pass the *element* kind (e.g. <c>FileInfo</c> for <c>List&lt;FileInfo&gt;</c>) so these
+	/// attributes are correctly recognized on collections of FileInfo/DirectoryInfo/Uri, not just scalars.
 	/// </summary>
-	private static void ReportFilesystemPathAttributeIssues(
+	private static void ReportPathAndUriAttributeIssues(
 		ISymbol host,
 		CliScalarKind scalarKind,
 		string declaredName,
@@ -1517,6 +1506,9 @@ public sealed partial class CliParserGenerator
 		var hasExpandProfile = false;
 		var hasRejectSymlinks = false;
 		var hasFileExtensions = false;
+		var hasUriScheme = false;
+		var hasUrl = false;
+		int? uriKind = null;
 
 		foreach (var attr in host.GetAttributes())
 		{
@@ -1537,6 +1529,15 @@ public sealed partial class CliParserGenerator
 					break;
 				case "global::System.ComponentModel.DataAnnotations.FileExtensionsAttribute":
 					hasFileExtensions = true;
+					break;
+				case "global::Nullean.Argh.UriSchemeAttribute":
+					hasUriScheme = true;
+					break;
+				case "global::System.ComponentModel.DataAnnotations.UrlAttribute":
+					hasUrl = true;
+					break;
+				case UriOptionsAttributeFq:
+					uriKind = ReadUriKind(attr);
 					break;
 			}
 		}
@@ -1567,7 +1568,29 @@ public sealed partial class CliParserGenerator
 		if (hasFileExtensions && !isFileInfo)
 			acc?.Add(FilesystemPathAttributeTypeMismatch, loc, declaredName,
 				"[FileExtensions] only applies to FileInfo, FileInfo?, or a collection of FileInfo parameters and properties.");
+
+		if (hasUriScheme && scalarKind != CliScalarKind.Uri)
+			acc?.Add(UriAttributeMisuse, loc, declaredName,
+				"[UriScheme] only applies to Uri and Uri? parameters and properties; it is ignored.");
+
+		if (uriKind is not null && fsKind != CliScalarKind.Uri)
+			acc?.Add(UriAttributeMisuse, loc, declaredName,
+				"[UriOptions] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.");
+		else if (uriKind == UriKindRelative && (hasUriScheme || hasUrl && scalarKind == CliScalarKind.Uri))
+			acc?.Add(UriAttributeMisuse, loc, declaredName,
+				"[UriOptions(UriKind.Relative)] with [UriScheme] or [Url] rejects every value: a relative URI has no scheme.");
 	}
+
+	private const string UriOptionsAttributeFq = "global::Nullean.Argh.UriOptionsAttribute";
+
+	// System.UriKind values, as an attribute argument carries them.
+	private const int UriKindRelativeOrAbsolute = 0;
+	private const int UriKindAbsolute = 1;
+	private const int UriKindRelative = 2;
+
+	/// <summary>The <c>UriKind</c> a <c>[UriOptions]</c> attribute sets.</summary>
+	private static int ReadUriKind(AttributeData attr) =>
+		attr.ConstructorArguments.Length == 1 && attr.ConstructorArguments[0].Value is int kind ? kind : UriKindAbsolute;
 
 	private static bool TryReadExpandUserProfileBeforeBind(ISymbol host, CliScalarKind scalarKind)
 	{

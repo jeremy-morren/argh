@@ -148,6 +148,8 @@ public class NetstandardFixtureTests
 			"oblivious", "--name", "n", "--note", "x", "--link", "https://l.example", "--file", "f.txt", "--tags", "a", "--tags", "b",
 		], "oblivious:n|x|l.example|f.txt|a,b\n"),
 		(["oblivious-dto", "--name", "n"], "oblivious-dto:n|preset\n"),
+		(["paths", "--file", "a.txt", "--dir", "out", "--link", "https://l.example", "--rel", "docs/a"],
+			"paths:a.txt;out;https://l.example/;docs/a\n"),
 	];
 
 	public static TheoryData<string, string[], string> Commands()
@@ -171,6 +173,11 @@ public class NetstandardFixtureTests
 		["echo"],
 		["oblivious"],
 		["oblivious-dto"],
+		["paths", "--file="],
+		["paths", "--dir="],
+		["paths", "--link="],
+		["paths", "--link", "docs/a"],
+		["paths", "--rel", "https://l.example"],
 	];
 
 	public static TheoryData<string, string[]> InvalidCommands()
@@ -234,6 +241,37 @@ public class NetstandardFixtureTests
 	[MemberData(nameof(InvalidCommands))]
 	public void Invalid_values_exit_2(string framework, string[] args) =>
 		Run(framework, args).ExitCode.Should().Be(2);
+
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void Empty_path_is_a_parse_error_on_every_framework(string framework)
+	{
+		var result = Run(framework, "paths", "--file=");
+		result.ExitCode.Should().Be(2);
+		CliHostRunner.StderrText(result).Should().StartWith("Error: invalid path for --file: ''. The path is empty.");
+	}
+
+	// .NET Framework rejects characters such as '|' in a path, which .NET Core accepts: the constructor's message is the error.
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void Path_the_runtime_rejects_is_a_parse_error(string framework)
+	{
+		var result = Run(framework, "paths", "--file", "a|b");
+		if (FrameworkOf(framework) == "net472")
+		{
+			result.ExitCode.Should().Be(2);
+			var err = CliHostRunner.StderrText(result);
+			err.Should().StartWith("Error: invalid path for --file: 'a|b'. Illegal characters in path.");
+			err.Should().Contain("--file <file>");
+			err.Should().Contain("Run '");
+			Run(framework, "paths", "--dir", "c:d:e").ExitCode.Should().Be(2);
+		}
+		else
+		{
+			result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+			Stdout(result).Should().Be("paths:a|b;none;none;none\n");
+		}
+	}
 
 	[SkippableTheory]
 	[MemberData(nameof(AllFrameworks))]

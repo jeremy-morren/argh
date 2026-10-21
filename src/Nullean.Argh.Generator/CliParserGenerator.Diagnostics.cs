@@ -238,10 +238,11 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
-	private static readonly DiagnosticDescriptor UriSchemeOnNonUriParam = new(
+	/// <summary>[UriScheme] or [UriOptions] on a type it doesn't apply to, or a combination no value can pass; the attribute is ignored.</summary>
+	private static readonly DiagnosticDescriptor UriAttributeMisuse = new(
 		"AGH0024",
-		"[UriScheme] applied to non-Uri parameter",
-		"'{0}' has [UriScheme] but its type is not Uri or Uri?; [UriScheme] only constrains Uri-typed parameters.",
+		"Uri attribute has no effect",
+		"'{0}': {1}",
 		"Argh",
 		DiagnosticSeverity.Warning,
 		isEnabledByDefault: true);
@@ -349,7 +350,7 @@ public sealed partial class CliParserGenerator
 		"AGH0021" => CommandMustInjectOptions,
 		"AGH0022" => NamespaceSegmentSanitizationCollision,
 		"AGH0023" => UseCliDescriptionConflictsWithMapRoot,
-		"AGH0024" => UriSchemeOnNonUriParam,
+		"AGH0024" => UriAttributeMisuse,
 		"AGH0025" => TimeSpanRangeOnNonTimeSpanParam,
 		"AGH0026" => BoolFlagCollidesWithNullableNegation,
 		"AGH0027" => DuplicateCommandName,
