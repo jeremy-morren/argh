@@ -20,6 +20,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 82 | [AGH0003 fires when injected options precede an `[Argument]` parameter](#82-agh0003-fires-when-injected-options-precede-an-argument-parameter) | Wrong diagnostic | `bug82.cs` (build break, `#if BUG82`) |
 | 84 | [Moved to feature F1](#84-moved-to-feature-f1) | See Feature requests |  |
 | 85 | [The incremental generator's cache never hits, so every edit re-runs the whole emit](#85-the-incremental-generators-cache-never-hits-so-every-edit-re-runs-the-whole-emit) | Performance | `bug85.cs` (comment only) |
+| 93 | [An optional non-nullable `string` with a string validation attribute gives CS8601/CS8604 nullable warnings in generated code](#93-an-optional-non-nullable-string-with-a-string-validation-attribute-gives-cs8601cs8604-nullable-warnings-in-generated-code) | Build warning | `bug93.cs` (warnings, `#if BUG93`) |
 | F1 | [Support the common collection shapes, and lift the `IReadOnlySet<T>` value-type restriction](#f1-support-the-common-collection-shapes) | Feature request | `feat01.cs` (build break, `#if FEAT01`) |
 | F2 | [Dictionary parameters](#f2-dictionary-parameters) | Feature request | `feat02.cs` (comment only) |
 
@@ -185,6 +186,53 @@ With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` aft
 Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
+
+### 93. An optional non-nullable `string` with a string validation attribute gives CS8601/CS8604 nullable warnings in generated code
+
+```csharp
+public sealed class N : G                     // namespace options; a member of the global options type G warns too
+{
+    [AllowedValues("fast", "slow")]           // also [StringLength], [RegularExpression], [DeniedValues], [EmailAddress]
+    public string Mode { get; set; } = "fast";
+}
+
+static void Run([AllowedValues("fast", "slow")] string mode = "fast") { }
+```
+
+```
+dotnet build bugs -c Release -p:DefineConstants=BUG93
+ArghGenerated.g.cs: warning CS8601: Possible null reference assignment.     (x2 per member)
+ArghGenerated.g.cs: warning CS8604: Possible null reference argument for parameter 'mode' in 'void Bug93.Run(string mode = "fast")'.
+```
+
+The default build of `bugs/` has no warnings. Probe builds of each shape:
+
+| Shape | Warnings |
+|---|---|
+| Namespace options member, `string` with a default, `[AllowedValues]` | 2 × CS8601 |
+| The same with `[StringLength]`, `[RegularExpression]`, `[DeniedValues]` or `[EmailAddress]` | 2 × CS8601 each |
+| Global options member, `string` with a default, `[AllowedValues]` | 4 × CS8601 (the global type and the namespace type that inherits it) |
+| Method parameter, `string mode = "fast"`, `[AllowedValues]` | 1 × CS8604 |
+| The same member with no attribute | none |
+| `string?` member with `[AllowedValues]` | none |
+
+The `[AllowedValues]`, `[StringLength]`, method-parameter and no-warning rows give the same result on `main` (`45954b6`) as on `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)), and the options rows also before #90's options-validation change, so none of the open PRs introduced it. The options-member warnings are in `TryParseDto_*` and `TryParseDtoExact_*`, which the `[AsParameters]` binding extensions in `ArghTypeBindingExtensions.g.cs` call:
+
+```csharp
+string? __p_Mode = "fast";
+...
+if (__p_ModeText is null) __p_Mode = "fast"; else { __p_Mode = __p_ModeText; }
+if (__p_Mode != null && (!string.Equals(__p_Mode, "fast", ...) && !string.Equals(__p_Mode, "slow", ...)))
+{ Console.Error.WriteLine($"Error: --mode: value must be one of: fast, slow."); return false; }
+var __dto = new global::Bugs.Bug93NsOpts();
+__dto.Mode = __p_Mode;                         // CS8601
+```
+
+For the method parameter, `global::Bugs.Bug93.Run(__p_mode);` follows the same check (CS8604). Validation itself works (`bug93-param --mode bogus` exits 2 with the allowed-values error). Found while removing bug 89, whose scratch file had this shape; reproduced in `bugs/bug93.cs` (behind `#if BUG93`, so the default build stays warning-free).
+
+Cause: the local is declared `string?`, and its flow state is not-null until the constraint check tests it with `x != null &&`. After that test the compiler treats it as maybe-null, so the assignment to the non-nullable member or argument warns. The emitters add the guard when the value is optional (`var isNullable = !p.IsRequired;`), not when its declared type is nullable: `[StringLength]` ([`Emit.Parsing.cs:943-948`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L943-L948)), `[RegularExpression]` ([`:978-981`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L978-L981)), `[AllowedValues]` ([`:995-1008`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L995-L1008)), `[DeniedValues]` ([`:1030-1043`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L1030-L1043)) and `[EmailAddress]` ([`:1065-1069`](https://github.com/nullean/argh/blob/45954b6e3dd1cadd2f39bb932536e2ab0ee85c2b/src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs#L1065-L1069)). The comment at `:944-945` already avoids the guard for required strings, to prevent CS8604; an optional non-nullable `string` with a default needs the same treatment. The URL, URI-scheme, filesystem and `[FileExtensions]` emitters (`:1083-1185`) use the same `isNullable` pattern; not probed.
+
+**Fix:** emit the null guard only when the declared type is nullable (`string?`), and use the non-null access (`x!`) otherwise, as the required-string path already does.
 
 ### Checked and refuted
 
