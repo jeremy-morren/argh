@@ -70,6 +70,8 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 68 | A non-constant initializer on an options property doesn't make it optional | `bug68.cs` |
 | 70 | A positional `bool` parameter doesn't compile | `bug70.cs` (build break, `#if BUG70`) |
 | 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | `bug82.cs` (build break, `#if BUG82`) |
+| 84 | `HashSet<T>` parameters aren't recognised as collections and don't compile | `bug84.cs` (build break, `#if BUG84`) |
+| 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | `bug85.cs` (comment only) |
 
 ### Issue C: Runtime, dispatch and hosting
 
@@ -227,6 +229,8 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 81 | Combined short flags (`-vn foo`, `-nfoo`) are rejected, and the limitation isn't documented | Parsing | Minor |
 | 82 | AGH0003 fires when injected options precede an `[Argument]` parameter | Generator | Wrong diagnostic |
 | 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | Parsing | Minor |
+| 84 | `HashSet<T>` parameters aren't recognised as collections and don't compile | Generator | Build break |
+| 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | Generator | Performance |
 
 ## Parsing and binding
 
@@ -1004,12 +1008,31 @@ Cause: `ArghValidation.cs:60-73` returns after the first type in the hierarchy t
 ### 82. AGH0003 fires when injected options precede an `[Argument]` parameter
 
 `Handler(Globals g, [Argument] string who)` fails with `AGH0003: Parameters marked with [Argument] must start at position 0 and be consecutive`, while `([Argument] string who, Globals g)` builds. The injected options are expanded as flags at their parameter position before the check in `Validation.cs:183-196` runs (`CommandModel.cs:70, 105`).
+Session `argh-a5` hit the same check from the other side: `[Argument]` parameters must come before the injected options parameter or AGH0003 fires.
 
 ### 83. Command names are case-insensitive but flags aren't, and the unknown `-V` message depends on position
 
 `HELLO` routes to `hello`, but `--NAME` is an unknown option. `-V` before the command gives `unknown short option '-V'`; after it, `missing value for short flag '-V'`, which is misleading.
 
 **Expected (clap/cobra):** both are case-sensitive for commands and flags by default. Pick one rule and one message.
+
+### 84. `HashSet<T>` parameters aren't recognised as collections and don't compile
+
+```csharp
+static void Run(HashSet<string> tags) { }
+```
+
+Generated code fails with `CS1503: Argument 1: cannot convert from 'string' to 'System.Collections.Generic.HashSet<string>'`, with no Argh diagnostic. The generator classifies `IEnumerable<T>`, `IReadOnlyList<T>`, `IReadOnlySet<T>`, `List<T>` and arrays as collections (`src/Nullean.Argh.Generator/CliParserGenerator.ParameterModel.cs:186` and around); `HashSet<T>` falls through to the scalar path and then to `string` (bug 12). Reported by session `argh-a5`; reproduced in `bugs/bug84.cs`.
+
+**Expected (clap/cobra):** clap binds any `FromIterator` collection (`Vec`, `HashSet`, `BTreeSet`) for a multi-value argument. Support `HashSet<T>` and `ISet<T>`, or report a diagnostic for unsupported collection types (same answer as bug 12).
+
+### 85. The incremental generator's cache never hits, so every edit re-runs the whole emit
+
+With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` after an unrelated edit, such as adding a comment, so the collected invocations and the whole main emit re-run on every keystroke in an IDE.
+
+Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
+
+**Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
 
 ### By design, after checking
 
