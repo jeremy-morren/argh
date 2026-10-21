@@ -35,7 +35,7 @@ Options:
 :::{dropdown} Full attribute reference table
 | Attribute | Applies to | Validates | Help token |
 |-----------|------------|-----------|-----------|
-| `[Range(min, max)]` | numeric | value within bounds | `[range: min-max]` |
+| `[Range(min, max)]` | numeric | value within bounds | `[range: min-max]`, or `[min: n]` / `[max: n]` with one side unbounded |
 | `[StringLength(max)]` | `string` | string length | `[max-length: n]` |
 | `[StringLength(max, MinimumLength = min)]` | `string` | string length | `[length: min-max]` |
 | `[MinLength(n)]` / `[MaxLength(n)]` | `string` | string length | `[min-length: n]` / `[max-length: n]` |
@@ -51,6 +51,24 @@ Options:
 | `[FileExtensions(Extensions="json,yaml")]` | `FileInfo` (incl. collections) | file extension | `[extensions: json\|yaml]` |
 | `[UriScheme("https")]` | `Uri` | URI scheme | `[schemes: https]` |
 :::
+
+## Options members
+
+The same attributes work on the members of global and namespace options types. Argh checks the value a command receives, whether it was given before the command, after it or through an environment variable, and reports a failure with the same error and exit code 2 as a method parameter.
+
+## Unbounded `[Range]` limits
+
+`RangeAttribute` has no "no limit" form, so a bound at the parameter type's own `MinValue` or `MaxValue` means unbounded. The bound is compared by value, so `float.MaxValue`, `Single.MaxValue` and `double.MaxValue` on a `float` all count, and so do the infinities. Help, errors and `__schema` then show only the side that limits the value:
+
+```csharp
+public static void List(
+    [Range(0, int.MaxValue)]          int page,     // [min: 0]  "value must be at least 0."
+    [Range(double.MinValue, 100)]     double score, // [max: 100] "value must be at most 100."
+    [Range(int.MinValue, int.MaxValue)] int any)    // no check, no hint
+{ … }
+```
+
+`RangeAttribute` has no `decimal` constructor either. On a `decimal` parameter, the generator takes each bound's source text and checks it as a `decimal`, so `[Range(0.1, 0.3)]` accepts exactly `0.3` and rejects `0.30000000000000004`. `[Range(typeof(decimal), "0.1", "0.3")]` works the same way. The generator parses the strings at build time with `NumberStyles.Float` and the invariant culture, the defaults for command-line input, so `"1e3"` and `"1.0"` are valid `int` bounds. It reports `AGH0038` when a string isn't a number of that type (such as `"1.5"` or `"1,000"` for an `int`) or the type isn't numeric.
 
 ## Collection validation
 

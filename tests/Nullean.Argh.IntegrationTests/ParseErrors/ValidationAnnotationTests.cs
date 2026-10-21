@@ -283,7 +283,7 @@ public class ValidationAnnotationTests
 		var r = CliHostRunner.Run(NoColor, "validate-non-nullable-range", "--page-per", "-1");
 		r.ExitCode.Should().Be(2);
 		ConsoleOutput.Normalize(CliHostRunner.StderrText(r))
-			.Should().Contain("Error: --page-per: value must be between 0 and");
+			.Should().Contain("Error: --page-per: value must be at least 0.");
 	}
 
 	// ── [AsParameters] + [Range] ─────────────────────────────────────────────

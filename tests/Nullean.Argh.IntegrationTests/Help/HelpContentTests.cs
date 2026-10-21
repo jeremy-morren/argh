@@ -30,6 +30,9 @@ public class HelpContentTests
 			  --severity <enum>    Enum default for global-flag parsing regression. [default: information]
 			                       One of: <trace|information|warning>
 			  -m, --mode <string>  Test-only global mode label (non-bool global short-option coverage). [default: ]
+			  --quota <value>      Validated global option: only a lower bound. [env: ARGH_TEST_QUOTA] [min: 1]
+			  --zone <string>      Validated global option: one of a fixed list. [allowed: eu|us]
+			  --weight <value>     Validated global option: decimal bounds parsed from text. [range: 0.5-2.5]
 
 			Options:
 			  --name <string>      [required] The name to greet.
@@ -62,6 +65,9 @@ public class HelpContentTests
 			  --severity <enum>    Enum default for global-flag parsing regression. [default: information]
 			                       One of: <trace|information|warning>
 			  -m, --mode <string>  Test-only global mode label (non-bool global short-option coverage). [default: ]
+			  --quota <value>      Validated global option: only a lower bound. [env: ARGH_TEST_QUOTA] [min: 1]
+			  --zone <string>      Validated global option: one of a fixed list. [allowed: eu|us]
+			  --weight <value>     Validated global option: decimal bounds parsed from text. [range: 0.5-2.5]
 
 			Options:
 			  -l, --line <string>  [required] Text line to echo.

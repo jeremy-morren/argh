@@ -415,6 +415,7 @@ public sealed partial class CliParserGenerator
 
 		// Reconstruct options instances merging command-level flags with pre-parsed statics.
 		EmitOptionsReconstructLocals(sb, injectedOptions, environmentPrefix);
+		EmitOptionsMemberValidation(sb, cmd, injectedOptions, failureExit, entryAssemblyName, flagHelpStdErrMethodName);
 		EmitRegisteredValidation(sb, cmd, injectedOptions, failureExit, flagHelpStdErrMethodName, parseFailureRunHint);
 
 		if (cmd.RequiresInstance)

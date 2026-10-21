@@ -109,6 +109,15 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	/// <summary>A <c>[Range]</c> whose bounds the generator can't turn into a check, such as unparsable <c>(Type, string, string)</c> text.</summary>
+	private static readonly DiagnosticDescriptor InvalidRangeBounds = new(
+		"AGH0038",
+		"[Range] bounds can't be checked",
+		"[Range] on '{0}' can't be checked: {1}",
+		"Argh",
+		DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
+
 	private static readonly DiagnosticDescriptor AsParametersEmptyType = new(
 		"AGH0009",
 		"AsParameters type has no bindable members",
@@ -358,6 +367,7 @@ public sealed partial class CliParserGenerator
 		"AGH0032" => FilesystemPathAttributeTypeMismatch,
 		"AGH0033" => DuplicateShortOption,
 		"AGH0035" => EnvOnNonNullableBool,
+		"AGH0038" => InvalidRangeBounds,
 		_ => throw new ArgumentException($"Unknown diagnostic id: {id}")
 	};
 

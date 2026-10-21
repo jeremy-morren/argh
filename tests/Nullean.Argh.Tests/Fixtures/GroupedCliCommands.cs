@@ -33,6 +33,19 @@ internal class TestGlobalCliOptions
 	[Env("TEST_API_URL")]
 	[Hidden]
 	public string? ApiUrl { get; set; }
+
+	/// <summary>Validated global option: only a lower bound.</summary>
+	[Env("ARGH_TEST_QUOTA")]
+	[System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)]
+	public int? Quota { get; set; }
+
+	/// <summary>Validated global option: one of a fixed list.</summary>
+	[System.ComponentModel.DataAnnotations.AllowedValues("eu", "us")]
+	public string? Zone { get; set; }
+
+	/// <summary>Validated global option: decimal bounds parsed from text.</summary>
+	[System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0.5", "2.5")]
+	public decimal? Weight { get; set; }
 }
 
 /// <summary>Storage command namespace options; must inherit global options type.</summary>

@@ -380,8 +380,8 @@ public sealed partial class CliParserGenerator
 			return true;
 		try
 		{
-			return Convert.ToDecimal(fieldConst, CultureInfo.InvariantCulture) ==
-			       Convert.ToDecimal(literalConst, CultureInfo.InvariantCulture);
+			return Convert.ToDecimal(fieldConst, CultureInfo.InvariantCulture).Equals(
+			       Convert.ToDecimal(literalConst, CultureInfo.InvariantCulture));
 		}
 		catch
 		{
@@ -389,8 +389,14 @@ public sealed partial class CliParserGenerator
 		}
 	}
 
-	private static string? TryFormatInitializerOperation(IOperation? op, INamedTypeSymbol? enumTypeHint = null)
+	private static string? TryFormatInitializerOperation(IOperation? op, INamedTypeSymbol? enumTypeHint = null, ITypeSymbol? targetType = null)
 	{
+		// A numeric initializer is a constant the compiler has already converted to the member's type (`= 5` on a long is
+		// 5L, `= -1.5` and `= double.NaN` fold too), so format that value with its exact type.
+		if (enumTypeHint is null && op?.ConstantValue is { HasValue: true, Value: { } folded } && NumericKeyword(folded) is not null
+		    && FormatNumericLiteral(ConvertNumericExactly(folded, UnwrapNullable(targetType)) ?? folded) is { } numeric)
+			return numeric;
+
 		while (op is IConversionOperation conv)
 			op = conv.Operand;
 		while (op is IParenthesizedOperation paren)
@@ -425,8 +431,7 @@ public sealed partial class CliParserGenerator
 					string s => SymbolDisplay.FormatPrimitive(s, quoteStrings: true, useHexadecimalNumbers: false),
 					char ch => SymbolDisplay.FormatPrimitive(ch, quoteStrings: true, useHexadecimalNumbers: false),
 					bool b => b ? "true" : "false",
-					IFormattable => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "default",
-					_ => "default"
+					_ => FormatNumericLiteral(v) ?? "default"
 				};
 			}
 			default:
@@ -467,7 +472,7 @@ public sealed partial class CliParserGenerator
 		if (model is null)
 			return null;
 		var hint = enumTypeHint is INamedTypeSymbol namedHint && namedHint.TypeKind == TypeKind.Enum ? namedHint : null;
-		var fromOp = TryFormatInitializerOperation(model.GetOperation(expr), hint);
+		var fromOp = TryFormatInitializerOperation(model.GetOperation(expr), hint, enumTypeHint);
 		if (fromOp is not null)
 			return fromOp;
 

@@ -906,7 +906,7 @@ public sealed partial class CliParserGenerator
 
 		if (p.Special == BoolSpecialKind.None)
 		{
-			if (p.DefaultValueLiteral is not null)
+			if (HasShownDefault(p))
 				parts.Add($"[default: {FormatDefaultForHelpText(p)}]");
 		}
 
@@ -917,6 +917,13 @@ public sealed partial class CliParserGenerator
 		return string.Join(" ", parts.Where(s => !string.IsNullOrWhiteSpace(s)));
 	}
 
+
+	/// <summary>
+	/// Whether help and <c>__schema</c> show a default: a <c>null</c> or <c>default</c> default (such as
+	/// <c>int? n = null</c> or <c>TimeSpan t = default</c>) means "not given", so neither shows it.
+	/// </summary>
+	private static bool HasShownDefault(ParameterModel p) =>
+		p.DefaultValueLiteral?.Trim() is { } literal && literal is not ("default" or "null");
 
 	private const string RuntimeDefaultMarkerStart = "<<argh-default:";
 	private const string RuntimeDefaultMarkerEnd = ">>";
@@ -930,7 +937,8 @@ public sealed partial class CliParserGenerator
 	{
 		var type = p.TypeName.TrimEnd('?');
 		var literal = p.DefaultValueLiteral?.Trim();
-		if (literal is not null and not "default" and not "null" && type is "int" or "long" or "float" or "double" or "decimal")
+		if (literal is not null and not "default" and not "null"
+		    && type is "int" or "long" or "float" or "double" or "decimal" or "short" or "ushort" or "uint" or "ulong" or "byte" or "sbyte")
 			return RuntimeCultureText(type, literal);
 		return FormatDefaultForHelp(p);
 	}
@@ -962,6 +970,34 @@ public sealed partial class CliParserGenerator
 				"<<argh-default:([a-z]+):([^>]*)>>",
 				m => "{((" + m.Groups[1].Value + ")(" + m.Groups[2].Value + ")).ToString(" + ParseCulture + ")}");
 
+	/// <summary>The character a C# char literal (<c>'x'</c>, <c>'\''</c>, <c>'\u0001'</c>) stands for, or <see langword="null"/>.</summary>
+	private static string? CharLiteralText(string literal)
+	{
+		if (literal.Length < 3 || literal[0] != '\'' || literal[literal.Length - 1] != '\'')
+			return null;
+		var inner = literal.Substring(1, literal.Length - 2);
+		if (inner.Length == 1)
+			return inner;
+		if (inner.Length == 6 && inner.StartsWith("\\u", StringComparison.Ordinal)
+		    && int.TryParse(inner.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+			return ((char)code).ToString();
+		return inner switch
+		{
+			"\\'" => "'",
+			"\\\"" => "\"",
+			"\\\\" => "\\",
+			"\\0" => "\0",
+			"\\a" => "\a",
+			"\\b" => "\b",
+			"\\f" => "\f",
+			"\\n" => "\n",
+			"\\r" => "\r",
+			"\\t" => "\t",
+			"\\v" => "\v",
+			_ => null,
+		};
+	}
+
 	private static string FormatDefaultForHelp(ParameterModel p)
 	{
 		if (p.DefaultValueLiteral is null)
@@ -976,12 +1012,20 @@ public sealed partial class CliParserGenerator
 				if (string.Equals(lit, member, StringComparison.Ordinal) || lit.EndsWith("." + member, StringComparison.Ordinal))
 					return ResolveEnumMemberCliName(p.EnumMemberCliNames, i, member);
 			}
+
+			// A value with no member of its own (a [Flags] combination) is a cast, (global::Level)(7): show the number.
+			var castPrefix = "(" + p.EnumTypeFq + ")(";
+			if (p.EnumTypeFq is not null && lit.StartsWith(castPrefix, StringComparison.Ordinal) && lit.EndsWith(")", StringComparison.Ordinal))
+				return NumericLiteralText(lit.Substring(castPrefix.Length, lit.Length - castPrefix.Length - 1));
 		}
 
+		var defaultLiteral = p.DefaultValueLiteral.Trim();
 		return p.TypeName switch
 		{
-			"string" => p.DefaultValueLiteral.Trim('"'),
-			_ => p.DefaultValueLiteral
+			"string" => defaultLiteral.Trim('"'),
+			"char" or "char?" when CharLiteralText(defaultLiteral) is { } ch => ch,
+			// Numeric literals carry a suffix or cast (1.5d, (short)5); help and __schema show the plain invariant number.
+			_ => NumericLiteralText(defaultLiteral)
 		};
 	}
 

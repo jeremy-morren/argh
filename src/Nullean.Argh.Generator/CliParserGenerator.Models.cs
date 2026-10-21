@@ -164,11 +164,13 @@ public sealed partial class CliParserGenerator
 	}
 
 	/// <summary>A <c>GlobalOptions&lt;T&gt;()</c> invocation — only valid at root scope.</summary>
-	private sealed record AIUseGlobalOptions(string FilePath, int SpanStart, OptionsTypeModel Model)
+	/// <param name="EmbeddedDiagnostics">Diagnostics on the options type's members (e.g. AGH0038 for unusable <c>[Range]</c> bounds).</param>
+	private sealed record AIUseGlobalOptions(string FilePath, int SpanStart, OptionsTypeModel Model, ImmutableArray<PendingDiagnostic> EmbeddedDiagnostics)
 		: AnalyzedInvocation(FilePath, SpanStart);
 
 	/// <summary>A <c>CommandNamespaceOptions&lt;T&gt;()</c> invocation — only valid inside a namespace.</summary>
-	private sealed record AIUseNamespaceOptions(string FilePath, int SpanStart, OptionsTypeModel Model)
+	/// <param name="EmbeddedDiagnostics">Diagnostics on the options type's members (e.g. AGH0038 for unusable <c>[Range]</c> bounds).</param>
+	private sealed record AIUseNamespaceOptions(string FilePath, int SpanStart, OptionsTypeModel Model, ImmutableArray<PendingDiagnostic> EmbeddedDiagnostics)
 		: AnalyzedInvocation(FilePath, SpanStart);
 
 	/// <summary>A <c>UseMiddleware&lt;T&gt;()</c> invocation — only valid at root scope.</summary>

@@ -485,12 +485,10 @@ public sealed partial class CliParserGenerator
 
 	private static string? GetSchemaDefaultValue(ParameterModel p)
 	{
-		if (p.DefaultValueLiteral is null)
+		if (!HasShownDefault(p))
 			return null;
 		var formatted = FormatDefaultForHelp(p);
-		if (string.IsNullOrEmpty(formatted) || formatted == "null")
-			return null;
-		return formatted;
+		return string.IsNullOrEmpty(formatted) ? null : formatted;
 	}
 
 	private static string MapToJsonSchemaType(CliScalarKind sk, string typeName)
@@ -528,7 +526,10 @@ public sealed partial class CliParserGenerator
 				switch (v)
 				{
 					case RangeConstraint r:
-						parts.Add($"new CliConstraintSchema(\"range\", Min: \"{Escape(r.MinLiteral)}\", Max: \"{Escape(r.MaxLiteral)}\")");
+						// An unbounded side is left out, which cli-schema v1 allows.
+						var rangeMin = r.SchemaMin is { } sMin ? $"\"{Escape(sMin)}\"" : "null";
+						var rangeMax = r.SchemaMax is { } sMax ? $"\"{Escape(sMax)}\"" : "null";
+						parts.Add($"new CliConstraintSchema(\"range\", Min: {rangeMin}, Max: {rangeMax})");
 						break;
 					case TimeSpanRangeConstraint ts:
 						parts.Add($"new CliConstraintSchema(\"timeSpanRange\", Min: \"{Escape(ts.MinLiteral)}\", Max: \"{Escape(ts.MaxLiteral)}\")");

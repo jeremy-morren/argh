@@ -278,9 +278,8 @@ public sealed partial class CliParserGenerator
 			switch (fqn)
 			{
 				case "global::System.ComponentModel.DataAnnotations.RangeAttribute":
-					if (attr.ConstructorArguments.Length >= 2)
-						builder.Add(new RangeConstraint(attr.ConstructorArguments[0].ToCSharpString(), attr.ConstructorArguments[1].ToCSharpString(),
-							CultureFormattedType(attr.ConstructorArguments[0]) ?? ""));
+					if (TryBuildRangeConstraint(attr, attributeHost) is { } range)
+						builder.Add(range);
 					break;
 				case "global::Nullean.Argh.TimeSpanRangeAttribute":
 					if (primitiveTypeName is "TimeSpan" or "TimeSpan?" &&
@@ -338,10 +337,10 @@ public sealed partial class CliParserGenerator
 					{
 						var args = attr.ConstructorArguments[0].Values;
 						if (!args.IsEmpty)
-							builder.Add(new AllowedValuesConstraint(
-								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
-								args.Select(ConstantDisplayValue).ToImmutableArray(),
-								args.Select(v => CultureFormattedType(v) ?? "").ToImmutableArray()));
+						{
+							var values = ReadMembershipValues(args, attributeHost, isCollection);
+							builder.Add(new AllowedValuesConstraint(values.Literals, values.Display, values.CultureTypes, values.EqualsCast));
+						}
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.DeniedValuesAttribute":
@@ -349,10 +348,10 @@ public sealed partial class CliParserGenerator
 					{
 						var args = attr.ConstructorArguments[0].Values;
 						if (!args.IsEmpty)
-							builder.Add(new DeniedValuesConstraint(
-								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
-								args.Select(ConstantDisplayValue).ToImmutableArray(),
-								args.Select(v => CultureFormattedType(v) ?? "").ToImmutableArray()));
+						{
+							var values = ReadMembershipValues(args, attributeHost, isCollection);
+							builder.Add(new DeniedValuesConstraint(values.Literals, values.Display, values.CultureTypes, values.EqualsCast));
+						}
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.EmailAddressAttribute":
@@ -486,8 +485,14 @@ public sealed partial class CliParserGenerator
 			{
 				switch (v)
 				{
-					case RangeConstraint r:
-						tokens.Add($"[range: {RangeBoundText(r, r.MinLiteral)}-{RangeBoundText(r, r.MaxLiteral)}]");
+					case RangeConstraint { MinLiteral: { } min, MaxLiteral: { } max } r:
+						tokens.Add($"[range: {RangeBoundText(r, min)}-{RangeBoundText(r, max)}]");
+						break;
+					case RangeConstraint { MinLiteral: { } min } r:
+						tokens.Add($"[min: {RangeBoundText(r, min)}]");
+						break;
+					case RangeConstraint { MaxLiteral: { } max } r:
+						tokens.Add($"[max: {RangeBoundText(r, max)}]");
 						break;
 					case CollectionCountConstraint cc when cc.Min.HasValue && cc.Max.HasValue:
 						tokens.Add($"[count: {cc.Min}-{cc.Max}]");
@@ -552,8 +557,292 @@ public sealed partial class CliParserGenerator
 
 	private abstract record ValidationConstraint;
 	private sealed record CollectionCountConstraint(int? Min, int? Max) : ValidationConstraint;
+	/// <param name="MinLiteral">The lower bound as a C# literal of <paramref name="CultureType"/>; <see langword="null"/> when unbounded.</param>
+	/// <param name="MaxLiteral">The upper bound as a C# literal of <paramref name="CultureType"/>; <see langword="null"/> when unbounded.</param>
 	/// <param name="CultureType">The C# keyword of a numeric bound, which help and errors format with the parse culture; empty otherwise.</param>
-	private sealed record RangeConstraint(string MinLiteral, string MaxLiteral, string CultureType) : ValidationConstraint;
+	/// <param name="CompareCast">
+	/// The parameter type each bound is cast to before comparing, for numeric types C# can't compare with an <c>int</c> or
+	/// <c>double</c> literal (such as <c>Half</c>); <see langword="null"/> otherwise.
+	/// </param>
+	/// <param name="SchemaMin">The lower bound as invariant text for <c>__schema</c>; <see langword="null"/> when unbounded.</param>
+	/// <param name="SchemaMax">The upper bound as invariant text for <c>__schema</c>; <see langword="null"/> when unbounded.</param>
+	private sealed record RangeConstraint(
+		string? MinLiteral, string? MaxLiteral, string CultureType, string? CompareCast, string? SchemaMin, string? SchemaMax) : ValidationConstraint;
+
+	/// <summary>
+	/// One bound of a <c>[Range]</c>: its numeric value, the typed C# literal emitted for it and, for bounds parsed from
+	/// text, the value in its own type, which the unbounded test compares exactly where doubles would round.
+	/// </summary>
+	private readonly record struct RangeBound(double Value, string Literal, object? Exact = null);
+
+	/// <summary>
+	/// Reads a <c>[Range]</c> attribute. A bound at or beyond the parameter type's own <c>MinValue</c>/<c>MaxValue</c> (or an
+	/// infinity, or <c>NaN</c>) is unbounded, compared by value, so <c>float.MaxValue</c> and <c>Single.MaxValue</c>, or
+	/// <c>long.MaxValue</c> passed through the <c>double</c> constructor, all mean "no limit". Returns <see langword="null"/>
+	/// when neither bound limits the value, or the bounds can't be read; <paramref name="report"/> then gets the reason for
+	/// bounds that are wrong rather than absent, with the attribute argument at fault.
+	/// </summary>
+	private static RangeConstraint? TryBuildRangeConstraint(AttributeData attr, ISymbol host, Action<string, SyntaxNode?>? report = null)
+	{
+		var args = attr.ConstructorArguments;
+		var valueType = UnwrapNullable(MemberType(host));
+		var limits = valueType is null ? null : NumericLimits(valueType);
+		var isDecimal = valueType?.SpecialType == SpecialType.System_Decimal;
+		var compareCast = valueType is not null && limits is not null && !IsCSharpNumericKeywordType(valueType)
+			? valueType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+			: null;
+		var syntaxArgs = (attr.ApplicationSyntaxReference?.GetSyntax() as AttributeSyntax)?.ArgumentList?.Arguments
+			.Where(static a => a.NameEquals is null && a.NameColon is null).ToList();
+		ExpressionSyntax? ArgSyntax(int i) => syntaxArgs is { } list && list.Count == args.Length ? list[i].Expression : null;
+
+		RangeBound? min, max;
+		if (args.Length == 3 && args[0].Kind == TypedConstantKind.Type)
+		{
+			// [Range(typeof(T), "min", "max")]: the bounds are text in T, parsed now with the invariant culture rather than
+			// at runtime with the current one.
+			var operandType = args[0].Value as ITypeSymbol;
+			if (operandType is null || ClrNumericType(operandType) is null)
+			{
+				report?.Invoke($"typeof({operandType?.ToDisplayString() ?? "?"}) isn't a numeric type; only the C# numeric types (int, long, double, decimal, ...) are checked.", ArgSyntax(0));
+				return null;
+			}
+			if (limits is null)
+			{
+				report?.Invoke($"[Range(typeof({operandType.ToDisplayString()}), ...)] needs a numeric parameter, not {valueType?.ToDisplayString() ?? "?"}.", ArgSyntax(0));
+				return null;
+			}
+
+			// A decimal parameter keeps decimal bounds; decimal bounds on a double, float or Half become doubles, which those compare with.
+			var boundType = isDecimal || operandType.SpecialType != SpecialType.System_Decimal || IsIntegralKeywordType(valueType!)
+				? (isDecimal ? valueType! : operandType)
+				: null;
+			min = BoundFromString(args[1].Value as string, operandType, boundType, ArgSyntax(1), report);
+			max = BoundFromString(args[2].Value as string, operandType, boundType, ArgSyntax(2), report);
+			if (min is null || max is null)
+				return null;
+		}
+		else if (args.Length >= 2 && args[0].Value is int or double && args[1].Value is int or double)
+		{
+			min = BoundFromConstant(args[0], ArgSyntax(0), isDecimal);
+			max = BoundFromConstant(args[1], ArgSyntax(1), isDecimal);
+		}
+		else
+			return null;
+
+		var minValue = min.Value.Value;
+		var maxValue = max.Value.Value;
+		var exactLimits = valueType is null ? null : ExactLimits(valueType);
+		var minUnbounded = double.IsNaN(minValue) || double.IsNegativeInfinity(minValue)
+		                   || (exactLimits is { } elo && ExactDecimal(min.Value.Exact) is { } exactMin
+			                   ? exactMin <= elo.Min
+			                   : limits is { } lo && minValue <= lo.Min);
+		var maxUnbounded = double.IsNaN(maxValue) || double.IsPositiveInfinity(maxValue)
+		                   || (exactLimits is { } ehi && ExactDecimal(max.Value.Exact) is { } exactMax
+			                   ? exactMax >= ehi.Max
+			                   : limits is { } hi && maxValue >= hi.Max);
+		if (minUnbounded && maxUnbounded)
+			return null;
+
+		var minLiteral = minUnbounded ? null : min.Value.Literal;
+		var maxLiteral = maxUnbounded ? null : max.Value.Literal;
+		return new RangeConstraint(
+			minLiteral,
+			maxLiteral,
+			LiteralKeyword(minLiteral ?? maxLiteral!),
+			compareCast,
+			minLiteral is null ? null : NumericLiteralText(minLiteral),
+			maxLiteral is null ? null : NumericLiteralText(maxLiteral));
+	}
+
+	/// <summary>A bound from the <c>int</c> or <c>double</c> constructor, as a literal of that type, or of <c>decimal</c> for a decimal parameter.</summary>
+	private static RangeBound BoundFromConstant(TypedConstant arg, ExpressionSyntax? syntax, bool decimalBound)
+	{
+		var value = Convert.ToDouble(arg.Value, CultureInfo.InvariantCulture);
+		var literal = FormatNumericLiteral(arg.Value)!;
+		if (!decimalBound || double.IsInfinity(value) || double.IsNaN(value) || Math.Abs(value) >= (double)decimal.MaxValue)
+			return new RangeBound(value, literal);
+
+		// RangeAttribute has no decimal constructor, so a decimal bound arrives as an int or a double. The source literal
+		// with an m suffix keeps it exact (0.1 stays 0.1m); anything else falls back to converting the constant.
+		var text = DecimalLiteralText(syntax);
+		return new RangeBound(value, text is null ? FormatNumericLiteral((decimal)value)! : text + "m");
+	}
+
+	/// <summary>
+	/// A bound from the <c>(Type, string, string)</c> constructor: <paramref name="text"/> must parse (<see cref="ParseNumericInvariant"/>) as
+	/// <paramref name="operandType"/>; the literal is then <paramref name="boundType"/>, or <c>double</c> when that's
+	/// <see langword="null"/>. Reports and returns <see langword="null"/> when the text isn't a valid number.
+	/// </summary>
+	private static RangeBound? BoundFromString(string? text, ITypeSymbol operandType, ITypeSymbol? boundType, ExpressionSyntax? syntax,
+		Action<string, SyntaxNode?>? report)
+	{
+		var trimmed = text?.Trim() ?? "";
+		if (ParseNumericInvariant(trimmed, operandType) is not { } parsed)
+		{
+			var example = operandType.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal
+				? "1.5"
+				: "1e3";
+			report?.Invoke($"\"{text}\" isn't a valid {operandType.ToDisplayString()} (bounds are parsed with the invariant culture, e.g. \"{example}\").", syntax);
+			return null;
+		}
+
+		var value = Convert.ToDouble(parsed, CultureInfo.InvariantCulture);
+		// Beyond the bound type (a decimal parameter given typeof(double), "1e300") it can only mean unbounded.
+		var typed = boundType is null
+			? value
+			: SymbolEqualityComparer.Default.Equals(boundType, operandType) ? parsed : ParseNumericInvariant(trimmed, boundType) ?? value;
+		return new RangeBound(value, FormatNumericLiteral(typed)!, typed);
+	}
+
+	/// <summary>The value range of an integer or <c>decimal</c> type as decimals, which hold every value exactly.</summary>
+	private static (decimal Min, decimal Max)? ExactLimits(ITypeSymbol type) =>
+		type.SpecialType switch
+		{
+			SpecialType.System_SByte => (sbyte.MinValue, sbyte.MaxValue),
+			SpecialType.System_Byte => (byte.MinValue, byte.MaxValue),
+			SpecialType.System_Int16 => (short.MinValue, short.MaxValue),
+			SpecialType.System_UInt16 => (ushort.MinValue, ushort.MaxValue),
+			SpecialType.System_Int32 => (int.MinValue, int.MaxValue),
+			SpecialType.System_UInt32 => (uint.MinValue, uint.MaxValue),
+			SpecialType.System_Int64 => (long.MinValue, long.MaxValue),
+			SpecialType.System_UInt64 => (ulong.MinValue, ulong.MaxValue),
+			SpecialType.System_Decimal => (decimal.MinValue, decimal.MaxValue),
+			_ => null,
+		};
+
+	/// <summary>An integer or <c>decimal</c> value as a decimal; <see langword="null"/> for floating point and anything else.</summary>
+	private static decimal? ExactDecimal(object? value) =>
+		value is sbyte or byte or short or ushort or int or uint or long or ulong or decimal
+			? Convert.ToDecimal(value, CultureInfo.InvariantCulture)
+			: null;
+
+	/// <summary>The C# keyword of a literal made by <see cref="FormatNumericLiteral"/>.</summary>
+	private static string LiteralKeyword(string literal) =>
+		literal.StartsWith("global::System.Double.", StringComparison.Ordinal) ? "double"
+		: literal.StartsWith("global::System.Single.", StringComparison.Ordinal) ? "float"
+		: literal.StartsWith("(", StringComparison.Ordinal) ? literal.Substring(1, literal.IndexOf(')') - 1)
+		: literal.EndsWith("UL", StringComparison.Ordinal) ? "ulong"
+		: literal.EndsWith("L", StringComparison.Ordinal) ? "long"
+		: literal.EndsWith("U", StringComparison.Ordinal) ? "uint"
+		: literal.EndsWith("m", StringComparison.Ordinal) ? "decimal"
+		: literal.EndsWith("d", StringComparison.Ordinal) ? "double"
+		: literal.EndsWith("f", StringComparison.Ordinal) ? "float"
+		: "int";
+
+	private static bool IsIntegralKeywordType(ITypeSymbol type) =>
+		IsCSharpNumericKeywordType(type)
+		&& type.SpecialType is not (SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal);
+
+	/// <summary>Reports each <c>[Range]</c> on <paramref name="host"/> whose bounds can't be checked (AGH0038).</summary>
+	/// <summary>
+	/// The per-member diagnostics of an options type (its own members and inherited ones, the members it binds), carried as
+	/// data on the <c>UseGlobalOptions</c>/<c>UseNamespaceOptions</c> invocation record.
+	/// </summary>
+	private static ImmutableArray<PendingDiagnostic> ReportOptionsMemberIssues(INamedTypeSymbol type)
+	{
+		var acc = new DiagnosticAccumulator();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (var t = type; t is not null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
+		{
+			foreach (var member in t.GetMembers())
+			{
+				var bound = member switch
+				{
+					IPropertySymbol { DeclaredAccessibility: Accessibility.Public, IsStatic: false, IsIndexer: false, GetMethod: not null, SetMethod: not null } => true,
+					IFieldSymbol { DeclaredAccessibility: Accessibility.Public, IsStatic: false } => true,
+					_ => false,
+				};
+				if (bound && seen.Add(member.Name))
+					ReportRangeAttributeIssues(member, member.Name, acc, member.Locations.FirstOrDefault());
+			}
+		}
+		return acc.ToImmutable();
+	}
+
+	private static void ReportEmbedded(SourceProductionContext context, ImmutableArray<PendingDiagnostic> diagnostics)
+	{
+		foreach (var pd in diagnostics.IsDefault ? ImmutableArray<PendingDiagnostic>.Empty : diagnostics)
+			context.ReportDiagnostic(Diagnostic.Create(GetDescriptorById(pd.DescriptorId), pd.Span.ToLocation(), pd.Arg0, pd.Arg1));
+	}
+
+	private static void ReportRangeAttributeIssues(ISymbol host, string declaredName, DiagnosticAccumulator? acc, Location? fallbackLocation)
+	{
+		if (acc is null)
+			return;
+		foreach (var attr in host.GetAttributes())
+		{
+			if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != "global::System.ComponentModel.DataAnnotations.RangeAttribute")
+				continue;
+			TryBuildRangeConstraint(attr, host, (reason, at) =>
+				acc.Add(InvalidRangeBounds,
+					at?.GetLocation() ?? attr.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? host.Locations.FirstOrDefault() ?? fallbackLocation ?? Location.None,
+					declaredName, reason));
+		}
+	}
+
+	/// <summary>
+	/// The source text of a numeric literal (optionally negated) that is also a valid decimal literal once an <c>m</c> is
+	/// added, without its <c>d</c>/<c>f</c> suffix; <see langword="null"/> for anything else (hex, constants, casts).
+	/// </summary>
+	private static string? DecimalLiteralText(ExpressionSyntax? expr)
+	{
+		var sign = "";
+		if (expr is PrefixUnaryExpressionSyntax unary
+		    && (unary.IsKind(SyntaxKind.UnaryMinusExpression) || unary.IsKind(SyntaxKind.UnaryPlusExpression)))
+		{
+			if (unary.IsKind(SyntaxKind.UnaryMinusExpression))
+				sign = "-";
+			expr = unary.Operand;
+		}
+
+		if (expr is not LiteralExpressionSyntax literal || !literal.IsKind(SyntaxKind.NumericLiteralExpression))
+			return null;
+		var text = literal.Token.Text;
+		if (text.Length > 1 && text[0] == '0' && text[1] is 'x' or 'X' or 'b' or 'B')
+			return null;
+		text = text.TrimEnd('d', 'D', 'f', 'F');
+		return decimal.TryParse(text.Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+			? sign + text
+			: null;
+	}
+
+	/// <summary>The value range of a numeric type as doubles, or <see langword="null"/> for a non-numeric type.</summary>
+	private static (double Min, double Max)? NumericLimits(ITypeSymbol type) =>
+		type.SpecialType switch
+		{
+			SpecialType.System_SByte => (sbyte.MinValue, sbyte.MaxValue),
+			SpecialType.System_Byte => (byte.MinValue, byte.MaxValue),
+			SpecialType.System_Int16 => (short.MinValue, short.MaxValue),
+			SpecialType.System_UInt16 => (ushort.MinValue, ushort.MaxValue),
+			SpecialType.System_Int32 => (int.MinValue, int.MaxValue),
+			SpecialType.System_UInt32 => (uint.MinValue, uint.MaxValue),
+			SpecialType.System_Int64 or SpecialType.System_IntPtr => (long.MinValue, long.MaxValue),
+			SpecialType.System_UInt64 or SpecialType.System_UIntPtr => (ulong.MinValue, ulong.MaxValue),
+			SpecialType.System_Single => (float.MinValue, float.MaxValue),
+			SpecialType.System_Double => (double.MinValue, double.MaxValue),
+			SpecialType.System_Decimal => ((double)decimal.MinValue, (double)decimal.MaxValue),
+			_ => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) switch
+			{
+				"global::System.Half" => (-65504d, 65504d),
+				"global::System.Int128" => (-1.7014118346046923E+38, 1.7014118346046923E+38),
+				"global::System.UInt128" => (0d, 3.402823669209385E+38),
+				// BigInteger has no limits, so only double.MinValue/MaxValue and the infinities mean "unbounded".
+				"global::System.Numerics.BigInteger" => (double.MinValue, double.MaxValue),
+				_ => null,
+			},
+		};
+
+	/// <summary>Whether <paramref name="type"/> is a numeric type C# compares directly with an <c>int</c> or <c>double</c> literal.</summary>
+	private static bool IsCSharpNumericKeywordType(ITypeSymbol type) =>
+		type.SpecialType is SpecialType.System_SByte or SpecialType.System_Byte or SpecialType.System_Int16
+			or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64
+			or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal
+			or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
+
+	private static ITypeSymbol? UnwrapNullable(ITypeSymbol? type) =>
+		type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+			? nullable.TypeArguments[0]
+			: type;
 
 	/// <summary>A range bound as help and errors show it: numeric bounds are formatted with the parse culture.</summary>
 	private static string RangeBoundText(RangeConstraint r, string literal) =>
@@ -567,11 +856,66 @@ public sealed partial class CliParserGenerator
 	/// Per value, the C# keyword of a numeric constant, which help, errors and completion format with the parse culture
 	/// (see <see cref="CultureDisplayValues"/>); empty for other values.
 	/// </param>
-	private sealed record AllowedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes)
+	/// <param name="EqualsCast">
+	/// For a floating-point parameter, which is compared with <c>.Equals</c> so <c>NaN</c> matches <c>NaN</c>: an empty
+	/// string, or the parameter type each literal is cast to when it isn't a C# keyword type (such as <c>Half</c>).
+	/// <see langword="null"/> for other parameters, which compare with <c>==</c>.
+	/// </param>
+	private sealed record AllowedValuesConstraint(
+		ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes, string? EqualsCast)
 		: ValidationConstraint;
 	/// <inheritdoc cref="AllowedValuesConstraint"/>
-	private sealed record DeniedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes)
+	private sealed record DeniedValuesConstraint(
+		ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes, string? EqualsCast)
 		: ValidationConstraint;
+
+	/// <summary>
+	/// The values of <c>[AllowedValues]</c>/<c>[DeniedValues]</c>. A numeric constant is converted to the parameter's
+	/// numeric type when nothing is lost (a <c>double</c> becomes the nearest <c>float</c> for a <c>float</c>), so
+	/// <c>[AllowedValues(1, 2)]</c> on a <c>double</c> compares with <c>1d</c> and <c>2d</c>.
+	/// </summary>
+	private static (ImmutableArray<string> Literals, ImmutableArray<string> Display, ImmutableArray<string> CultureTypes, string? EqualsCast)
+		ReadMembershipValues(ImmutableArray<TypedConstant> args, ISymbol host, bool isCollection)
+	{
+		var valueType = isCollection ? null : UnwrapNullable(MemberType(host));
+		var literals = ImmutableArray.CreateBuilder<string>(args.Length);
+		var display = ImmutableArray.CreateBuilder<string>(args.Length);
+		var cultureTypes = ImmutableArray.CreateBuilder<string>(args.Length);
+		foreach (var arg in args)
+		{
+			var value = arg.IsNull || arg.Kind != TypedConstantKind.Primitive ? null : arg.Value;
+			var converted = ConvertNumericConstant(value, valueType) ?? value;
+			if (FormatNumericLiteral(converted) is { } literal)
+			{
+				literals.Add(literal);
+				display.Add(NumericLiteralText(literal));
+				cultureTypes.Add(NumericKeyword(converted)!);
+			}
+			else
+			{
+				literals.Add(arg.ToCSharpString());
+				display.Add(ConstantDisplayValue(arg));
+				cultureTypes.Add("");
+			}
+		}
+
+		var equalsCast = valueType switch
+		{
+			{ SpecialType: SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal } => "",
+			{ } t when t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Half" => "global::System.Half",
+			_ => null,
+		};
+		return (literals.MoveToImmutable(), display.MoveToImmutable(), cultureTypes.MoveToImmutable(), equalsCast);
+	}
+
+	private static ITypeSymbol? MemberType(ISymbol host) =>
+		host switch
+		{
+			IParameterSymbol p => p.Type,
+			IPropertySymbol prop => prop.Type,
+			IFieldSymbol field => field.Type,
+			_ => null,
+		};
 
 	/// <summary>
 	/// The values as help and errors show them: numeric constants become runtime-formatted markers (see
@@ -579,25 +923,6 @@ public sealed partial class CliParserGenerator
 	/// </summary>
 	private static IEnumerable<string> CultureDisplayValues(ImmutableArray<string> values, ImmutableArray<string> displayValues, ImmutableArray<string> cultureTypes) =>
 		displayValues.Select((display, i) => cultureTypes[i].Length > 0 ? RuntimeCultureText(cultureTypes[i], values[i]) : display);
-
-	/// <summary>The C# keyword of a numeric attribute constant, whose text depends on the culture, or <see langword="null"/>.</summary>
-	private static string? CultureFormattedType(TypedConstant v) =>
-		v.IsNull || v.Kind != TypedConstantKind.Primitive
-			? null
-			: v.Type?.SpecialType switch
-			{
-				SpecialType.System_Int32 => "int",
-				SpecialType.System_Int64 => "long",
-				SpecialType.System_Single => "float",
-				SpecialType.System_Double => "double",
-				SpecialType.System_Int16 => "short",
-				SpecialType.System_UInt16 => "ushort",
-				SpecialType.System_UInt32 => "uint",
-				SpecialType.System_UInt64 => "ulong",
-				SpecialType.System_Byte => "byte",
-				SpecialType.System_SByte => "sbyte",
-				_ => null,
-			};
 
 	/// <summary>The value of an attribute argument as the user types it on the command line.</summary>
 	private static string ConstantDisplayValue(TypedConstant v)

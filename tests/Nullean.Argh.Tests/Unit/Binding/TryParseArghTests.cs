@@ -17,6 +17,26 @@ public class TryParseArghTests
 		o.Verbose.Should().BeTrue();
 	}
 
+	[Theory]
+	[InlineData("--quota", "0")]
+	[InlineData("--zone", "xx")]
+	[InlineData("--weight", "2.6")]
+	public void TryParseArgh_on_options_type_rejects_a_member_that_fails_validation(string flag, string value)
+	{
+		var ok = TestGlobalCliOptions.TryParseArgh([flag, value], out _);
+		ok.Should().BeFalse();
+	}
+
+	[Fact]
+	public void TryParseArgh_on_namespace_options_type_checks_its_own_and_inherited_members()
+	{
+		NumericNamespaceOptions.TryParseArgh(["--lucky", "13"], out _).Should().BeFalse();
+		NumericNamespaceOptions.TryParseArgh(["--quota", "0"], out _).Should().BeFalse();
+		NumericNamespaceOptions.TryParseArgh(["--lucky", "7", "--quota", "2"], out var o).Should().BeTrue();
+		o!.Lucky.Should().Be(7);
+		o.Quota.Should().Be(2);
+	}
+
 	[Fact]
 	public void TryParseArgh_static_on_options_type_binds_global_short_bool_without_value()
 	{

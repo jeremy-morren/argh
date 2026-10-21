@@ -788,53 +788,88 @@ public sealed partial class CliParserGenerator
 		string? entryAssemblyName,
 		string? flagHelpStdErrMethodName = null)
 	{
+		var runHint = ValidationRunHint(cmd, entryAssemblyName);
 		foreach (var p in cmd.Parameters)
 		{
 			if (p.Kind == ParameterKind.Injected || p.Kind == ParameterKind.OptionsInjected)
 				continue;
-			if (p.Validations.IsDefaultOrEmpty)
+			EmitParameterValidation(sb, p, p.LocalVarName, failureExit, flagHelpStdErrMethodName, runHint);
+		}
+	}
+
+	/// <summary>The run-hint line baked into validation errors, or <see langword="null"/> without an entry assembly.</summary>
+	private static string? ValidationRunHint(CommandModel cmd, string? entryAssemblyName)
+	{
+		if (entryAssemblyName is null || string.IsNullOrEmpty(cmd.CommandName))
+			return null;
+		var route = cmd.RoutePrefix.IsDefaultOrEmpty
+			? ""
+			: string.Join(" ", cmd.RoutePrefix) + " ";
+		return $"Run '{Escape(entryAssemblyName)} {Escape(route)}{Escape(cmd.CommandName)} --help' for usage.";
+	}
+
+	/// <summary>
+	/// Validates the options members a command binds, after <see cref="EmitOptionsReconstructLocals"/> has merged the
+	/// options given before the command, after it and from environment variables into the <c>__ropt_</c> locals. The
+	/// checks and errors are the ones method parameters get.
+	/// </summary>
+	private static void EmitOptionsMemberValidation(
+		StringBuilder sb,
+		CommandModel cmd,
+		ImmutableArray<(string TypeFq, string TypeMetadataName, ImmutableArray<string> AllBaseTypeMetadataNames, string StaticFieldName, string LocalVarName, ImmutableArray<ParameterModel> FlatMembers, ImmutableArray<string>? BestCtorParamOrder)> chain,
+		string failureExit,
+		string? entryAssemblyName,
+		string? flagHelpStdErrMethodName)
+	{
+		if (chain.IsDefaultOrEmpty)
+			return;
+		var runHint = ValidationRunHint(cmd, entryAssemblyName);
+		var validated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var options in chain)
+		{
+			foreach (var m in options.FlatMembers)
+			{
+				if (m.Kind == ParameterKind.Injected || !validated.Add(m.CliLongName))
+					continue;
+				EmitParameterValidation(sb, m, ParamTemp(m, "ropt"), failureExit, flagHelpStdErrMethodName, runHint);
+			}
+		}
+	}
+
+	private static void EmitParameterValidation(
+		StringBuilder sb, ParameterModel p, string varName, string failureExit, string? flagHelpStdErrMethodName, string? runHint)
+	{
+		if (p.Validations.IsDefaultOrEmpty)
+			return;
+
+		var cliName = p.CliLongName;
+
+		if (p.IsCollection)
+			EmitCollectionFilesystemValidation(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint);
+
+		foreach (var constraint in p.Validations)
+		{
+			// Filesystem-path-family constraints on collections are handled per-element above
+			// (varName is the whole list/array, not a single FileInfo/DirectoryInfo instance).
+			if (p.IsCollection && IsCollectionFilesystemConstraint(constraint))
 				continue;
 
-			var cliName = p.CliLongName;
-			var varName = p.LocalVarName;
-
-			// Build the run-hint line (baked in as a string literal)
-			string? runHint = null;
-			if (entryAssemblyName is not null && !string.IsNullOrEmpty(cmd.CommandName))
+			switch (constraint)
 			{
-				var route = cmd.RoutePrefix.IsDefaultOrEmpty
-					? ""
-					: string.Join(" ", cmd.RoutePrefix) + " ";
-				runHint = $"Run '{Escape(entryAssemblyName)} {Escape(route)}{Escape(cmd.CommandName)} --help' for usage.";
-			}
-
-			if (p.IsCollection)
-				EmitCollectionFilesystemValidation(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint);
-
-			foreach (var constraint in p.Validations)
-			{
-				// Filesystem-path-family constraints on collections are handled per-element above
-				// (varName is the whole list/array, not a single FileInfo/DirectoryInfo instance).
-				if (p.IsCollection && IsCollectionFilesystemConstraint(constraint))
-					continue;
-
-				switch (constraint)
-				{
-					case RangeConstraint r:                         EmitRangeConstraintCheck(sb, r, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case TimeSpanRangeConstraint tsr:               EmitTimeSpanRangeConstraintCheck(sb, tsr, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case CollectionCountConstraint cc:              EmitCollectionCountConstraintCheck(sb, cc, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case StringLengthConstraint s:                  EmitStringLengthConstraintCheck(sb, s, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case RegexConstraint rx:                        EmitRegexConstraintCheck(sb, rx, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case AllowedValuesConstraint av:                EmitAllowedValuesConstraintCheck(sb, av, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case DeniedValuesConstraint dv:                 EmitDeniedValuesConstraintCheck(sb, dv, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case EmailConstraint:                           EmitEmailConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case UrlConstraint:                             EmitUrlConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case UriSchemeConstraint us:                    EmitUriSchemeConstraintCheck(sb, us, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case RejectSymbolicLinksConstraint:             EmitRejectSymbolicLinksConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case ExistingPathConstraint:                    EmitExistingPathConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case NonExistingPathConstraint:                 EmitNonExistingPathConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-					case FileExtensionsConstraint fe:               EmitFileExtensionsConstraintCheck(sb, fe, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
-				}
+				case RangeConstraint r:                         EmitRangeConstraintCheck(sb, r, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case TimeSpanRangeConstraint tsr:               EmitTimeSpanRangeConstraintCheck(sb, tsr, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case CollectionCountConstraint cc:              EmitCollectionCountConstraintCheck(sb, cc, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case StringLengthConstraint s:                  EmitStringLengthConstraintCheck(sb, s, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case RegexConstraint rx:                        EmitRegexConstraintCheck(sb, rx, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case AllowedValuesConstraint av:                EmitAllowedValuesConstraintCheck(sb, av, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case DeniedValuesConstraint dv:                 EmitDeniedValuesConstraintCheck(sb, dv, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case EmailConstraint:                           EmitEmailConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case UrlConstraint:                             EmitUrlConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case UriSchemeConstraint us:                    EmitUriSchemeConstraintCheck(sb, us, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case RejectSymbolicLinksConstraint:             EmitRejectSymbolicLinksConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case ExistingPathConstraint:                    EmitExistingPathConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case NonExistingPathConstraint:                 EmitNonExistingPathConstraintCheck(sb, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
+				case FileExtensionsConstraint fe:               EmitFileExtensionsConstraintCheck(sb, fe, p, cliName, varName, failureExit, flagHelpStdErrMethodName, runHint); break;
 			}
 		}
 	}
@@ -846,19 +881,38 @@ public sealed partial class CliParserGenerator
 	{
 		var isNullable = !p.IsRequired;
 		var isNullableValueType = isNullable && p.Special == BoolSpecialKind.None
-			&& p.ScalarKind == CliScalarKind.Primitive && p.TypeName != "string"
+			&& IsNumericOrPrimitiveScalar(p) && p.TypeName != "string"
 			&& p.TypeName.EndsWith("?", StringComparison.Ordinal);
 		var guard = isNullableValueType ? $"{varName}.HasValue && (" : "";
 		var closeGuard = isNullableValueType ? ")" : "";
 		var access = isNullableValueType ? $"{varName}.Value" : varName;
-		sb.AppendLine($"\t\t\tif ({guard}{access} < {r.MinLiteral} || {access} > {r.MaxLiteral}{closeGuard})");
+		string Bound(string literal) => r.CompareCast is null ? literal : $"(({r.CompareCast})({literal}))";
+		var checks = new List<string>();
+		if (r.MinLiteral is { } min)
+			checks.Add($"{access} < {Bound(min)}");
+		if (r.MaxLiteral is { } max)
+			checks.Add($"{access} > {Bound(max)}");
+		sb.AppendLine($"\t\t\tif ({guard}{string.Join(" || ", checks)}{closeGuard})");
 		sb.AppendLine("\t\t\t{");
-		var rangeMessage = $"Error: --{cliName}: value must be between {RangeBoundText(r, r.MinLiteral)} and {RangeBoundText(r, r.MaxLiteral)}.";
+		var limitText = (r.MinLiteral, r.MaxLiteral) switch
+		{
+			({ } lo, { } hi) => $"between {RangeBoundText(r, lo)} and {RangeBoundText(r, hi)}",
+			({ } lo, null) => $"at least {RangeBoundText(r, lo)}",
+			_ => $"at most {RangeBoundText(r, r.MaxLiteral!)}",
+		};
+		var rangeMessage = $"Error: --{cliName}: value must be {limitText}.";
 		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine($\"{EscapeForHelpInterpolation(rangeMessage)}\");");
 		EmitValidationErrorFooter(sb, p, cliName, "\t\t\t\t", flagHelpStdErrMethodName, runHint);
 		sb.AppendLine($"\t\t\t\t{failureExit};");
 		sb.AppendLine("\t\t\t}");
 	}
+
+	/// <summary>
+	/// A primitive, or a number bound through <c>INumberBase</c> (<c>short</c>, <c>Half</c>, ...): its nullable form is
+	/// <c>Nullable&lt;T&gt;</c>, so a check reads <c>.Value</c> after <c>.HasValue</c> and an unset value passes.
+	/// </summary>
+	private static bool IsNumericOrPrimitiveScalar(ParameterModel p) =>
+		p.ScalarKind == CliScalarKind.Primitive || p is { ScalarKind: CliScalarKind.Parsable, ParsableIsNumber: true };
 
 	private static void EmitTimeSpanRangeConstraintCheck(
 		StringBuilder sb, TimeSpanRangeConstraint tsr, ParameterModel p, string cliName, string varName,
@@ -977,7 +1031,7 @@ public sealed partial class CliParserGenerator
 	{
 		var isNullable = !p.IsRequired;
 		var isNullableValueType = isNullable && p.Special == BoolSpecialKind.None
-			&& p.ScalarKind == CliScalarKind.Primitive && p.TypeName != "string"
+			&& IsNumericOrPrimitiveScalar(p) && p.TypeName != "string"
 			&& p.TypeName.EndsWith("?", StringComparison.Ordinal);
 		var isStringType = p.TypeName == "string";
 		string cond;
@@ -992,10 +1046,10 @@ public sealed partial class CliParserGenerator
 		}
 		else
 		{
-			var checks = av.Values.Select(v => $"{varName} != {v}").ToList();
 			var nullGuard = isNullableValueType ? $"{varName}.HasValue && " : "";
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
-			cond = $"{nullGuard}({string.Join(" && ", checks.Select(c => c.Replace(varName, access)))})";
+			var checks = av.Values.Select(v => "!" + MembershipEquals(access, v, av.EqualsCast)).ToList();
+			cond = $"{nullGuard}({string.Join(" && ", checks)})";
 		}
 		var allowedMessage = $"Error: --{cliName}: value must be one of: {string.Join(", ", CultureDisplayValues(av.Values, av.DisplayValues, av.CultureTypes))}.";
 		sb.AppendLine($"\t\t\tif ({cond})");
@@ -1006,13 +1060,25 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine("\t\t\t}");
 	}
 
+	/// <summary>
+	/// Whether <paramref name="access"/> equals <paramref name="literal"/>: <c>.Equals</c> for floating-point values (see
+	/// <see cref="AllowedValuesConstraint.EqualsCast"/>), so <c>NaN</c> matches <c>NaN</c>; <c>==</c> otherwise.
+	/// </summary>
+	private static string MembershipEquals(string access, string literal, string? equalsCast) =>
+		equalsCast switch
+		{
+			null => $"({access} == {literal})",
+			"" => $"{access}.Equals({literal})",
+			_ => $"{access}.Equals(({equalsCast})({literal}))",
+		};
+
 	private static void EmitDeniedValuesConstraintCheck(
 		StringBuilder sb, DeniedValuesConstraint dv, ParameterModel p, string cliName, string varName,
 		string failureExit, string? flagHelpStdErrMethodName, string? runHint)
 	{
 		var isNullable = !p.IsRequired;
 		var isNullableValueType = isNullable && p.Special == BoolSpecialKind.None
-			&& p.ScalarKind == CliScalarKind.Primitive && p.TypeName != "string"
+			&& IsNumericOrPrimitiveScalar(p) && p.TypeName != "string"
 			&& p.TypeName.EndsWith("?", StringComparison.Ordinal);
 		var isStringType = p.TypeName == "string";
 		string cond;
@@ -1027,10 +1093,10 @@ public sealed partial class CliParserGenerator
 		}
 		else
 		{
-			var checks = dv.Values.Select(v => $"{varName} == {v}").ToList();
 			var nullGuard = isNullableValueType ? $"{varName}.HasValue && " : "";
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
-			cond = $"{nullGuard}({string.Join(" || ", checks.Select(c => c.Replace(varName, access)))})";
+			var checks = dv.Values.Select(v => MembershipEquals(access, v, dv.EqualsCast)).ToList();
+			cond = $"{nullGuard}({string.Join(" || ", checks)})";
 		}
 		var deniedMessage = $"Error: --{cliName}: value must not be: {string.Join(", ", CultureDisplayValues(dv.Values, dv.DisplayValues, dv.CultureTypes))}.";
 		sb.AppendLine($"\t\t\tif ({cond})");

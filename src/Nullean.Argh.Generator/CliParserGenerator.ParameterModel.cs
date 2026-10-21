@@ -266,6 +266,7 @@ public sealed partial class CliParserGenerator
 				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(p, sk, p.Name, reportAcc, reportFallbackLocation);
+			ReportRangeAttributeIssues(p, p.Name, reportAcc, reportFallbackLocation);
 
 			var required = ComputeRequired(p, bs);
 			var defLit = TryGetDefaultLiteral(p, bs);
@@ -309,7 +310,9 @@ public sealed partial class CliParserGenerator
 				DeprecationMessage: deprecationMsgP,
 				EnvVarName: _paramEnvVar,
 				EnvTreatEmptyAsUnset: _paramEnvEmpty,
-				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(p.Type));
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(p.Type),
+				// Level? keeps its ? even with a default, so an unset value binds null rather than the enum's zero.
+				IsNullableAnnotated: p.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T });
 		}
 
 		public static ParameterModel FromOptionsProperty(IPropertySymbol prop, Compilation? compilation = null, string? defaultValueLiteral = null)
@@ -514,6 +517,7 @@ public sealed partial class CliParserGenerator
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(cp, sk, cp.Name, reportAcc,
 					cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
+			ReportRangeAttributeIssues(cp, cp.Name, reportAcc, cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
 
 			var required = ComputeRequired(cp, bs);
 			var defLit = TryGetDefaultLiteral(cp, bs);
@@ -557,7 +561,9 @@ public sealed partial class CliParserGenerator
 				DeprecationMessage: deprecationMsgCp,
 				EnvVarName: cpEnvVar,
 				EnvTreatEmptyAsUnset: cpEnvEmpty,
-				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(cp.Type));
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(cp.Type),
+				// Level? keeps its ? even with a default, so an unset value binds null rather than the enum's zero.
+				IsNullableAnnotated: cp.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T });
 		}
 
 		public static ParameterModel FromAsParametersInitProperty(
@@ -624,6 +630,7 @@ public sealed partial class CliParserGenerator
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(prop, sk, prop.Name, reportAcc,
 					prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
+			ReportRangeAttributeIssues(prop, prop.Name, reportAcc, prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
 
 			var defaultValueLiteral = compilation is not null ? TryGetOptionsPropertyDefaultLiteral(prop, compilation) : null;
 			// Cross-assembly [AsParameters] types: syntax refs empty, can't read initializer.
@@ -1123,14 +1130,29 @@ public sealed partial class CliParserGenerator
 			if (v is null)
 				return p.Type.IsReferenceType ? "null" : "default";
 
+			// An enum default arrives as its underlying value: name the member it equals, or cast when none does.
+			if (UnwrapNullable(p.Type) is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+				return EnumConstantLiteral(enumType, v);
+
 			return v switch
 			{
 				string s => SymbolDisplay.FormatPrimitive(s, quoteStrings: true, useHexadecimalNumbers: false),
 				char ch => SymbolDisplay.FormatPrimitive(ch, quoteStrings: true, useHexadecimalNumbers: false),
 				bool b => b ? "true" : "false",
-				IFormattable => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "default",
-				_ => "default"
+				_ => FormatNumericLiteral(v) ?? "default"
 			};
+		}
+
+		/// <summary>The enum member equal to <paramref name="value"/>, or a cast of the value when no member matches.</summary>
+		private static string EnumConstantLiteral(INamedTypeSymbol enumType, object value)
+		{
+			foreach (var member in enumType.GetMembers())
+			{
+				if (member is IFieldSymbol { HasConstantValue: true } field && EnumConstantValuesEqual(field.ConstantValue, value))
+					return enumType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "." + field.Name;
+			}
+
+			return $"({enumType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})({FormatNumericLiteral(value) ?? "0"})";
 		}
 
 		/// <summary>

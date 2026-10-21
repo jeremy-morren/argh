@@ -48,7 +48,7 @@ public sealed partial class CliParserGenerator
 					return null;
 				var model = BuildOptionsTypeModel(go, semanticModel.Compilation);
 				if (model is null) return null;
-				return new AIUseGlobalOptions(filePath, spanStart, model);
+				return new AIUseGlobalOptions(filePath, spanStart, model, ReportOptionsMemberIssues(go));
 			}
 			case "UseNamespaceOptions" when method.IsGenericMethod && method.TypeArguments.Length > 0:
 			{
@@ -56,7 +56,7 @@ public sealed partial class CliParserGenerator
 					return null;
 				var model = BuildOptionsTypeModel(gt, semanticModel.Compilation);
 				if (model is null) return null;
-				return new AIUseNamespaceOptions(filePath, spanStart, model);
+				return new AIUseNamespaceOptions(filePath, spanStart, model, ReportOptionsMemberIssues(gt));
 			}
 			case "UseMiddleware" when method.IsGenericMethod && method.TypeArguments.Length == 1:
 			{
@@ -540,6 +540,7 @@ public sealed partial class CliParserGenerator
 			switch (ai)
 			{
 				case AIUseGlobalOptions g when isRoot:
+					ReportEmbedded(context, g.EmbeddedDiagnostics);
 					app.GlobalOptionsModel = g.Model;
 					break;
 				case AIUseGlobalOptions when !isRoot:
@@ -549,6 +550,7 @@ public sealed partial class CliParserGenerator
 						"T"));
 					break;
 				case AIUseNamespaceOptions ns when !isRoot:
+					ReportEmbedded(context, ns.EmbeddedDiagnostics);
 					node.CommandNamespaceOptionsModel = ns.Model;
 					node.CommandNamespaceOptionsLocation = Location.None;
 					break;
