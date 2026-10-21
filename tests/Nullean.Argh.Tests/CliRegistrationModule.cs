@@ -148,6 +148,15 @@ internal static class CliRegistrationModule
 			g.UseNamespaceOptions<PathUriNamespaceOptions>();
 			g.Map("show", PathUriHandlers.NsShow);
 		});
+		app.MapNamespace("collections", "Collections parsed element by element.", g =>
+		{
+			g.Map("one", CollectionElementHandlers.One);
+			g.Map("many", CollectionElementHandlers.Many);
+			g.Map("many-maybe", CollectionElementHandlers.ManyMaybe);
+			g.Map("separated", CollectionElementHandlers.Separated);
+			g.Map("variadic", CollectionElementHandlers.Variadic);
+			g.Map("validated", CollectionElementHandlers.Validated);
+		});
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);

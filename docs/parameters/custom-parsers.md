@@ -25,6 +25,8 @@ public static Task<int> Release([ArgumentParser(typeof(SemVerParser))] SemVer ve
 
 A parser for a struct `T` also binds `T?`: the value is `null` when the option is absent. If the parser implements both `IArgumentParser<T>` and `IArgumentParser<T?>`, a `T?` uses the `IArgumentParser<T?>` implementation.
 
+On a collection, a parser for the element type parses each element, as it would a single value: `[ArgumentParser(typeof(SemVerParser))] SemVer[] versions` (or `List<SemVer?>`) takes `--versions 1.2.3 --versions 2.0.0`. A parser that implements `IArgumentParser` of the collection type itself parses the whole value instead.
+
 ## Types that implement `IParsable<T>`
 
 A type that implements `IParsable<T>` doesn't need a parser on .NET 7 and later: Argh calls its `TryParse` (see [`IParsable<T>` types](index.md#iparsablet-types)). An `[ArgumentParser]` still wins when the parameter has one, for example to accept a different format than the type's own.

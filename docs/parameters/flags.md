@@ -95,3 +95,5 @@ public static Task<int> Deploy(string[] targets, [CollectionSyntax(Separator = "
 // Repeated:   myapp deploy --targets web --targets api
 // Separator:  myapp deploy --targets web,api --tags blue,green
 ```
+
+Each element is parsed exactly as a single value of the element type, by the same parser, and a separator flag can be given more than once too. Empty parts are kept: `--tags blue,,green` is three strings, and `--ids 1,,3` on an `int[]` is an error, as `--id ""` is on an `int`.

@@ -42,6 +42,7 @@ public class RootAndNamespaceHelpTests
 			  alias-scope     Root-alias integration test namespace.
 			  billing         Billing commands
 			  bool-ns         Bool namespace options tests.
+			  collections     Collections parsed element by element.
 			  env-ns          Env binding namespace options tests.
 			  ls              A default command that takes positionals.
 			  numeric-ns      Numeric defaults and limits as namespace options.

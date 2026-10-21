@@ -5,9 +5,22 @@ using Nullean.Argh;
 
 namespace Nullean.Argh.Tests.Fixtures;
 
-/// <summary>DTO with validation annotations for test coverage.</summary>
+/// <summary>DTO with validation annotations for test coverage, on the parameter and on the property it initializes.</summary>
 /// <param name="Count">Item count.</param>
-internal sealed record ValidatedDtoArgs([Range(1, 100)] int Count);
+/// <param name="Size">A size from 1 to 10.</param>
+/// <param name="Name">At most 3 characters.</param>
+/// <param name="Speed">fast or slow.</param>
+/// <param name="Path">A relative URI.</param>
+/// <param name="Level">A level, or ARGH_TEST_DTO_LEVEL.</param>
+/// <param name="Ids">Comma-separated ids from 1 to 5.</param>
+internal sealed record ValidatedDtoArgs(
+	[Range(1, 100)] int Count,
+	[property: Range(1, 10)] int Size = 1,
+	[property: StringLength(3)] string Name = "a",
+	[property: AllowedValues("fast", "slow")] string Speed = "fast",
+	[property: UriOptions(UriKind.Relative)] Uri? Path = null,
+	[property: Env("ARGH_TEST_DTO_LEVEL")] int Level = 0,
+	[property: CollectionSyntax(Separator = ","), Range(1, 5)] int[]? Ids = null);
 
 internal static class ValidationCliHandlers
 {
@@ -54,7 +67,9 @@ internal static class ValidationCliHandlers
 	/// <summary>Validate DTO fields with range constraint.</summary>
 	[NoOptionsInjection]
 	public static void ValidateDto([AsParameters] ValidatedDtoArgs args) =>
-		Console.Out.WriteLine($"dto:{args.Count}");
+		Console.Out.WriteLine($"dto:{args.Count}"
+			+ $" size:{args.Size} name:{args.Name} speed:{args.Speed} path:{args.Path?.ToString() ?? "none"} level:{args.Level}"
+			+ $" ids:{(args.Ids is null ? "none" : string.Join(",", args.Ids))}");
 
 	/// <summary>Validate TimeSpan inclusive range.</summary>
 	public static void ValidateTimeSpanRange(TestGlobalCliOptions g, [TimeSpanRange("5m", "2h")] TimeSpan window) =>

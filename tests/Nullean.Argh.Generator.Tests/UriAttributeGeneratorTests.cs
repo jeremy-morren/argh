@@ -61,8 +61,8 @@ public class UriAttributeGeneratorTests
 	[Theory]
 	[InlineData("[UriOptions(UriKind.Relative)] string link", "[UriOptions] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.")]
 	[InlineData("[UriOptions(UriKind.Relative)] FileInfo link", "[UriOptions] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.")]
-	[InlineData("[UriScheme(\"https\")] string link", "[UriScheme] only applies to Uri and Uri? parameters and properties; it is ignored.")]
-	[InlineData("[UriScheme(\"https\")] List<Uri> link", "[UriScheme] only applies to Uri and Uri? parameters and properties; it is ignored.")]
+	[InlineData("[UriScheme(\"https\")] string link", "[UriScheme] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.")]
+	[InlineData("[UriScheme(\"https\")] List<string> link", "[UriScheme] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.")]
 	[InlineData("[UriOptions(UriKind.Relative), UriScheme(\"https\")] Uri link", "[UriOptions(UriKind.Relative)] with [UriScheme] or [Url] rejects every value: a relative URI has no scheme.")]
 	[InlineData("[UriOptions(UriKind.Relative), Url] Uri? link = null", "[UriOptions(UriKind.Relative)] with [UriScheme] or [Url] rejects every value: a relative URI has no scheme.")]
 	public void Ineffective_uri_attribute_reports_AGH0024(string parameter, string message)
@@ -79,6 +79,8 @@ public class UriAttributeGeneratorTests
 	[Theory]
 	[InlineData("[UriOptions(UriKind.RelativeOrAbsolute), UriScheme(\"https\")] Uri link")]
 	[InlineData("[UriOptions(UriKind.Relative)] Uri[] link")]
+	[InlineData("[UriScheme(\"https\")] List<Uri> link")]
+	[InlineData("[Url] Uri[] link")]
 	public void Uri_attributes_that_apply_report_nothing(string parameter)
 	{
 		Generate(Source(parameter), out var output, out var diagnostics);

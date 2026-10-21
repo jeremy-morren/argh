@@ -43,6 +43,8 @@ public sealed partial class CliParserGenerator
 		ImmutableArray<string> ElementEnumMemberCliNames = default,
 		string? ElementParserTypeFq = null,
 		string? ElementCustomValueTypeFq = null,
+		/// <summary>The element type as declared, e.g. <c>int?</c> for <c>int?[]</c>: the type of the list the elements are parsed into.</summary>
+		string? ElementTypeFq = null,
 		string? FullDeclaredTypeFq = null,
 		string? AsParametersOwnerParamName = null,
 		int AsParametersMemberOrder = -1,
@@ -162,8 +164,11 @@ public sealed partial class CliParserGenerator
 			if (obliviousNullDefault)
 				fq += "?";
 			var declaredNullableAnnotated = collectionType.NullableAnnotation == NullableAnnotation.Annotated || obliviousNullDefault;
-			var collValidations = ReadValidationConstraints(attributeHost, CliScalarKind.Collection, "values", isCollection: true,
+			// Every constraint but a count applies to each element, as it would to a single value of the element type.
+			var collValidations = ReadValidationConstraints(attributeHost, CliScalarKind.Collection, elemTn, isCollection: true,
 				filesystemScalarKind: elemSk);
+			ReportRangeAttributeIssues(attributeHost, symbolName, reportAcc, reportFallbackLocation);
+			var (envVar, envTreatEmptyAsUnset) = GetEnvAttribute(attributeHost);
 			var expandProfileElem = TryReadExpandUserProfileBeforeBind(attributeHost, elemSk);
 			// Variadic positionals always allow zero items by C# params convention.
 			// Minimum count enforcement is handled via CollectionCountConstraint ([MinLength]).
@@ -199,6 +204,9 @@ public sealed partial class CliParserGenerator
 				ElementCustomValueTypeFq: cFq,
 				ElementParserValueTypeFq: pvFq,
 				ElementParsableIsNumber: elemSk == CliScalarKind.Parsable && IsNumberBase(elementType),
+				ElementTypeFq: elementType.ToDisplayString(FullyQualifiedFormatWithNullableRefAnnotations),
+				EnvVarName: envVar,
+				EnvTreatEmptyAsUnset: envTreatEmptyAsUnset,
 				FullDeclaredTypeFq: fq,
 				CollectionTargetIsArray: collectionType is IArrayTypeSymbol,
 				CollectionTargetIsReadOnlySet: defFq == "global::System.Collections.Generic.IReadOnlySet<T>",
@@ -251,8 +259,7 @@ public sealed partial class CliParserGenerator
 
 			var kind = isArg ? ParameterKind.Positional : ParameterKind.Flag;
 			var bs = ClassifyBool(p.Type);
-			if (TryUnwrapCollectionType(p.Type, out var elemType) && bs == BoolSpecialKind.None
-				&& TryParserTypeFqFromSymbol(p) is null)
+			if (TryBindAsCollection(p, p.Type, out var elemType))
 			{
 				var isVariadic = isArg && p.Type is IArrayTypeSymbol;
 				var defLitColl = TryGetDefaultLiteral(p, BoolSpecialKind.None);
@@ -322,8 +329,7 @@ public sealed partial class CliParserGenerator
 			var derivedLongNameProp = Naming.ToCliLongName(prop.Name);
 			var effectiveLongNameProp = doc.ExplicitLongName ?? derivedLongNameProp;
 			var bs = ClassifyBool(prop.Type);
-			if (TryUnwrapCollectionType(prop.Type, out var elemType) && bs == BoolSpecialKind.None
-				&& TryParserTypeFqFromSymbol(prop) is null)
+			if (TryBindAsCollection(prop, prop.Type, out var elemType))
 			{
 				return BuildCollectionParameterModel(prop.Type, elemType, prop, ParameterKind.Flag,
 					effectiveLongNameProp, SafeLocalName(prop.Name), prop.Name,
@@ -390,8 +396,7 @@ public sealed partial class CliParserGenerator
 			var derivedLongNameField = Naming.ToCliLongName(field.Name);
 			var effectiveLongNameField = doc.ExplicitLongName ?? derivedLongNameField;
 			var bs = ClassifyBool(field.Type);
-			if (TryUnwrapCollectionType(field.Type, out var elemType) && bs == BoolSpecialKind.None
-				&& TryParserTypeFqFromSymbol(field) is null)
+			if (TryBindAsCollection(field, field.Type, out var elemType))
 			{
 				return BuildCollectionParameterModel(field.Type, elemType, field, ParameterKind.Flag,
 					effectiveLongNameField, SafeLocalName(field.Name), field.Name,
@@ -501,8 +506,7 @@ public sealed partial class CliParserGenerator
 			if (string.IsNullOrWhiteSpace(desc))
 				desc = Documentation.GetTypeSummaryLine(TryExtractDocumentationFromParameterTrivia(cp));
 			var meta = new AsParametersMeta(methodParamName, memberOrder, typeFq, UseInit: false, cp.Name);
-			if (TryUnwrapCollectionType(cp.Type, out var elemType) && bs == BoolSpecialKind.None
-				&& TryParserTypeFqFromSymbol(cp) is null)
+			if (TryBindAsCollection(cp, cp.Type, out var elemType))
 			{
 				var isVariadicCp = isArg && cp.Type is IArrayTypeSymbol;
 				var defLitColl = TryGetDefaultLiteral(cp, BoolSpecialKind.None);
@@ -614,8 +618,7 @@ public sealed partial class CliParserGenerator
 			var derivedCli = namePrefix + Naming.ToCliLongName(prop.Name);
 			var cli = doc.ExplicitLongName is not null ? namePrefix + doc.ExplicitLongName : derivedCli;
 			var meta = new AsParametersMeta(methodParamName, memberOrder, typeFq, UseInit: true, prop.Name);
-			if (TryUnwrapCollectionType(prop.Type, out var elemType) && bs == BoolSpecialKind.None
-				&& TryParserTypeFqFromSymbol(prop) is null)
+			if (TryBindAsCollection(prop, prop.Type, out var elemType))
 			{
 				var isVariadicProp = isArg && prop.Type is IArrayTypeSymbol;
 				return BuildCollectionParameterModel(prop.Type, elemType, prop, kind, cli, local, prop.Name,
@@ -784,7 +787,7 @@ public sealed partial class CliParserGenerator
 
 		private static string? TryParserTypeFqFromSymbol(ISymbol symbol)
 		{
-			foreach (var attr in symbol.GetAttributes())
+			foreach (var attr in AttributesOf(symbol))
 			{
 				if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) !=
 				    "global::Nullean.Argh.ArgumentParserAttribute")
@@ -799,13 +802,27 @@ public sealed partial class CliParserGenerator
 		}
 
 		/// <summary>
+		/// Whether a value of <paramref name="type"/> binds as a collection of <paramref name="elementType"/>, each element parsed
+		/// as a single value of that type is. An <c>[ArgumentParser]</c> on it parses each element when it implements
+		/// <c>IArgumentParser</c> of the element type (or of <c>T</c> for a <c>T?</c> element) and not of the collection type;
+		/// any other parser parses the whole value.
+		/// </summary>
+		internal static bool TryBindAsCollection(ISymbol host, ITypeSymbol type, out ITypeSymbol elementType)
+		{
+			if (!TryUnwrapCollectionType(type, out elementType))
+				return false;
+			return TryParserTypeFqFromSymbol(host) is null
+			       || TryParserValueTypeFq(host, type) is null && TryParserValueTypeFq(host, elementType) is not null;
+		}
+
+		/// <summary>
 		/// The <c>T</c> of the <c>IArgumentParser&lt;T&gt;</c> to call the custom parser through: the value's own type when the parser
 		/// implements it; otherwise, for a <c>Nullable&lt;T&gt;</c> value, <c>T</c> when the parser implements that, and the parsed
 		/// value is assigned to the <c>T?</c>. Null when the parser implements neither.
 		/// </summary>
 		private static string? TryParserValueTypeFq(ISymbol symbol, ITypeSymbol valueType)
 		{
-			foreach (var attr in symbol.GetAttributes())
+			foreach (var attr in AttributesOf(symbol))
 			{
 				if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) !=
 				    "global::Nullean.Argh.ArgumentParserAttribute"

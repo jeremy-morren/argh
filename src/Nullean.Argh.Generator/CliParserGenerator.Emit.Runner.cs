@@ -43,8 +43,8 @@ public sealed partial class CliParserGenerator
 		string? entryAssemblyName = null,
 		string? environmentPrefix = null)
 	{
-		var anyRepeatedCollection = cmd.Parameters.Any(static p =>
-			p is { IsCollection: true, Kind: ParameterKind.Flag } && p.CollectionSeparator is null);
+		// Every value of a collection flag is kept, so it can be given more than once, with or without a separator.
+		var anyRepeatedCollection = cmd.Parameters.Any(static p => p is { IsCollection: true, Kind: ParameterKind.Flag });
 
 		var failureExit = emitDtoTryParse ? "return false" : "return 2";
 		var helpMethodName = emitDtoTryParse ? null : HelpPrinterMethodForCommand(cmd);
@@ -302,7 +302,7 @@ public sealed partial class CliParserGenerator
 
 				if (p.IsCollection && p.Kind == ParameterKind.Flag)
 				{
-					EmitBindCollectionParameter(w, p, anyRepeatedCollection, failure);
+					EmitBindCollectionParameter(w, p, environmentPrefix, failure);
 					continue;
 				}
 
@@ -662,7 +662,7 @@ public sealed partial class CliParserGenerator
 				var accType = p.CollectionTargetIsReadOnlySet
 					? "global::System.Collections.Generic.HashSet"
 					: "global::System.Collections.Generic.List";
-				w.Line($"var {p.LocalVarName}_acc = new {accType}<{GetElementCSharpFq(p)}>();");
+				w.Line($"var {p.LocalVarName}_acc = new {accType}<{p.ElementTypeFq}>();");
 				continue;
 			}
 
@@ -683,47 +683,10 @@ public sealed partial class CliParserGenerator
 		}
 	}
 
-	private static string GetElementCSharpFq(ParameterModel p)
-	{
-		switch (p.ElementScalarKind)
-		{
-			case CliScalarKind.Enum when p.ElementEnumTypeFq is not null:
-				return p.ElementEnumTypeFq;
-			case CliScalarKind.FileInfo:
-				return "global::System.IO.FileInfo";
-			case CliScalarKind.DirectoryInfo:
-				return "global::System.IO.DirectoryInfo";
-			case CliScalarKind.Uri:
-				return "global::System.Uri";
-			case CliScalarKind.CustomParser or CliScalarKind.Parsable when p.ElementCustomValueTypeFq is not null:
-				return p.ElementCustomValueTypeFq;
-			default:
-				break;
-		}
-
-		return p.ElementTypeName switch
-		{
-			"string" => "string",
-			"int" => "int",
-			"long" => "long",
-			"float" => "float",
-			"double" => "double",
-			"decimal" => "decimal",
-			"bool" => "bool",
-			"DateTime" => "global::System.DateTime",
-			"DateTimeOffset" => "global::System.DateTimeOffset",
-			"TimeSpan" => "global::System.TimeSpan",
-			"DateOnly" => "global::System.DateOnly",
-			"TimeOnly" => "global::System.TimeOnly",
-			"DateTime?" => "global::System.DateTime?",
-			"DateTimeOffset?" => "global::System.DateTimeOffset?",
-			"TimeSpan?" => "global::System.TimeSpan?",
-			"DateOnly?" => "global::System.DateOnly?",
-			"TimeOnly?" => "global::System.TimeOnly?",
-			_ => "string"
-		};
-	}
-
+	/// <summary>
+	/// A collection's element as a single required value of the element type, so each element is parsed and validated by the
+	/// code for a parameter of that type: the same parser, styles, culture and errors.
+	/// </summary>
 	private static ParameterModel ForElementParsing(ParameterModel p) =>
 		p with
 		{
@@ -738,7 +701,9 @@ public sealed partial class CliParserGenerator
 			ParsableIsNumber = p.ElementParsableIsNumber,
 			Special = BoolSpecialKind.None,
 			IsCollection = false,
-			IsRequired = true
+			IsVariadic = false,
+			IsRequired = true,
+			DefaultValueLiteral = null
 		};
 
 	private static void EmitVariadicPositionalParse(CodeWriter w, ParameterModel p, int startIndex, ParseFailure failure)
@@ -763,14 +728,9 @@ public sealed partial class CliParserGenerator
 		}
 
 		w.Line($"var {countVar} = positionals.Count > {startIndex} ? positionals.Count - {startIndex} : 0;");
-		w.Line($"var {arrVar} = new {GetCSharpCliType(elemModel)}[{countVar}];");
+		w.Line($"var {arrVar} = new {p.ElementTypeFq}[{countVar}];");
 		using (w.For($"var {vi} = 0; {vi} < {countVar}; {vi}++"))
-		{
-			if (p.ElementScalarKind == CliScalarKind.Primitive && p.ElementTypeName == "string")
-				w.Line($"{arrVar}[{vi}] = positionals[{startIndex} + {vi}];");
-			else
-				EmitParseFromString(w, elemModel, $"positionals[{startIndex} + {vi}]", $"{arrVar}[{vi}]", outVarKeyword: false, failure);
-		}
+			EmitParseFromString(w, elemModel, $"positionals[{startIndex} + {vi}]", $"{arrVar}[{vi}]", outVarKeyword: false, failure);
 
 		w.Line($"{p.LocalVarName} = {arrVar};");
 	}
@@ -945,7 +905,7 @@ public sealed partial class CliParserGenerator
 			if (p.ShortOpt is not char ch)
 				continue;
 			// IsRepeatableCollection only applies when multiFlags is available in the emitted context.
-			var isRepeatableCollection = multiFlagsAvailable && p.IsCollection && p.CollectionSeparator is null;
+			var isRepeatableCollection = multiFlagsAvailable && p.IsCollection;
 			shortCases.Add((ch, p.CliLongName, p.Special != BoolSpecialKind.None, isRepeatableCollection));
 		}
 
@@ -1415,7 +1375,7 @@ public sealed partial class CliParserGenerator
 	/// <summary>A nullable value type whose non-nullable form has its own parse code in <see cref="EmitPrimitiveScalarParseFromString"/>.</summary>
 	private static bool IsLiftableNullable(string typeName) =>
 		typeName.EndsWith("?", StringComparison.Ordinal)
-		&& typeName.TrimEnd('?') is "int" or "long" or "float" or "double" or "decimal"
+		&& typeName.TrimEnd('?') is "bool" or "int" or "long" or "float" or "double" or "decimal"
 			or "DateTime" or "DateTimeOffset" or "TimeSpan" or "DateOnly" or "TimeOnly";
 
 	private static IEnumerable<ParameterModel> EnumerateFlagMembers(OptionsTypeModel? model)
@@ -1510,7 +1470,7 @@ public sealed partial class CliParserGenerator
 		var hasUrl = false;
 		int? uriKind = null;
 
-		foreach (var attr in host.GetAttributes())
+		foreach (var attr in AttributesOf(host))
 		{
 			var fqn = attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "";
 			switch (fqn)
@@ -1569,14 +1529,14 @@ public sealed partial class CliParserGenerator
 			acc?.Add(FilesystemPathAttributeTypeMismatch, loc, declaredName,
 				"[FileExtensions] only applies to FileInfo, FileInfo?, or a collection of FileInfo parameters and properties.");
 
-		if (hasUriScheme && scalarKind != CliScalarKind.Uri)
+		if (hasUriScheme && fsKind != CliScalarKind.Uri)
 			acc?.Add(UriAttributeMisuse, loc, declaredName,
-				"[UriScheme] only applies to Uri and Uri? parameters and properties; it is ignored.");
+				"[UriScheme] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.");
 
 		if (uriKind is not null && fsKind != CliScalarKind.Uri)
 			acc?.Add(UriAttributeMisuse, loc, declaredName,
 				"[UriOptions] only applies to Uri, Uri?, or a collection of Uri parameters and properties; it is ignored.");
-		else if (uriKind == UriKindRelative && (hasUriScheme || hasUrl && scalarKind == CliScalarKind.Uri))
+		else if (uriKind == UriKindRelative && (hasUriScheme || hasUrl))
 			acc?.Add(UriAttributeMisuse, loc, declaredName,
 				"[UriOptions(UriKind.Relative)] with [UriScheme] or [Url] rejects every value: a relative URI has no scheme.");
 	}
@@ -1594,7 +1554,7 @@ public sealed partial class CliParserGenerator
 
 	private static bool TryReadExpandUserProfileBeforeBind(ISymbol host, CliScalarKind scalarKind)
 	{
-		foreach (var attr in host.GetAttributes())
+		foreach (var attr in AttributesOf(host))
 		{
 			if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
 			    "global::Nullean.Argh.ExpandUserProfileAttribute")

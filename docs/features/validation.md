@@ -80,6 +80,10 @@ public static void Process([MaxLength(5)] List<string> files) { … } // max 5 -
 public static void Archive([Argument][MinLength(2)][MaxLength(10)] string[] files) { … } // 2-10 positional items
 ```
 
+Every other attribute on a collection checks each element, as it would a single value of the element type: `[Range(1, 10)] int[] sizes` rejects `--sizes 11`, and `[Url] Uri[] links` rejects `--links ftp://x`.
+
+On a positional record bound with `[AsParameters]`, an attribute can target the parameter (`[Range(1, 10)] int Count`) or the property it initializes (`[property: Range(1, 10)] int Count`); both are checked.
+
 :::{note}
 Enum parameters automatically show `[allowed: Member1|Member2]` in help. The enum type itself enforces the constraint with no extra attribute needed.
 :::

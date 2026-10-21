@@ -127,6 +127,8 @@ public class NetstandardFixtureTests
 		], "300|2024-06-15T14:30:00.0000000Z|2024-06-15T14:30:00.0000000+10:00|example.com|a.txt|out|1.5|9000000000|2.25|n|7|True\n"),
 		(["lists", "--ids=1,2,3", "--tags", "a", "--tags", "b", "--colours", "green", "--colours", "fire-red"],
 			"ids:1,2,3|tags:a,b|colours:Green,FireRed\n"),
+		// Every value of a collection is split and each element parsed, empty ones included.
+		(["lists", "--ids=1,2", "--ids", "3", "--tags", "", "--tags", "b", "--colours", "green"], "ids:1,2,3|tags:,b|colours:Green\n"),
 		(["point", "--at", "3,4"], "point:3,4\n"),
 		(["dto", "--name", "n", "--count", "5", "--wait", "90s"], "dto:n|5|90\n"),
 		(["validate", "--port", "80", "--name", "ab"], "validate:80:ab\n"),
@@ -174,6 +176,8 @@ public class NetstandardFixtureTests
 		["oblivious"],
 		["oblivious-dto"],
 		["paths", "--file="],
+		["lists", "--ids=1,,3", "--tags", "a", "--colours", "green"],
+		["lists", "--ids=", "--tags", "a", "--colours", "green"],
 		["paths", "--dir="],
 		["paths", "--link="],
 		["paths", "--link", "docs/a"],

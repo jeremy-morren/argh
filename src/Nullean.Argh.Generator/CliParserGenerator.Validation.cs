@@ -235,7 +235,7 @@ public sealed partial class CliParserGenerator
 	{
 		var fsKind = filesystemScalarKind ?? scalarKind;
 		var builder = ImmutableArray.CreateBuilder<ValidationConstraint>();
-		foreach (var attr in attributeHost.GetAttributes())
+		foreach (var attr in AttributesOf(attributeHost))
 		{
 			var fqn = attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "";
 			switch (fqn)
@@ -301,7 +301,7 @@ public sealed partial class CliParserGenerator
 						var args = attr.ConstructorArguments[0].Values;
 						if (!args.IsEmpty)
 						{
-							var values = ReadMembershipValues(args, attributeHost, isCollection);
+							var values = ReadMembershipValues(args, attributeHost);
 							builder.Add(new AllowedValuesConstraint(values.Literals, values.Display, values.CultureTypes, values.EqualsCast));
 						}
 					}
@@ -312,7 +312,7 @@ public sealed partial class CliParserGenerator
 						var args = attr.ConstructorArguments[0].Values;
 						if (!args.IsEmpty)
 						{
-							var values = ReadMembershipValues(args, attributeHost, isCollection);
+							var values = ReadMembershipValues(args, attributeHost);
 							builder.Add(new DeniedValuesConstraint(values.Literals, values.Display, values.CultureTypes, values.EqualsCast));
 						}
 					}
@@ -321,7 +321,7 @@ public sealed partial class CliParserGenerator
 					builder.Add(new EmailConstraint());
 					break;
 				case "global::System.ComponentModel.DataAnnotations.UrlAttribute":
-					if (scalarKind == CliScalarKind.Uri)
+					if (fsKind == CliScalarKind.Uri)
 						builder.Add(new UriSchemeConstraint(ImmutableArray.Create("http", "https")));
 					else
 						builder.Add(new UrlConstraint());
@@ -339,8 +339,8 @@ public sealed partial class CliParserGenerator
 					break;
 				}
 				case "global::Nullean.Argh.UriSchemeAttribute":
-					// Elsewhere AGH0024 reports it: the check reads Uri.Scheme.
-					if (scalarKind == CliScalarKind.Uri && attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
+					// Elsewhere AGH0024 reports it: the check reads Uri.Scheme. On a collection it applies to each element.
+					if (fsKind == CliScalarKind.Uri && attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Kind == TypedConstantKind.Array)
 					{
 						var schemes = attr.ConstructorArguments[0].Values
 							.Select(v => v.Value as string).Where(s => s is not null).Select(s => s!)
@@ -741,7 +741,7 @@ public sealed partial class CliParserGenerator
 	{
 		if (acc is null)
 			return;
-		foreach (var attr in host.GetAttributes())
+		foreach (var attr in AttributesOf(host))
 		{
 			if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != "global::System.ComponentModel.DataAnnotations.RangeAttribute")
 				continue;
@@ -847,9 +847,9 @@ public sealed partial class CliParserGenerator
 	/// <c>[AllowedValues(1, 2)]</c> on a <c>double</c> compares with <c>1d</c> and <c>2d</c>.
 	/// </summary>
 	private static (ImmutableArray<string> Literals, ImmutableArray<string> Display, ImmutableArray<string> CultureTypes, string? EqualsCast)
-		ReadMembershipValues(ImmutableArray<TypedConstant> args, ISymbol host, bool isCollection)
+		ReadMembershipValues(ImmutableArray<TypedConstant> args, ISymbol host)
 	{
-		var valueType = isCollection ? null : UnwrapNullable(MemberType(host));
+		var valueType = UnwrapNullable(MemberType(host));
 		var literals = ImmutableArray.CreateBuilder<string>(args.Length);
 		var display = ImmutableArray.CreateBuilder<string>(args.Length);
 		var cultureTypes = ImmutableArray.CreateBuilder<string>(args.Length);
@@ -880,14 +880,21 @@ public sealed partial class CliParserGenerator
 		return (literals.MoveToImmutable(), display.MoveToImmutable(), cultureTypes.MoveToImmutable(), equalsCast);
 	}
 
-	private static ITypeSymbol? MemberType(ISymbol host) =>
-		host switch
+	/// <summary>
+	/// The type a value constraint on <paramref name="host"/> checks: the declared type, or for a collection bound element by
+	/// element (see <see cref="ParameterModel.TryBindAsCollection"/>) its element type, which every constraint but a count applies to.
+	/// </summary>
+	private static ITypeSymbol? MemberType(ISymbol host)
+	{
+		var type = host switch
 		{
 			IParameterSymbol p => p.Type,
 			IPropertySymbol prop => prop.Type,
 			IFieldSymbol field => field.Type,
 			_ => null,
 		};
+		return type is not null && ParameterModel.TryBindAsCollection(host, type, out var element) ? element : type;
+	}
 
 	/// <summary>
 	/// The values as help and errors show them: numeric constants become runtime-formatted markers (see

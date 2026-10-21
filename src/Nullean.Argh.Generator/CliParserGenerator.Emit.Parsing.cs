@@ -335,7 +335,7 @@ public sealed partial class CliParserGenerator
 	private static void EmitIsMultiFlagPredicate(CodeWriter w, CommandModel cmd)
 	{
 		var names = cmd.Parameters
-			.Where(static p => p is { IsCollection: true, Kind: ParameterKind.Flag } && p.CollectionSeparator is null)
+			.Where(static p => p is { IsCollection: true, Kind: ParameterKind.Flag })
 			.Select(static p => Quote(p.CliLongName))
 			.ToList();
 		if (names.Count == 0)
@@ -428,65 +428,48 @@ public sealed partial class CliParserGenerator
 				WithEnvironmentSource(failure, envVar, $"!flags.ContainsKey({Quote(m.CliLongName)})"));
 	}
 
-	private static void EmitBindCollectionParameter(CodeWriter w, ParameterModel p, bool multiFlagsAvailable, ParseFailure failure)
+	/// <summary>
+	/// Binds a collection flag: each value given for it (it can be repeated), or else its environment variable, split on its
+	/// separator with empty parts kept (<see cref="ArghCollectionBinding"/>), then each element parsed by the code that
+	/// parses a single value of the element type (<see cref="EmitParseFromString"/>), which rejects an element that isn't valid.
+	/// </summary>
+	private static void EmitBindCollectionParameter(CodeWriter w, ParameterModel p, string? environmentPrefix, ParseFailure failure)
 	{
-		var flagKey = Escape(p.CliLongName);
+		var flagKey = Quote(p.CliLongName);
 		var acc = p.LocalVarName + "_acc";
+		var given = ParamTemp(p, "given");
+		var values = ParamTemp(p, "values");
+		var envText = ParamTemp(p, "envText");
+		var raw = ParamTemp(p, "raw");
 		var element = ParamTemp(p, "ce");
-		var elemModel = ForElementParsing(p);
-		var missingRequired = $"Console.Error.WriteLine($\"Error: missing required flag --{flagKey}.\");";
+		var envVar = ComputeEffectiveEnvVarName(p, environmentPrefix);
 
-		void AddElement()
+		w.Line($"var {given} = multiFlags.TryGetValue({flagKey}, out var {values});");
+		var missing = "!" + given;
+		var environmentValue = "null";
+		if (envVar is not null)
 		{
-			EmitParseFromString(w, elemModel, p.CollectionSeparator is null ? "__raw" : "__part", element, outVarKeyword: true, failure);
+			w.Line($"string? {envText} = null;");
+			using (w.If(missing))
+				EmitEnvironmentFallback(w, p, envVar, envText, ParamTemp(p, "envVal"));
+			missing += $" && {envText} == null";
+			environmentValue = envText;
+		}
+
+		if (p.IsRequired)
+			EmitParseError(w, missing,
+				$"Console.Error.WriteLine($\"Error: missing required flag --{Escape(p.CliLongName)}.\");", p, failure);
+
+		var elementFailure = WithEnvironmentSource(failure, envVar, "!" + given);
+		var separator = p.CollectionSeparator is null ? "null" : Quote(p.CollectionSeparator);
+		using (w.Foreach($"var {raw} in {ArghCollectionBindingFq}.Elements({given} ? {values} : null, {environmentValue}, {separator})"))
+		{
+			EmitParseFromString(w, ForElementParsing(p), raw, element, outVarKeyword: true, elementFailure);
 			if (p.CollectionTargetIsReadOnlySet)
-			{
-				using (w.If($"!{acc}.Add({element})"))
-				{
-					w.Line($"Console.Error.WriteLine($\"Error: duplicate value '{{{element}}}' for --{flagKey}.\");");
-					w.Line(failure.Exit + ";");
-				}
-			}
+				EmitParseError(w, $"!{acc}.Add({element})",
+					$"Console.Error.WriteLine($\"Error: duplicate value '{{{element}}}' for --{Escape(p.CliLongName)}.\");", p, elementFailure);
 			else
 				w.Line($"{acc}.Add({element});");
-		}
-
-		if (p.CollectionSeparator is string sep)
-		{
-			var joined = p.LocalVarName + "Joined";
-			var missing = $"!flags.TryGetValue(\"{flagKey}\", out var {joined})";
-			if (p.IsRequired)
-				EmitParseError(w, missing, missingRequired, p, failure);
-			else
-				w.If(missing, $"{joined} = null;");
-
-			using (w.If($"!string.IsNullOrEmpty({joined})"))
-			{
-				var sepLocal = ParamTemp(p, "sep");
-				w.Line($"var {sepLocal} = {Quote(sep)};");
-				// string.Split(string, StringSplitOptions) needs .NET Core 2.0 or .NET Standard 2.1.
-				w.PreprocessorIfElse("NETCOREAPP2_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER",
-					() => w.Line($"foreach (var __part in {joined}.Split({sepLocal}, StringSplitOptions.None))"),
-					// netstandard2.0's string.IsNullOrEmpty has no [NotNullWhen(false)], so the compiler can't see the null check.
-					() => w.Line($"foreach (var __part in {joined}!.Split(new[] {{ {sepLocal} }}, StringSplitOptions.None))"));
-				using (w.Block())
-				{
-					w.Line("if (string.IsNullOrEmpty(__part)) continue;");
-					AddElement();
-				}
-			}
-		}
-		else
-		{
-			if (!multiFlagsAvailable)
-				return;
-
-			var rawList = ParamTemp(p, "rawList");
-			w.If($"!multiFlags.TryGetValue(\"{flagKey}\", out var {rawList})", $"{rawList} = new List<string>();");
-			using (w.Foreach($"var __raw in {rawList}"))
-				AddElement();
-			if (p.IsRequired)
-				EmitParseError(w, $"{acc}.Count == 0", missingRequired, p, failure);
 		}
 
 		var declType = p.FullDeclaredTypeFq ?? "object";
@@ -494,6 +477,8 @@ public sealed partial class CliParserGenerator
 		var useNullWhenUnset = !p.IsRequired && p.DeclaredNullableAnnotated;
 		w.Line($"{declType} {p.LocalVarName} = {(useNullWhenUnset ? $"{acc}.Count == 0 ? null : {value}" : value)};");
 	}
+
+	private const string ArghCollectionBindingFq = "global::Nullean.Argh.Runtime.ArghCollectionBinding";
 
 	/// <summary><c>head;</c>, or <c>head { A = a, … };</c> when there are object-initializer <paramref name="assignments"/>.</summary>
 	private static void EmitObjectCreation(CodeWriter w, string head, IReadOnlyList<string> assignments)
@@ -657,32 +642,71 @@ public sealed partial class CliParserGenerator
 			return;
 
 		if (p.IsCollection)
-			EmitCollectionFilesystemValidation(w, t);
+		{
+			EmitCollectionValidation(w, t);
+			return;
+		}
 
 		foreach (var constraint in p.Validations)
-		{
-			// Filesystem-path-family constraints on collections are handled per-element above
-			// (varName is the whole list/array, not a single FileInfo/DirectoryInfo instance).
-			if (p.IsCollection && IsCollectionFilesystemConstraint(constraint))
-				continue;
+			EmitConstraintCheck(w, t, constraint);
+	}
 
-			switch (constraint)
+	/// <summary>
+	/// A collection's constraints: a count checks the whole collection, the filesystem-path family reports every element
+	/// that fails (<see cref="EmitCollectionFilesystemValidation"/>), and every other constraint checks each element as it
+	/// would a single value of the element type.
+	/// </summary>
+	private static void EmitCollectionValidation(CodeWriter w, ValidationTarget t)
+	{
+		var p = t.P;
+		EmitCollectionFilesystemValidation(w, t);
+		foreach (var count in p.Validations.OfType<CollectionCountConstraint>())
+			EmitCollectionCountConstraintCheck(w, t, count);
+
+		var elementConstraints = p.Validations
+			.Where(static c => c is not CollectionCountConstraint && !IsCollectionFilesystemConstraint(c))
+			.ToList();
+		if (elementConstraints.Count == 0)
+			return;
+
+		var item = ParamTemp(p, "vitem");
+		var elementTarget = t with { P = ForElementParsing(p), VarName = item };
+		void CheckEach()
+		{
+			using (w.Foreach($"var {item} in {t.VarName}"))
 			{
-				case RangeConstraint r:                         EmitRangeConstraintCheck(w, t, r); break;
-				case TimeSpanRangeConstraint tsr:               EmitTimeSpanRangeConstraintCheck(w, t, tsr); break;
-				case CollectionCountConstraint cc:              EmitCollectionCountConstraintCheck(w, t, cc); break;
-				case StringLengthConstraint s:                  EmitStringLengthConstraintCheck(w, t, s); break;
-				case RegexConstraint rx:                        EmitRegexConstraintCheck(w, t, rx); break;
-				case AllowedValuesConstraint av:                EmitAllowedValuesConstraintCheck(w, t, av); break;
-				case DeniedValuesConstraint dv:                 EmitDeniedValuesConstraintCheck(w, t, dv); break;
-				case EmailConstraint:                           EmitEmailConstraintCheck(w, t); break;
-				case UrlConstraint:                             EmitUrlConstraintCheck(w, t); break;
-				case UriSchemeConstraint us:                    EmitUriSchemeConstraintCheck(w, t, us); break;
-				case RejectSymbolicLinksConstraint:             EmitRejectSymbolicLinksConstraintCheck(w, t); break;
-				case ExistingPathConstraint:                    EmitExistingPathConstraintCheck(w, t); break;
-				case NonExistingPathConstraint:                 EmitNonExistingPathConstraintCheck(w, t); break;
-				case FileExtensionsConstraint fe:               EmitFileExtensionsConstraintCheck(w, t, fe); break;
+				foreach (var constraint in elementConstraints)
+					EmitConstraintCheck(w, elementTarget, constraint);
 			}
+		}
+
+		if (!p.IsRequired && p.DeclaredNullableAnnotated)
+		{
+			using (w.If($"{t.VarName} != null"))
+				CheckEach();
+		}
+		else
+			CheckEach();
+	}
+
+	private static void EmitConstraintCheck(CodeWriter w, ValidationTarget t, ValidationConstraint constraint)
+	{
+		switch (constraint)
+		{
+			case RangeConstraint r:                         EmitRangeConstraintCheck(w, t, r); break;
+			case TimeSpanRangeConstraint tsr:               EmitTimeSpanRangeConstraintCheck(w, t, tsr); break;
+			case CollectionCountConstraint cc:              EmitCollectionCountConstraintCheck(w, t, cc); break;
+			case StringLengthConstraint s:                  EmitStringLengthConstraintCheck(w, t, s); break;
+			case RegexConstraint rx:                        EmitRegexConstraintCheck(w, t, rx); break;
+			case AllowedValuesConstraint av:                EmitAllowedValuesConstraintCheck(w, t, av); break;
+			case DeniedValuesConstraint dv:                 EmitDeniedValuesConstraintCheck(w, t, dv); break;
+			case EmailConstraint:                           EmitEmailConstraintCheck(w, t); break;
+			case UrlConstraint:                             EmitUrlConstraintCheck(w, t); break;
+			case UriSchemeConstraint us:                    EmitUriSchemeConstraintCheck(w, t, us); break;
+			case RejectSymbolicLinksConstraint:             EmitRejectSymbolicLinksConstraintCheck(w, t); break;
+			case ExistingPathConstraint:                    EmitExistingPathConstraintCheck(w, t); break;
+			case NonExistingPathConstraint:                 EmitNonExistingPathConstraintCheck(w, t); break;
+			case FileExtensionsConstraint fe:               EmitFileExtensionsConstraintCheck(w, t, fe); break;
 		}
 	}
 

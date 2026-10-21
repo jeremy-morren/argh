@@ -306,6 +306,30 @@ public class ValidationAnnotationTests
 			.Should().Contain("Error: --count: value must be between 1 and 100.");
 	}
 
+	// [property: X] on a positional record's parameter applies like [X] on the parameter.
+	[Theory]
+	[InlineData("--size", "99", "Error: --size: value must be between 1 and 10.")]
+	[InlineData("--name", "abcdef", "Error: --name: value must be at most 3 characters.")]
+	[InlineData("--speed", "bogus", "Error: --speed: value must be one of: fast, slow.")]
+	[InlineData("--path", "https://x", "Error: invalid URI for --path: 'https://x'. Expected a relative URI.")]
+	[InlineData("--ids", "1,9", "Error: --ids: value must be between 1 and 5.")]
+	public void Dto_property_targeted_attributes_are_checked(string flag, string value, string error)
+	{
+		var r = CliHostRunner.Run(NoColor, "validate-dto", "--count", "5", flag, value);
+		r.ExitCode.Should().Be(2);
+		ConsoleOutput.Normalize(CliHostRunner.StderrText(r)).Should().StartWith(error + "\n");
+	}
+
+	[Fact]
+	public void Dto_property_targeted_attributes_accept_valid_values()
+	{
+		var r = CliHostRunner.Run(new Dictionary<string, string> { ["NO_COLOR"] = "1", ["ARGH_TEST_DTO_LEVEL"] = "7" },
+			"validate-dto", "--count", "5", "--size", "2", "--name", "ab", "--speed", "slow", "--path", "a/b", "--ids", "1,2");
+		r.ExitCode.Should().Be(0, CliHostRunner.StderrText(r));
+		ConsoleOutput.Normalize(CliHostRunner.StdoutText(r))
+			.Should().Contain("dto:5 size:2 name:ab speed:slow path:a/b level:7 ids:1,2");
+	}
+
 
 	// ── filesystem path validations (FileInfo / DirectoryInfo) ─────────────
 

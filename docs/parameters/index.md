@@ -93,6 +93,8 @@ These rules apply wherever the value comes from: a flag, a positional, a collect
 
 Collection flags accept the flag multiple times by default. Use `[CollectionSyntax(Separator=",")]` for comma-separated input instead. For variadic positionals, use `[Argument] T[]` or `[Argument] params T[]`.
 
+Each element of a collection, including a `T?` element and one read with an `[ArgumentParser]`, is parsed exactly as a single value of its type. A separated value is split with empty parts kept, so the element type decides: `--tags a,,b` gives three strings, while `--ids 1,,3` on an `int[]` is an error. A separator flag can also be given more than once, and an `[Env]` variable (or `UseEnvironmentPrefix`) supplies the value when the flag isn't given, split the same way.
+
 ::::tab-set
 
 :::tab-item Repeated flag

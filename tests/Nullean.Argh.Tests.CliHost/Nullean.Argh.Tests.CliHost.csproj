@@ -29,6 +29,7 @@
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\RootAliasFixtures.cs" Link="Fixtures\RootAliasFixtures.cs" />
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\SchemaSpecificHandlers.cs" Link="Fixtures\SchemaSpecificHandlers.cs" />
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\PathUriHandlers.cs" Link="Fixtures\PathUriHandlers.cs" />
+    <Compile Include="..\Nullean.Argh.Tests\Fixtures\CollectionElementHandlers.cs" Link="Fixtures\CollectionElementHandlers.cs" />
   </ItemGroup>
 
 </Project>

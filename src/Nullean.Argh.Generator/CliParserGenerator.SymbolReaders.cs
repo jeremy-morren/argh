@@ -42,7 +42,7 @@ public sealed partial class CliParserGenerator
 
 	private static (bool HideHelp, bool HideSchema) GetHiddenFlags(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name == "HiddenAttribute" &&
 			    ad.AttributeClass.ContainingNamespace?.ToDisplayString() == "Nullean.Argh")
@@ -102,7 +102,7 @@ public sealed partial class CliParserGenerator
 
 	private static (string? VarName, bool TreatEmptyAsUnset) GetEnvAttribute(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name == "EnvAttribute" &&
 			    ad.AttributeClass.ContainingNamespace?.ToDisplayString() == "Nullean.Argh" &&
@@ -124,7 +124,7 @@ public sealed partial class CliParserGenerator
 
 	private static (bool IsDeprecated, string? Message) TryGetObsoleteAttribute(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name is "ObsoleteAttribute" or "Obsolete" &&
 			    (ad.AttributeClass.ContainingNamespace?.ToDisplayString() is "System" or ""))
@@ -184,7 +184,7 @@ public sealed partial class CliParserGenerator
 
 	private static (bool IsOutput, ImmutableArray<string> ExplicitFormats) TryGetCommandOutputAttribute(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name == "CommandOutputAttribute" &&
 			    ad.AttributeClass.ContainingNamespace?.ToDisplayString() == DocNs)
@@ -208,7 +208,7 @@ public sealed partial class CliParserGenerator
 
 	private static bool HasConfirmationSkipAttribute(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name == "ConfirmationSkipAttribute" &&
 			    ad.AttributeClass.ContainingNamespace?.ToDisplayString() == DocNs)
@@ -219,7 +219,7 @@ public sealed partial class CliParserGenerator
 
 	private static bool HasDryRunAttribute(ISymbol symbol)
 	{
-		foreach (var ad in symbol.GetAttributes())
+		foreach (var ad in AttributesOf(symbol))
 		{
 			if (ad.AttributeClass?.Name == "DryRunAttribute" &&
 			    ad.AttributeClass.ContainingNamespace?.ToDisplayString() == DocNs)
@@ -625,7 +625,7 @@ public sealed partial class CliParserGenerator
 
 	private static bool HasArgumentAttribute(IParameterSymbol p)
 	{
-		foreach (var attr in p.GetAttributes())
+		foreach (var attr in AttributesOf(p))
 		{
 			if (attr.AttributeClass?.Name == "ArgumentAttribute")
 				return true;
@@ -700,27 +700,37 @@ public sealed partial class CliParserGenerator
 		}
 	}
 
-	private static string? TryGetCollectionSeparatorFromAttribute(ISymbol symbol)
+	/// <summary>
+	/// The attributes of a parameter or member Argh binds. A constructor parameter (a positional record's, bound with
+	/// <c>[AsParameters]</c>) also has those of the property it initializes, so <c>[property: Range(1, 10)]</c>, the form
+	/// .NET's own <c>Validator</c> reads, counts like <c>[Range(1, 10)]</c>; an attribute on the parameter wins over the
+	/// same attribute on the property.
+	/// </summary>
+	private static ImmutableArray<AttributeData> AttributesOf(ISymbol symbol)
 	{
-		var fromSymbol = TryGetCollectionSeparatorFromSymbol(symbol);
-		if (fromSymbol is not null)
-			return fromSymbol;
+		var own = symbol.GetAttributes();
+		if (symbol is not IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.Constructor } ctor } ctorParam
+		    || TryFindCtorMirroredProperty(ctor.ContainingType, ctorParam.Name) is not { } property)
+			return own;
 
-		// Positional record members can target [CollectionSyntax] at the synthesized property
-		// ([property: ...]) instead of the constructor parameter ([param: ...]).
-		if (symbol is IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.Constructor } ctor } ctorParam)
+		var mirrored = property.GetAttributes();
+		if (mirrored.IsEmpty)
+			return own;
+
+		var builder = ImmutableArray.CreateBuilder<AttributeData>(own.Length + mirrored.Length);
+		builder.AddRange(own);
+		foreach (var attr in mirrored)
 		{
-			var mirroredProperty = TryFindCtorMirroredProperty(ctor.ContainingType, ctorParam.Name);
-			if (mirroredProperty is not null)
-				return TryGetCollectionSeparatorFromSymbol(mirroredProperty);
+			if (!own.Any(o => SymbolEqualityComparer.Default.Equals(o.AttributeClass, attr.AttributeClass)))
+				builder.Add(attr);
 		}
 
-		return null;
+		return builder.ToImmutable();
 	}
 
-	private static string? TryGetCollectionSeparatorFromSymbol(ISymbol symbol)
+	private static string? TryGetCollectionSeparatorFromAttribute(ISymbol symbol)
 	{
-		foreach (var attr in symbol.GetAttributes())
+		foreach (var attr in AttributesOf(symbol))
 		{
 			if (attr.AttributeClass?.Name != "CollectionSyntaxAttribute")
 				continue;
