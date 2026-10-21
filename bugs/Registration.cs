@@ -39,7 +39,6 @@ internal static class Registration
 		app.UseMiddleware<Bug27Middleware>();
 
 		// A. Parsing and binding
-		Bug09.Register(app);
 
 		// B. Generator: uncompilable output and missing diagnostics.
 		// The #if'd ones break the build on purpose: dotnet build bugs -p:DefineConstants=BUG10 etc.
@@ -126,9 +125,8 @@ internal static class Registration
 		Bug91.Register(app);
 		Bug94.Register(app);
 		Bug95.Register(app);
-		Bug96.Register(app);
-#if BUG97
-		Bug97.Register(app);
+#if BUG98
+		Bug98.Register(app);
 #endif
 
 		// Feature requests (see the Feature requests section of BugsB.md)

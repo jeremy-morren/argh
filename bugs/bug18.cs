@@ -8,6 +8,11 @@
 // Also: Bugs.exe bug18 --help lists --label twice.
 // Cause: ReportDuplicateCliNamesAcc runs on the raw models (CommandModel.cs:68, 103), but the explicit
 //        names from <param> are applied later by ApplyParamDocumentation (:82, 117; body :338-375).
+//
+// Same family: a command parameter named like a global option compiles silently too.
+// Run:      Bugs.exe bug18-port --help          -> only the global --port row; the command's --port is not listed
+// Run:      Bugs.exe bug18-port --port 5        -> cmd-port:5 global-port:5    (one flag binds both)
+// Run:      Bugs.exe --port 5 bug18-port        -> cmd-port:1 global-port:5    (only the global one)
 
 using Nullean.Argh;
 using Nullean.Argh.Builder;
@@ -22,5 +27,14 @@ internal static class Bug18
 	[NoOptionsInjection]
 	public static void Run(string name = "", string label = "") => Console.Out.WriteLine($"name:{name} label:{label}");
 
-	public static void Register(IArghRootBuilder app) => app.Map("bug18", Run);
+	/// <summary>A command parameter named like the global --port.</summary>
+	/// <param name="g">Global options.</param>
+	/// <param name="port">The command's own port.</param>
+	public static void SamePort(GlobalOpts g, int port = 1) => Console.Out.WriteLine($"cmd-port:{port} global-port:{g.Port}");
+
+	public static void Register(IArghRootBuilder app)
+	{
+		app.Map("bug18", Run);
+		app.Map("bug18-port", SamePort);
+	}
 }

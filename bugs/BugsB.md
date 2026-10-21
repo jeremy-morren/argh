@@ -9,7 +9,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 12 | [Unsupported scalar types are treated as `string` and don't compile](#12-unsupported-scalar-types-are-treated-as-string-and-dont-compile) | Build break | `bug12.cs` (build break, `#if BUG12`) |
 | 14 | [A command and a namespace with the same name don't compile](#14-a-command-and-a-namespace-with-the-same-name-dont-compile) | Build break | `bug14.cs` (build break, `#if BUG14`) |
 | 16 | [A cross-assembly `[AsParameters]` DTO with `required` members doesn't compile](#16-a-cross-assembly-asparameters-dto-with-required-members-doesnt-compile) | Build break | `bug16.cs` + `lib/bug16.cs` (build break, `#if BUG16`) |
-| 18 | [Duplicate CLI names created by `<param>` overrides aren't diagnosed](#18-duplicate-cli-names-created-by-param-overrides-arent-diagnosed) | Wrong result | `bug18.cs` |
+| 18 | [Duplicate CLI names aren't diagnosed: `<param>` overrides, and a command flag named like a global option](#18-duplicate-cli-names-arent-diagnosed-param-overrides-and-a-command-flag-named-like-a-global-option) | Wrong result | `bug18.cs` |
 | 21 | [Literal command names aren't validated](#21-literal-command-names-arent-validated) | Minor | `bug21.cs` (build break, `#if BUG21`) |
 | 55 | [Generator errors don't halt emission](#55-generator-errors-dont-halt-emission) | Misleading message | `bug55.cs` (build break, `#if BUG55`) |
 | 59 | [A namespace name containing `{` or `}` doesn't compile](#59-a-namespace-name-containing--or--doesnt-compile) | Build break | `bug59.cs` (build break, `#if BUG59`) |
@@ -19,7 +19,7 @@ Handler shapes that make the generated `ArghGenerated.g.cs` fail to compile, wit
 | 82 | [AGH0003 fires when injected options precede an `[Argument]` parameter](#82-agh0003-fires-when-injected-options-precede-an-argument-parameter) | Wrong diagnostic | `bug82.cs` (build break, `#if BUG82`) |
 | 84 | [Moved to feature F1](#84-moved-to-feature-f1) | See Feature requests |  |
 | 85 | [The incremental generator's cache never hits, so every edit re-runs the whole emit](#85-the-incremental-generators-cache-never-hits-so-every-edit-re-runs-the-whole-emit) | Performance | `bug85.cs` (comment only) |
-| 97 | [`[Url]` on a `Uri[]` parameter doesn't compile](#97-url-on-a-uri-parameter-doesnt-compile) | Build break | `bug97.cs` (build break, `#if BUG97`) |
+| 98 | [A collection member on a namespace or global options class doesn't compile](#98-a-collection-member-on-a-namespace-or-global-options-class-doesnt-compile) | Build break | `bug98.cs` (build break, `#if BUG98`) |
 | F1 | [Support the common collection shapes, and lift the `IReadOnlySet<T>` value-type restriction](#f1-support-the-common-collection-shapes) | Feature request | `feat01.cs` (build break, `#if FEAT01`) |
 | F2 | [Dictionary parameters](#f2-dictionary-parameters) | Feature request | `feat02.cs` (comment only) |
 
@@ -31,11 +31,11 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. On `small-fixes` (on top of [#91](https://github.com/nullean/argh/pull/91), no PR yet): 19 (`[Env]` on a positional argument is read), 20 (a `params` array is optional), 67 (a required namespace option is accepted after the command, and a namespace with required options and no command shows its help), 74 (`--help` after a value-taking flag is that flag's value, and an unknown option before `--help` is an error), 92 (a global option between the namespace and the command is bound and validated) and 93 (no nullable warnings for an optional non-nullable `string` with a string validation attribute). On `bool-parsing` (on `small-fixes`, no PR yet): 1 (the command line wins over an environment variable, also for a global or namespace flag given before the command), 2 (`--flag=false` and clap's other boolish values set a plain `bool`), 6 (boolean environment variables are read case-insensitively), 8 (an unparseable `bool?` value is an error) and 70 (a positional `bool` compiles and binds); the branch also fixes these unlisted ones: a `bool` default of `true` was ignored, `bool?` never read its `[Env]` variable, non-boolean `bool[]` elements bound as `true`, and `UseEnvironmentPrefix` was never applied. On `unmatched-args` (no PR yet): 3 (options after the command get the same parsing and errors as before it, for every type), 4 (an unexpected argument is an error, as in clap) and 7 (`--` ends the options), and an unlisted one: an invalid environment value for an options member was ignored and is now an error. On `path-uri-input` (no PR yet): 5 (an empty or invalid `FileInfo`/`DirectoryInfo` value is a parse error and the constructor's exception is reported, also on .NET Framework) and 73 (an empty or invalid `Uri` is an error; the new `[UriOptions(UriKind)]` defaults to `Absolute`), and an unlisted one: `[UriScheme]` on a `string` generated code that didn't compile (CS1061 on `main`) and is now AGH0024. The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding` ([#85](https://github.com/nullean/argh/pull/85)), 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly` ([#83](https://github.com/nullean/argh/pull/83)), the `allowed`/`denied` part of 35 on `enum-completion` ([#82](https://github.com/nullean/argh/pull/82)), and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` ([#86](https://github.com/nullean/argh/pull/86), every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 71 (`float`, `double` and `decimal` no longer accept thousands separators: `ParserOptions.NumberStyles` now defaults to `NumberStyles.Float` for every floating-point and decimal parse), 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). On `range-unbounded` ([#90](https://github.com/nullean/argh/pull/90)): 10 and 11 (every number, enum and char the generator emits now carries its type: `1.5m`, `1.5f`, `(byte)5`, `double.NaN`, `global::Level.High`, `(global::Access)(3)`), 17 (a nullable enum keeps its `?`), 36 (`null`/`default` defaults no longer appear in help or `__schema`), 58 (`[Range(typeof(T), "min", "max")]` is parsed at build time, with AGH0038 on a bad bound), 89 (validation attributes on namespace and global options members are checked, whether the value comes before the namespace, after the command or from `[Env]`), 90 (AGH0038 on a bad bound of an options-type member, inherited ones included), and an unlisted regression from [#89](https://github.com/nullean/argh/pull/89): an unset `short?`, `byte?` or `Half?` with `[AllowedValues]` failed "value must be one of" because the check had no `HasValue` guard. On `small-fixes` (on top of [#91](https://github.com/nullean/argh/pull/91), no PR yet): 19 (`[Env]` on a positional argument is read), 20 (a `params` array is optional), 67 (a required namespace option is accepted after the command, and a namespace with required options and no command shows its help), 74 (`--help` after a value-taking flag is that flag's value, and an unknown option before `--help` is an error), 92 (a global option between the namespace and the command is bound and validated) and 93 (no nullable warnings for an optional non-nullable `string` with a string validation attribute). On `bool-parsing` (on `small-fixes`, no PR yet): 1 (the command line wins over an environment variable, also for a global or namespace flag given before the command), 2 (`--flag=false` and clap's other boolish values set a plain `bool`), 6 (boolean environment variables are read case-insensitively), 8 (an unparseable `bool?` value is an error) and 70 (a positional `bool` compiles and binds); the branch also fixes these unlisted ones: a `bool` default of `true` was ignored, `bool?` never read its `[Env]` variable, non-boolean `bool[]` elements bound as `true`, and `UseEnvironmentPrefix` was never applied. On `unmatched-args` (no PR yet): 3 (options after the command get the same parsing and errors as before it, for every type), 4 (an unexpected argument is an error, as in clap) and 7 (`--` ends the options), and an unlisted one: an invalid environment value for an options member was ignored and is now an error. On `path-uri-input` (no PR yet): 5 (an empty or invalid `FileInfo`/`DirectoryInfo` value is a parse error and the constructor's exception is reported, also on .NET Framework) and 73 (an empty or invalid `Uri` is an error; the new `[UriOptions(UriKind)]` defaults to `Absolute`), and an unlisted one: `[UriScheme]` on a `string` generated code that didn't compile (CS1061 on `main`) and is now AGH0024. On `collection-elements` (no PR yet): 9 (every element, empty parts included, goes through the element parser, so `--ids=` and `--ids ,,` are errors), 96 (`[property: X]` validation attributes on a positional record are read) and 97 (`[Url]` on a `Uri[]` compiles and checks each element), and unlisted ones: collections of `T?` elements (`int?[]`, `IReadOnlySet<Guid?>`) didn't compile, value constraints on collections didn't compile, and `[Env]` and `UseEnvironmentPrefix` were never read for collections. The remaining bugs keep their numbers, because entries refer to each other by number.
 
 Each of these was reproduced with a small console project referencing the framework. "Doesn't compile" means the generated `ArghGenerated.g.cs` fails to compile, with no Argh diagnostic to explain why.
 
-This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `path-uri-input` (no PR yet; it sits on `unmatched-args`, `bool-parsing` and `small-fixes`, also without PRs, which sit on `emitter-cleanup`, [#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
+This is the bug report for `main` at `45954b6` (0.21.0), kept with a scratch project that exercises each bug. The branch sits on the open PR branch that contains every other one, currently `collection-elements` (no PR yet; it sits on `path-uri-input`, `unmatched-args`, `bool-parsing` and `small-fixes`, also without PRs, which sit on `emitter-cleanup`, [#91](https://github.com/nullean/argh/pull/91), which carries #81 to #90), so the scratch project runs against all pending fixes and every bug listed here still reproduces with them. Whenever a fix lands it is rebased again, onto a local merge of the PR tips if the stack has more than one. Line numbers in the entries are still from `45954b6`. **New bugs go here, on the `bugs` branch:** add a numbered section to the file for its proposed issue (the next free number across all five files; numbers are never reused) and a `bugNN.cs` that exercises it; a bug fixed on a branch is removed from this file and its scratch file deleted, and the note under Background lists it. The five groups below are the proposed issues; each bug keeps the number the report gave it, because entries refer to each other by number.
 
 ## How to run the scratch project
 
@@ -91,7 +91,7 @@ Generated: `var __rt_default_P07Lib_ExtReq = new global::P07Lib.ExtReq();` → t
 
 Cause: `isCrossAssemblyDefault = defaultValueLiteral is null && DeclaringSyntaxReferences.IsEmpty` (`ParameterModel.cs:316, 604`) ignores `IPropertySymbol.IsRequired`; the emit at `Emit.Runner.cs:636-645` then instantiates the type to read its defaults.
 
-### 18. Duplicate CLI names created by `<param>` overrides aren't diagnosed
+### 18. Duplicate CLI names aren't diagnosed: `<param>` overrides, and a command flag named like a global option
 
 ```csharp
 /// <param name="name">--label, The name.</param>
@@ -102,7 +102,17 @@ This compiles. Help lists `--label` twice, `--label A` binds both parameters, an
 
 Cause: `ReportDuplicateCliNamesAcc` runs on the raw models (`CliParserGenerator.CommandModel.cs:68, 103`), but the explicit names and aliases from `<param>` are applied later by `ApplyParamDocumentation` (`:82, 117`; body `:338-375`), so AGH0007 never sees them.
 
-**Expected (clap/cobra):** both reject two arguments with the same long name at build time.
+A command parameter named like a global option compiles silently too, and the command's own flag disappears:
+
+```
+Bugs.exe bug18-port --help       → lists only the global --port; the command's --port ("The command's own port.") is missing
+Bugs.exe bug18-port --port 5     → cmd-port:5 global-port:5      (one flag binds both)
+Bugs.exe --port 5 bug18-port     → cmd-port:1 global-port:5      (before the command, only the global one)
+```
+
+The same on `main` (`45954b6`), checked with a probe. Reported by the session building `collection-elements`.
+
+**Expected (clap/cobra):** both reject two arguments with the same long name at build time. For a flag named like a global option, clap keeps the subcommand's own argument when the ids match (`_propagate_global_args` doesn't copy the global over it, [command.rs#L4754-L4762](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/command.rs#L4754-L4762)) and panics when two different arguments share a long name ([debug_asserts.rs#L107-L112](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/builder/debug_asserts.rs#L107-L112)); one flag never binds both. Report a diagnostic, or let the command's own flag shadow the global one.
 
 ### 21. Literal command names aren't validated
 
@@ -163,30 +173,27 @@ Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `Immutabl
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
 
-### 97. `[Url]` on a `Uri[]` parameter doesn't compile
+### 98. A collection member on a namespace or global options class doesn't compile
 
 ```csharp
-static void Run([Url] Uri[] links) { }
+public sealed class NsOpts : GlobalOpts        // namespace options; the global options class fails the same way
+{
+    public string[] Tags { get; set; } = [];
+    public int[] Ids { get; set; } = [];
+}
 ```
 
 ```
-dotnet build bugs -c Release -p:DefineConstants=BUG97
-ArghGenerated.g.cs: error CS1503: Argument 1: cannot convert from 'System.Uri[]' to 'string?'
-ArghGenerated.g.cs: error CS1503: Argument 2: cannot convert from 'System.UriKind' to 'in System.UriCreationOptions'
+dotnet build bugs -c Release -p:DefineConstants=BUG98
+ArghGenerated.g.cs: error CS0029: Cannot implicitly convert type 'string' to 'string[]'
+ArghGenerated.g.cs: error CS0029: Cannot implicitly convert type 'string' to 'int[]'
 ```
 
-Generated:
+No Argh diagnostic. A `string[]` on the global options class gives the same CS0029 once per command (53 errors in `bugs/`). The same member on an `[AsParameters]` DTO works (`--tags a --tags b` binds both). The same on `main` (`45954b6`) and on `collection-elements`, checked with a probe. Reported by the session building `collection-elements`; reproduced in `bugs/bug98.cs`.
 
-```csharp
-if (__p_links is { } __url___p_links && !
-    (global::System.Uri.TryCreate(__url___p_links, global::System.UriKind.Absolute, out var __urlCheck___p_links) && ...))
-```
+Cause: the options pre-parse (`EmitOptionsConstructAndStore`, `src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:256-333`) and the runner's reconstruction of options members (`EmitOptionsReconstructLocals`, `:364-559`) treat every member as a scalar; neither has a collection branch.
 
-`[Url]` on a single `Uri` compiles (`bug97-one`). The same errors on `main` (`45954b6`) and on `path-uri-input`, checked with a probe. Reported by the session building `path-uri-input`; reproduced in `bugs/bug97.cs`.
-
-Cause: `EmitUrlConstraintCheck` (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:1079-1094`) validates the variable as one value, and for a collection it is handed the whole array.
-
-**Expected:** compile, and check each element as the other per-element constraints do, or report a diagnostic if `[Url]` isn't supported on `Uri` collections.
+**Expected (clap/cobra):** a global or persistent flag can take several values like any other: clap's `global(true)` works with `ArgAction::Append`, and pflag's `StringSlice` can be a persistent flag. Bind it like the DTO member, or report a diagnostic.
 
 ### Checked and refuted
 
