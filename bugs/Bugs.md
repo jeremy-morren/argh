@@ -141,7 +141,7 @@ The expected behaviour for each bug is what **clap** (Rust, v4.6.7) and **cobra*
 Repro commands use `EXE` for `.artifacts/bin/Nullean.Argh.Tests.CliHost/release/Nullean.Argh.Tests.CliHost.exe` with `NO_COLOR=1` set. The fixture's middleware output (`[tests:middleware:...]`) is left out.
 
 
-Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, the `allowed`/`denied` part of 35 on `enum-completion`, and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` (commit `92d5c2d`, every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` (stacked on [#87](https://github.com/nullean/argh/pull/87), PR pending): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
+Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows CI) and 65 (non-ASCII text in `__schema`) on `windows-encoding`, 13 (parameters named like generated locals), 15 (`fooBar` and `foo_bar` sharing a local) and 66 (`Uri` and `Uri?` in one method) on `timeonly`, the `allowed`/`denied` part of 35 on `enum-completion`, and 31 (fish), 32 (zsh), 86 (bash 3.2 `mapfile`) and 87 (CRLF candidates) on `completion-test` (commit `92d5c2d`, every real-shell matrix entry passing in [run 39530303045](https://github.com/jeremy-morren/argh/actions/runs/39530303045)). On `parse-culture` ([#88](https://github.com/nullean/argh/pull/88), stacked on [#87](https://github.com/nullean/argh/pull/87)): 72 (the culture-sensitive trailing re-parse; every numeric parse now uses the configured `ParserOptions`, invariant by default, with `Nullable<T>` lifted to `T`), and an unlisted bug where `[ArgumentParser]` on a `T?` parameter generated `Point??` and didn't compile (it now uses `IArgumentParser<T?>` if implemented, else `IArgumentParser<T>`). The remaining bugs keep their numbers, because entries refer to each other by number.
 
 ## Summary
 
@@ -417,7 +417,7 @@ Unrecognised collection shapes (`IList<T>`, `HashSet<T>`, `ImmutableArray<T>`, d
 **Expected:** either support the type or report an Argh diagnostic naming the parameter and type. clap's derive macro fails at compile time with a message naming the type.
 
 
-**Partly fixed on `parsable-types`** (stacked on `parse-culture`, PR pending): on .NET 7 and later, any type implementing `IParsable<T>` binds automatically, which covers `Guid`, `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`, `Half`, `Int128`, `BigInteger` and user `IParsable`/`ISpanParsable` types (including explicit implementations), as plain, nullable, collection, DTO, options and env values. Still broken: those types on target frameworks before .NET 7, where `IParsable<T>` doesn't exist, and any type that is neither built in nor `IParsable`, which still fails with CS1503 and no diagnostic.
+**Partly fixed on `parsable-types`** ([#89](https://github.com/nullean/argh/pull/89), stacked on [#88](https://github.com/nullean/argh/pull/88)): on .NET 7 and later, any type implementing `IParsable<T>` binds automatically, which covers `Guid`, `char`, `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`, `Half`, `Int128`, `BigInteger` and user `IParsable`/`ISpanParsable` types (including explicit implementations), as plain, nullable, collection, DTO, options and env values. Still broken: those types on target frameworks before .NET 7, where `IParsable<T>` doesn't exist, and any type that is neither built in nor `IParsable`, which still fails with CS1503 and no diagnostic.
 ### 14. A command and a namespace with the same name don't compile
 
 ```csharp
@@ -893,7 +893,7 @@ Cause: `NumberStyles.Float | NumberStyles.AllowThousands` at `Emit.Runner.cs:137
 **Expected (clap/cobra):** both reject `1,5`: Rust's `f64::from_str` and Go's `strconv.ParseFloat` take no thousands separators, and both are culture-independent.
 
 
-**Partly addressed on `parse-culture`:** the default is unchanged (.NET's own number styles, which allow thousands separators), but `ParserOptions.NumberStyles` now lets an app exclude `AllowThousands`.
+**Partly addressed on `parse-culture` ([#88](https://github.com/nullean/argh/pull/88)):** the default is unchanged (.NET's own number styles, which allow thousands separators), but `ParserOptions.NumberStyles` now lets an app exclude `AllowThousands`.
 ### 73. A required `Uri` binds empty, whitespace and garbage values as relative URIs
 
 ```
