@@ -322,7 +322,9 @@ public sealed partial class CliParserGenerator
 		DirectoryInfo,
 		Uri,
 		CustomParser,
-		Collection
+		Collection,
+		/// <summary>A type that implements <c>System.IParsable&lt;TSelf&gt;</c> and no other kind handles; parsed with its <c>TryParse</c>.</summary>
+		Parsable
 	}
 
 	private enum BoolSpecialKind

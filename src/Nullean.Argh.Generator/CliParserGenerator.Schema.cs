@@ -499,7 +499,8 @@ public sealed partial class CliParserGenerator
 			return "enum";
 		if (sk == CliScalarKind.Collection)
 			return "array";
-		if (sk != CliScalarKind.Primitive)
+		// Parsable types are named like primitives (short, char, Guid), so integer types map to "integer" too.
+		if (sk != CliScalarKind.Primitive && sk != CliScalarKind.Parsable)
 			return "string";
 
 		// GetSimpleTypeName returns nullable variants with a trailing '?' (e.g. "int?", "bool?")

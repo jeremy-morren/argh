@@ -86,7 +86,10 @@ public sealed partial class CliParserGenerator
 		/// or null when it implements neither and its <c>TryParse</c> is called directly.
 		/// </summary>
 		string? ParserValueTypeFq = null,
-		string? ElementParserValueTypeFq = null)
+		string? ElementParserValueTypeFq = null,
+		/// <summary>A <see cref="CliScalarKind.Parsable"/> type that also implements <c>System.Numerics.INumberBase&lt;TSelf&gt;</c>, so it can take <c>NumberStyles</c>.</summary>
+		bool ParsableIsNumber = false,
+		bool ElementParsableIsNumber = false)
 	{
 		// ── shared helpers ──────────────────────────────────────────────────────
 
@@ -195,6 +198,7 @@ public sealed partial class CliParserGenerator
 				ElementParserTypeFq: pFq,
 				ElementCustomValueTypeFq: cFq,
 				ElementParserValueTypeFq: pvFq,
+				ElementParsableIsNumber: elemSk == CliScalarKind.Parsable && IsNumberBase(elementType),
 				FullDeclaredTypeFq: fq,
 				CollectionTargetIsArray: collectionType is IArrayTypeSymbol,
 				CollectionTargetIsReadOnlySet: defFq == "global::System.Collections.Generic.IReadOnlySet<T>",
@@ -304,7 +308,8 @@ public sealed partial class CliParserGenerator
 				IsDeprecated: isDeprecatedP,
 				DeprecationMessage: deprecationMsgP,
 				EnvVarName: _paramEnvVar,
-				EnvTreatEmptyAsUnset: _paramEnvEmpty);
+				EnvTreatEmptyAsUnset: _paramEnvEmpty,
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(p.Type));
 		}
 
 		public static ParameterModel FromOptionsProperty(IPropertySymbol prop, Compilation? compilation = null, string? defaultValueLiteral = null)
@@ -371,7 +376,8 @@ public sealed partial class CliParserGenerator
 				IsDeprecated: TryGetObsoleteAttribute(prop).IsDeprecated,
 				DeprecationMessage: TryGetObsoleteAttribute(prop).Message,
 				EnvVarName: _propEnvVar,
-				EnvTreatEmptyAsUnset: _propEnvEmpty);
+				EnvTreatEmptyAsUnset: _propEnvEmpty,
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type));
 		}
 
 		public static ParameterModel FromOptionsField(IFieldSymbol field, Compilation? compilation = null, string? defaultValueLiteral = null)
@@ -427,7 +433,8 @@ public sealed partial class CliParserGenerator
 				IsNullableAnnotated: field.Type.NullableAnnotation == NullableAnnotation.Annotated
 					|| field.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T },
 				EnvVarName: _fieldEnvVar,
-				EnvTreatEmptyAsUnset: _fieldEnvEmpty);
+				EnvTreatEmptyAsUnset: _fieldEnvEmpty,
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(field.Type));
 		}
 		public static ParameterModel FromAsParametersCtorParameter(
 			string methodParamName,
@@ -549,7 +556,8 @@ public sealed partial class CliParserGenerator
 				IsDeprecated: isDeprecatedCp,
 				DeprecationMessage: deprecationMsgCp,
 				EnvVarName: cpEnvVar,
-				EnvTreatEmptyAsUnset: cpEnvEmpty);
+				EnvTreatEmptyAsUnset: cpEnvEmpty,
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(cp.Type));
 		}
 
 		public static ParameterModel FromAsParametersInitProperty(
@@ -664,7 +672,8 @@ public sealed partial class CliParserGenerator
 				IsDeprecated: isDeprecatedProp,
 				DeprecationMessage: deprecationMsgProp,
 				EnvVarName: initPropEnvVar,
-				EnvTreatEmptyAsUnset: initPropEnvEmpty);
+				EnvTreatEmptyAsUnset: initPropEnvEmpty,
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type));
 		}
 
 		private static bool ComputeRequiredForOptionsType(ITypeSymbol type, BoolSpecialKind bs)
@@ -754,6 +763,12 @@ public sealed partial class CliParserGenerator
 					primitiveName = "Uri";
 					return;
 				}
+			}
+
+			if (TryClassifyParsable(type, out primitiveName, out customValueFq))
+			{
+				kind = CliScalarKind.Parsable;
+				return;
 			}
 
 			kind = CliScalarKind.Primitive;
@@ -885,8 +900,65 @@ public sealed partial class CliParserGenerator
 				}
 			}
 
+			if (TryClassifyParsable(p.Type, out primitiveName, out customValueFq))
+			{
+				kind = CliScalarKind.Parsable;
+				return;
+			}
+
 			kind = CliScalarKind.Primitive;
 			primitiveName = GetSimpleTypeName(p.Type);
+		}
+
+		/// <summary>
+		/// A type no other kind handles that implements <c>System.IParsable&lt;TSelf&gt;</c> for itself (which includes
+		/// <c>ISpanParsable&lt;TSelf&gt;</c>) is parsed with its <c>TryParse</c>. Runs last, so <c>[ArgumentParser]</c> and
+		/// every built-in kind (numerics, temporal types, enums, <c>Uri</c>, files and directories) keep their own parsing.
+		/// <paramref name="displayName"/> is the C# keyword for special types (<c>short</c>, <c>char</c>) or the type name,
+		/// with a trailing <c>?</c> for <c>Nullable&lt;T&gt;</c>; <paramref name="valueTypeFq"/> is the underlying type.
+		/// </summary>
+		private static bool TryClassifyParsable(ITypeSymbol type, out string displayName, out string? valueTypeFq)
+		{
+			displayName = "";
+			valueTypeFq = null;
+			var nullableValue = type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
+			var t = nullableValue ? ((INamedTypeSymbol)type).TypeArguments[0] : type;
+			if (t is not INamedTypeSymbol named || t.SpecialType == SpecialType.System_String)
+				return false;
+			if (GetSimpleTypeName(t) != "string")
+				return false;
+
+			foreach (var iface in named.AllInterfaces)
+			{
+				if (iface is { Name: "IParsable", TypeArguments.Length: 1 }
+				    && iface.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true }
+				    && SymbolEqualityComparer.Default.Equals(iface.TypeArguments[0], named))
+				{
+					var name = named.SpecialType != SpecialType.None
+						? named.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)
+						: named.Name;
+					displayName = nullableValue ? name + "?" : name;
+					valueTypeFq = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/// <summary>Whether the type (or the T of a <c>Nullable&lt;T&gt;</c>) implements <c>System.Numerics.INumberBase&lt;TSelf&gt;</c> for itself.</summary>
+		private static bool IsNumberBase(ITypeSymbol type)
+		{
+			var t = type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nn ? nn.TypeArguments[0] : type;
+			foreach (var iface in t.AllInterfaces)
+			{
+				if (iface is { Name: "INumberBase", TypeArguments.Length: 1 }
+				    && iface.ContainingNamespace is { Name: "Numerics", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+				    && SymbolEqualityComparer.Default.Equals(iface.TypeArguments[0], t))
+					return true;
+			}
+
+			return false;
 		}
 
 		private static ImmutableArray<string> GetEnumMemberNames(INamedTypeSymbol enumType)
@@ -1121,5 +1193,15 @@ public sealed partial class CliParserGenerator
 			_ => null,
 		};
 	}
+
+	/// <summary>Generic helper on the generated root type that calls <c>IParsable&lt;T&gt;.TryParse</c> for <see cref="CliScalarKind.Parsable"/> values.</summary>
+	private const string ParsableHelperName = "TryParseParsable";
+
+	/// <summary>Like <see cref="ParsableHelperName"/>, for types that implement <c>INumberBase&lt;T&gt;</c>, so <c>NumberStyles</c> applies.</summary>
+	private const string NumberBaseHelperName = "TryParseNumberBase";
+
+	/// <summary>The <c>TryParse</c> call for a <see cref="CliScalarKind.Parsable"/> value, through the helper that fits its type.</summary>
+	private static string ParsableTryParseCall(ParameterModel p, string text, string outArg) =>
+		$"{(p.ParsableIsNumber ? NumberBaseHelperName : ParsableHelperName)}<{p.CustomValueTypeFq}>({text}, {ParserOptionsExpr}, {outArg})";
 
 }

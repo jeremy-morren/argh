@@ -38,6 +38,7 @@ public class RootAndNamespaceHelpTests
 			  alias-scope     Root-alias integration test namespace.
 			  billing         Billing commands
 			  env-ns          Env binding namespace options tests.
+			  parsable-ns     IParsable types as namespace options.
 			  scalars-ns      Special scalar types as namespace options.
 			  storage         Commands under storage. Nested BlobCommands must be registered
 			                  explicitly via MapNamespace<BlobCommands>.
@@ -118,11 +119,19 @@ public class RootAndNamespaceHelpTests
 			                                                global-options handler parameter
 			                                                (-m still parses).
 			  nullable-numeric-as-params
+			  numeric-parsables                             Numeric types parsed through
+			                                                IParsable and INumberBase.
 			  opt-tag-set
 			  optional-point-cmd
 			  optional-uri-as-params
 			  other
 			  param-comment-record
+			  parsable-dto                                  IParsable members on an
+			                                                [AsParameters] DTO.
+			  parsable-with-parser                          An [ArgumentParser] on an
+			                                                IParsable type wins.
+			  parsables                                     Types parsed through IParsable,
+			                                                without an [ArgumentParser].
 			  ping
 			  point-as-params-cmd
 			  point-cmd

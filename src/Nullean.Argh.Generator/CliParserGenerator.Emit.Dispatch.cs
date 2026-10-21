@@ -540,6 +540,17 @@ public sealed partial class CliParserGenerator
 		EmitTryParseRouteHierarchical(sb, app);
 		EmitIsIntrinsicCommand(sb, app);
 		EmitDispatchForNode(sb, app, app.Root, ImmutableArray<string>.Empty, "DispatchRoot", isRoot: true, entryAssemblyName);
+		// Static abstract interface members need a constrained generic call site, which also reaches explicit implementations.
+		// IParsable<T> exists from .NET 7, and a parameter can only be IParsable when the consumer targets it.
+		// Number types take ParserOptions.NumberStyles, like the built-in number types.
+		sb.AppendLine("#if NET7_0_OR_GREATER");
+		sb.AppendLine($"\t\tprivate static bool {ParsableHelperName}<T>(string? raw, global::Nullean.Argh.Parsing.ParserOptions options, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T value)");
+		sb.AppendLine("\t\t\twhere T : global::System.IParsable<T> => T.TryParse(raw, options.Culture, out value);");
+		sb.AppendLine();
+		sb.AppendLine($"\t\tprivate static bool {NumberBaseHelperName}<T>(string? raw, global::Nullean.Argh.Parsing.ParserOptions options, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T value)");
+		sb.AppendLine("\t\t\twhere T : global::System.Numerics.INumberBase<T> => T.TryParse(raw, options.NumberStyles, options.Culture, out value);");
+		sb.AppendLine("#endif");
+		sb.AppendLine();
 		sb.AppendLine("\t\tprivate static bool? ParseNullableBool(string? raw, bool fromYesSwitch)");
 		sb.AppendLine("\t\t{");
 		sb.AppendLine("\t\t\tif (string.IsNullOrEmpty(raw)) return fromYesSwitch;");

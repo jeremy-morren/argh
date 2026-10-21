@@ -50,6 +50,10 @@ internal static class CliRegistrationModule
 		app.Map("optional-point-cmd", CliTestHandlers.OptionalPointCmd);
 		app.Map("culture-choices", CliTestHandlers.CultureChoices);
 		app.Map("culture-cmd", CliTestHandlers.CultureCmd);
+		app.Map("parsables", ParsableHandlers.Parsables);
+		app.Map("parsable-dto", ParsableHandlers.ParsableDto);
+		app.Map("parsable-with-parser", ParsableHandlers.ParsableWithParser);
+		app.Map("numeric-parsables", ParsableHandlers.NumericParsables);
 		app.Map("local-names", CliTestHandlers.LocalNames);
 		app.Map("local-names-dto", CliTestHandlers.LocalNamesDto);
 		app.Map("tag-set-parser", CliTestHandlers.TagSetParser);
@@ -99,6 +103,11 @@ internal static class CliRegistrationModule
 		{
 			g.UseNamespaceOptions<EnvTestNamespaceOptions>();
 			g.Map("key", EnvBindingHandlers.EnvNs);
+		});
+		app.MapNamespace("parsable-ns", "IParsable types as namespace options.", g =>
+		{
+			g.UseNamespaceOptions<ParsableNamespaceOptions>();
+			g.Map("show", ParsableHandlers.ParsableNsShow);
 		});
 		app.MapNamespace("scalars-ns", "Special scalar types as namespace options.", g =>
 		{

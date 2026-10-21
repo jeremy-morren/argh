@@ -690,7 +690,7 @@ public sealed partial class CliParserGenerator
 				return "global::System.IO.DirectoryInfo";
 			case CliScalarKind.Uri:
 				return "global::System.Uri";
-			case CliScalarKind.CustomParser when p.ElementCustomValueTypeFq is not null:
+			case CliScalarKind.CustomParser or CliScalarKind.Parsable when p.ElementCustomValueTypeFq is not null:
 				return p.ElementCustomValueTypeFq;
 			default:
 				break;
@@ -730,6 +730,7 @@ public sealed partial class CliParserGenerator
 			ParserTypeFq = p.ElementParserTypeFq,
 			CustomValueTypeFq = p.ElementCustomValueTypeFq,
 			ParserValueTypeFq = p.ElementParserValueTypeFq,
+			ParsableIsNumber = p.ElementParsableIsNumber,
 			Special = BoolSpecialKind.None,
 			IsCollection = false,
 			IsRequired = true
@@ -814,6 +815,13 @@ public sealed partial class CliParserGenerator
 				return (p.IsRequired || p.UsesRuntimeDefault) && !p.IsNullableAnnotated || p.CustomValueTypeFq.EndsWith("?", StringComparison.Ordinal)
 					? p.CustomValueTypeFq
 					: p.CustomValueTypeFq + "?";
+			// A Nullable<T> parameter keeps T? even when required; a T with a default value is T.
+			case CliScalarKind.Parsable when p.CustomValueTypeFq is not null:
+				return p.TypeName.EndsWith("?", StringComparison.Ordinal)
+				       || (!p.IsRequired && !p.UsesRuntimeDefault && p.DefaultValueLiteral is null)
+				       || p.IsNullableAnnotated
+					? p.CustomValueTypeFq + "?"
+					: p.CustomValueTypeFq;
 			default:
 				break;
 		}
@@ -858,7 +866,7 @@ public sealed partial class CliParserGenerator
 			return "null!";
 
 		if (!p.IsRequired && p.ScalarKind is CliScalarKind.Enum or CliScalarKind.FileInfo or CliScalarKind.DirectoryInfo
-		    or CliScalarKind.Uri or CliScalarKind.CustomParser)
+		    or CliScalarKind.Uri or CliScalarKind.CustomParser or CliScalarKind.Parsable)
 			return "null";
 
 		if (!p.IsRequired && p.TypeName.EndsWith("?", StringComparison.Ordinal))
@@ -1146,6 +1154,16 @@ public sealed partial class CliParserGenerator
 			return;
 		}
 
+		if (p.ScalarKind == CliScalarKind.Parsable && p.CustomValueTypeFq is not null)
+		{
+			// A Nullable<T> goes through the same lifting as the built-in value types.
+			if (p.TypeName.EndsWith("?", StringComparison.Ordinal))
+				EmitLiftedNullableParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+			else
+				EmitParsableFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+			return;
+		}
+
 		if (p.Special == BoolSpecialKind.None && IsLiftableNullable(p.TypeName))
 		{
 			EmitLiftedNullableParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1347,6 +1365,27 @@ else
 return;
 	}
 
+	/// <summary>
+	/// Parses an <c>IParsable&lt;T&gt;</c> value through a constrained generic helper on the generated root type
+	/// (<c>TryParseParsable&lt;T&gt;</c>, or <c>TryParseNumberBase&lt;T&gt;</c> for number types), so types that implement the
+	/// interface explicitly work as well as ones with a public <c>TryParse</c>. <c>T?</c> reaches this through the nullable lifting.
+	/// </summary>
+	private static void EmitParsableFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	{
+		var e = Escape(p.CliLongName);
+		var parsed = ParamTemp(p, "pv");
+		sb.AppendLine($"{ind}if (!{ParsableTryParseCall(p, rawExpr, "out var " + parsed)})");
+		sb.AppendLine($"{ind}{{");
+		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid {Escape(p.TypeName.TrimEnd('?'))} for --{e}: '{{{rawExpr}}}'.\");");
+		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		sb.AppendLine($"{ind}\t{failureExit};");
+		sb.AppendLine($"{ind}}}");
+		if (outVarKeyword)
+			sb.AppendLine($"{ind}var {targetVar} = {parsed};");
+		else
+			sb.AppendLine($"{ind}{targetVar} = {parsed};");
+	}
+
 	private static void EmitPrimitiveScalarParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var e = Escape(p.CliLongName);
@@ -1526,8 +1565,12 @@ switch (p.Special)
 		sb.AppendLine($"{ind}{GetCSharpCliType(p)} {lifted} = null;");
 		sb.AppendLine($"{ind}if ({rawExpr} is not null)");
 		sb.AppendLine($"{ind}{{");
-		EmitPrimitiveScalarParseFromString(sb, p with { TypeName = p.TypeName.TrimEnd('?') }, rawExpr, value, ind + "\t",
-			outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		var inner = p with { TypeName = p.TypeName.TrimEnd('?') };
+		if (p.ScalarKind == CliScalarKind.Parsable)
+			EmitParsableFromString(sb, inner, rawExpr, value, ind + "\t", outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		else
+			EmitPrimitiveScalarParseFromString(sb, inner, rawExpr, value, ind + "\t",
+				outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 		sb.AppendLine($"{ind}\t{lifted} = {value};");
 		sb.AppendLine($"{ind}}}");
 

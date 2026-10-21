@@ -534,3 +534,158 @@ internal static class CrossAssemblyHandlers
 	public static void ExternalNsEcho(TestGlobalCliOptions g, [AsParameters] ExternalNsGlobalOptions opts) =>
 		Console.Out.WriteLine($"ext-ns-as-params:{opts.Verbose}:{opts.Tag}");
 }
+
+/// <summary>An order number such as <c>ORD-42</c>, parsed through its public <c>IParsable</c> members.</summary>
+internal readonly record struct OrderId(int Number) : IParsable<OrderId>
+{
+	public static OrderId Parse(string s, IFormatProvider? provider) =>
+		TryParse(s, provider, out var id) ? id : throw new FormatException($"'{s}' is not an order id.");
+
+	public static bool TryParse([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? s, IFormatProvider? provider, out OrderId result)
+	{
+		result = default;
+		if (s is null || !s.StartsWith("ORD-", StringComparison.Ordinal)
+		    || !int.TryParse(s.AsSpan(4), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n))
+			return false;
+		result = new OrderId(n);
+		return true;
+	}
+
+	public override string ToString() => "ORD-" + Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>A code that implements <c>IParsable</c> explicitly, so it has no public static <c>TryParse</c>.</summary>
+internal sealed class ExplicitCode : IParsable<ExplicitCode>
+{
+	private ExplicitCode(string value) => Value = value;
+
+	public string Value { get; }
+
+	static ExplicitCode IParsable<ExplicitCode>.Parse(string s, IFormatProvider? provider) => new(s.ToUpperInvariant());
+
+	static bool IParsable<ExplicitCode>.TryParse([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? s, IFormatProvider? provider,
+		[System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out ExplicitCode result)
+	{
+		result = s is { Length: 3 } ? new ExplicitCode(s.ToUpperInvariant()) : null;
+		return result is not null;
+	}
+}
+
+/// <summary>A token that implements <c>ISpanParsable</c>; Argh calls its string overload.</summary>
+internal readonly record struct SpanToken(string Text) : ISpanParsable<SpanToken>
+{
+	public static SpanToken Parse(string s, IFormatProvider? provider) => Parse(s.AsSpan(), provider);
+
+	public static bool TryParse([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? s, IFormatProvider? provider, out SpanToken result) =>
+		TryParse(s.AsSpan(), provider, out result);
+
+	public static SpanToken Parse(ReadOnlySpan<char> s, IFormatProvider? provider) =>
+		TryParse(s, provider, out var t) ? t : throw new FormatException("Empty token.");
+
+	public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out SpanToken result)
+	{
+		result = s.IsEmpty ? default : new SpanToken("tok:" + s.ToString());
+		return !s.IsEmpty;
+	}
+}
+
+/// <summary>An amount whose parsing follows the provider, so it reads <c>1,5</c> under de-DE.</summary>
+internal readonly record struct Amount(decimal Value) : IParsable<Amount>
+{
+	public static Amount Parse(string s, IFormatProvider? provider) => new(decimal.Parse(s, System.Globalization.NumberStyles.Number, provider));
+
+	public static bool TryParse([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? s, IFormatProvider? provider, out Amount result)
+	{
+		var ok = decimal.TryParse(s, System.Globalization.NumberStyles.Number, provider, out var v);
+		result = new Amount(v);
+		return ok;
+	}
+}
+
+/// <summary>Converts an order id with an [ArgumentParser], which must win over the type's own IParsable.</summary>
+internal sealed class OrderIdOffsetParser : IArgumentParser<OrderId>
+{
+	public bool TryParse(string raw, Nullean.Argh.Parsing.ParserOptions options, out OrderId value)
+	{
+		var ok = int.TryParse(raw, System.Globalization.NumberStyles.Integer, options.Culture, out var n);
+		value = new OrderId(n + 1000);
+		return ok;
+	}
+}
+
+/// <summary>[AsParameters] DTO with IParsable members.</summary>
+internal sealed class ParsableArgs
+{
+	public OrderId Order { get; init; }
+	public Guid? Id { get; init; }
+	[CollectionSyntax(Separator = ",")]
+	public List<OrderId> Batch { get; init; } = [];
+}
+
+/// <summary>Namespace options with IParsable members.</summary>
+internal sealed class ParsableNamespaceOptions : TestGlobalCliOptions
+{
+	public OrderId? Order { get; set; }
+	public Guid? Id { get; set; }
+}
+
+/// <summary>Handlers for types bound through IParsable.</summary>
+internal static class ParsableHandlers
+{
+	/// <summary>Types parsed through IParsable, without an [ArgumentParser].</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="order">An order id.</param>
+	/// <param name="code">A code with an explicit IParsable implementation.</param>
+	/// <param name="token">An ISpanParsable token.</param>
+	/// <param name="id">A Guid.</param>
+	/// <param name="small">A short.</param>
+	/// <param name="letter">A char.</param>
+	/// <param name="amount">A culture-dependent amount.</param>
+	/// <param name="maybe">An optional order id.</param>
+	/// <param name="more">Repeatable order ids.</param>
+	/// <param name="fromEnv">An order id read from ARGH_TEST_ORDER.</param>
+	public static void Parsables(TestGlobalCliOptions g, OrderId order, ExplicitCode code, SpanToken token, Guid id,
+		short small = 7, char letter = 'x', Amount? amount = null, OrderId? maybe = null, List<OrderId>? more = null,
+		[Env("ARGH_TEST_ORDER")] OrderId? fromEnv = null) =>
+		Console.Out.WriteLine(string.Join("|",
+			order, code.Value, token.Text, id, small.ToString(System.Globalization.CultureInfo.InvariantCulture), letter,
+			amount?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none", maybe?.ToString() ?? "none",
+			more is null ? "none" : string.Join(",", more), fromEnv?.ToString() ?? "none"));
+
+	/// <summary>IParsable members on an [AsParameters] DTO.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="args">IParsable members.</param>
+	public static void ParsableDto(TestGlobalCliOptions g, [AsParameters] ParsableArgs args) =>
+		Console.Out.WriteLine($"{args.Order}|{args.Id?.ToString() ?? "none"}|{string.Join(",", args.Batch)}");
+
+	/// <summary>An [ArgumentParser] on an IParsable type wins.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="order">A number the parser turns into an order id.</param>
+	public static void ParsableWithParser(TestGlobalCliOptions g, [ArgumentParser(typeof(OrderIdOffsetParser))] OrderId order) =>
+		Console.Out.WriteLine(order.ToString());
+
+	/// <summary>IParsable members on namespace options.</summary>
+	/// <param name="o">Namespace options.</param>
+	public static void ParsableNsShow(ParsableNamespaceOptions o) =>
+		Console.Out.WriteLine($"{o.Order?.ToString() ?? "none"}|{o.Id?.ToString() ?? "none"}");
+
+	/// <summary>Numeric types parsed through IParsable and INumberBase.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="b">A byte.</param>
+	/// <param name="sb">An sbyte.</param>
+	/// <param name="us">A ushort.</param>
+	/// <param name="ui">A uint.</param>
+	/// <param name="ul">A ulong.</param>
+	/// <param name="h">A Half.</param>
+	/// <param name="i128">An Int128.</param>
+	/// <param name="big">A BigInteger.</param>
+	public static void NumericParsables(TestGlobalCliOptions g, byte? b = null, sbyte? sb = null, ushort? us = null, uint? ui = null,
+		ulong? ul = null, Half? h = null, Int128? i128 = null, System.Numerics.BigInteger? big = null)
+	{
+		var inv = System.Globalization.CultureInfo.InvariantCulture;
+		var values = new (string Name, IFormattable? Value)[]
+			{ ("b", b), ("sb", sb), ("us", us), ("ui", ui), ("ul", ul), ("h", h), ("i128", i128), ("big", big) };
+		var set = values.Where(v => v.Value is not null).Select(v => v.Name + "=" + v.Value!.ToString(null, inv)).ToList();
+		Console.Out.WriteLine(set.Count == 0 ? "none" : string.Join("|", set));
+	}
+}

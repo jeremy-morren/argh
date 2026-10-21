@@ -201,6 +201,12 @@ public sealed partial class CliParserGenerator
 					return "<uri>";
 				case CliScalarKind.CustomParser:
 					return "<value>";
+				case CliScalarKind.Parsable:
+				{
+					// The type name in camel case, like <dateOnly>: <orderId>, <guid>, <short>.
+					var n = p.TypeName.TrimEnd('?');
+					return n.Length == 0 ? "<value>" : "<" + char.ToLowerInvariant(n[0]) + n.Substring(1) + ">";
+				}
 				default:
 					break;
 			}

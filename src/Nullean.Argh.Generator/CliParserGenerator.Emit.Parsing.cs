@@ -503,6 +503,12 @@ public sealed partial class CliParserGenerator
 						sb.AppendLine($"\t\t\t\t\t{tmpName} = {pvVar};");
 						sb.AppendLine("\t\t\t}");
 					}
+					else if (m.ScalarKind == CliScalarKind.Parsable && m.CustomValueTypeFq is not null)
+					{
+						var pvVar = ParamTemp(m, "pv_ropt");
+						sb.AppendLine($"\t\t\tif ({tmpName}Txt is not null && {ParsableTryParseCall(m, tmpName + "Txt", "out var " + pvVar)})");
+						sb.AppendLine($"\t\t\t\t{tmpName} = {pvVar};");
+					}
 				}
 			}
 

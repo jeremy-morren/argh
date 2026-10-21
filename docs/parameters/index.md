@@ -19,6 +19,7 @@ Nullean.Argh supports several parameter binding modes:
 | Primitives | `string`, `int`, `long`, `double`, `float`, `decimal`, `bool`, `bool?` |
 | System | `enum`, `FileInfo`, `DirectoryInfo`, `Uri` |
 | Collections | `List<T>`, `T[]` |
+| Parsable | Any type that implements `IParsable<T>` on .NET 7 and later, such as `Guid`, `short`, `char` or your own types (see [below](#iparsablet-types)) |
 
 ### Culture and styles
 
@@ -86,6 +87,18 @@ myapp deploy --tags blue,green
 :::
 
 ::::
+
+### `IParsable<T>` types
+
+On .NET 7 and later, a type that implements `IParsable<T>`, including `ISpanParsable<T>`, binds without a [custom parser](custom-parsers.md). Argh calls its `TryParse` with the configured culture. Number types that also implement `INumberBase<T>`, such as `short` or `BigInteger`, get the configured `NumberStyles` too, `Float` by default. That covers your own types, such as an `OrderId`, and .NET types with no built-in handling, such as `Guid`, `short`, `byte`, `char`, `uint` and `Half`. It works for flags, positionals, nullable values, collections, `[AsParameters]` and options members, and environment-variable fallbacks, and also for types that implement `IParsable<T>` explicitly.
+
+When more than one rule could apply, the first one wins:
+
+1. An `[ArgumentParser]` on the parameter or member.
+2. The built-in handling for the types in the table above. It keeps Argh's own formats, such as a `Z` date staying UTC and compact `TimeSpan` values like `5m`.
+3. `IParsable<T>`.
+
+Help shows the type name as the placeholder, as in `--order <orderId>`, and an invalid value prints `Error: invalid OrderId for --order: 'x'.` and exits with code 2.
 
 ## How it works
 
