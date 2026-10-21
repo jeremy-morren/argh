@@ -90,6 +90,40 @@ jobs:
     - run: dotnet test -c Release --logger:GithubActions --logger:pretty
       name: Test
 
+  # Loads each shell's completion script into that shell and drives the shell's own completion machinery,
+  # so a script that doesn't parse, or that sends the app the wrong words, fails here. See tests/completion.
+  completion-test:
+    name: completion-test (${{ matrix.os }}, ${{ matrix.shell }})
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, macos]
+        shell: [bash, zsh, fish]
+        include:
+          - { os: windows, shell: git-bash }
+          - { os: windows, shell: powershell }
+          - { os: windows, shell: pwsh }
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: ./global.json
+    - name: Install ${{ matrix.shell }}
+      if: matrix.os == 'ubuntu' && matrix.shell != 'bash'
+      run: sudo apt-get update && sudo apt-get install -y ${{ matrix.shell }}
+    - name: Install fish
+      if: matrix.os == 'macos' && matrix.shell == 'fish'
+      run: brew install fish
+    - name: Publish the example CLI
+      shell: bash
+      run: |
+        dotnet publish examples/Basic -c Release -o "$RUNNER_TEMP/completion-cli"
+        echo "$RUNNER_TEMP/completion-cli" >> "$GITHUB_PATH"
+    - name: Test completion in ${{ matrix.shell }}
+      shell: bash
+      run: bash tests/completion/run.sh ${{ matrix.os }} ${{ matrix.shell }}
+
   build:
     runs-on: ubuntu-latest
     steps:

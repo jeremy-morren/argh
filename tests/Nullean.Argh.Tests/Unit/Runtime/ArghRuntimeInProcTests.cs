@@ -63,6 +63,25 @@ public class ArghRuntimeInProcTests
 	}
 
 	[Fact]
+	public async Task RunAsync_complete_ends_candidates_with_lf_on_every_os()
+	{
+		// Console.WriteLine would end lines with CRLF on Windows, and bash and zsh keep the CR in each candidate.
+		var prev = Console.Out;
+		var sw = new StringWriter { NewLine = "\r\n" };
+		try
+		{
+			Console.SetOut(sw);
+			var code = await ArghRuntime.RunAsync(["__complete", "bash", "--", "storage", ""]);
+			code.Should().Be(0);
+			sw.ToString().Should().Contain("blob\n").And.NotContain("\r");
+		}
+		finally
+		{
+			Console.SetOut(prev);
+		}
+	}
+
+	[Fact]
 	public async Task RunAsync_parses_enum_flags()
 	{
 		var code = await ArghRuntime.RunAsync(["enum-cmd", "--colour", "red", "--name", "x"]);

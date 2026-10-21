@@ -51,6 +51,34 @@ public class CompletionsTests
 		stdout.Should().NotContain("{0}");
 	}
 
+	// The scripts are tested in each real shell by the completion-test CI job (tests/completion); these pin the
+	// fixes it found, so a template change that reintroduces one fails here too.
+
+	[Fact]
+	public void Bash_script_runs_in_bash_3_2_and_sends_words_up_to_the_cursor()
+	{
+		var stdout = CliHostRunner.StdoutText(CliHostRunner.Run("__completion", "bash"));
+		stdout.Split('\n').Where(l => !l.TrimStart().StartsWith('#'))
+			.Should().NotContain(l => l.Contains("mapfile"), "bash 3.2, the macOS default, has no mapfile");
+		stdout.Should().Contain("while IFS= read -r line");
+		stdout.Should().Contain("\"${COMP_WORDS[@]:1:COMP_CWORD}\"");
+	}
+
+	[Fact]
+	public void Zsh_script_sends_every_word_after_the_command_name()
+	{
+		var stdout = CliHostRunner.StdoutText(CliHostRunner.Run("__completion", "zsh"));
+		stdout.Should().Contain("\"${(@)words[2,CURRENT]}\"");
+		stdout.Should().NotContain("${words[@]:2}", "the zero-based form drops the first CLI word");
+	}
+
+	[Fact]
+	public void Fish_script_sends_the_token_being_completed()
+	{
+		var stdout = CliHostRunner.StdoutText(CliHostRunner.Run("__completion", "fish"));
+		stdout.Should().Contain("(commandline -opc)[2..-1] (commandline -ct)");
+	}
+
 	[Fact]
 	public void Complete_bash_root_emits_command_names()
 	{

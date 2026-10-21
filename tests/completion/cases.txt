@@ -1,0 +1,7 @@
+# Completion cases for examples/Basic, shared by every shell driver.
+# Format: name|command line up to the cursor|words that must all be offered
+root|Basic sto|storage
+nested|Basic storage |blob list
+nested-prefix|Basic storage b|blob
+flag-prefix|Basic hello --n|--name
+flags|Basic hello --|--name --verbose

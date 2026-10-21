@@ -11,7 +11,18 @@ Tab completion for subcommands, namespaces, and flags is included out of the box
 | Command | Purpose |
 |---------|---------|
 | `myapp __completion bash\|zsh\|fish\|powershell` | Print an install snippet (substitutes your executable name). |
-| `myapp __complete <shell> -- <words...>` | Return completion candidates; `words` are argv after the program name. |
+| `myapp __complete <shell> -- <words...>` | Return completion candidates; `words` are argv after the program name, up to and including the word being completed. |
+
+## Supported shells
+
+| Shell | Versions |
+|-------|----------|
+| bash | 3.2+, including macOS's `/bin/bash` and Git Bash on Windows |
+| zsh | 5.x |
+| fish | 3.4+ |
+| PowerShell | Windows PowerShell 5.1 and PowerShell 7+ |
+
+CI loads each script into each of these shells on Linux, macOS and Windows and checks what Tab offers (`tests/completion`).
 
 ## Installation
 
@@ -79,7 +90,7 @@ Windows PowerShell 5.1:
 
 ## How it works
 
-The generator emits completion lookup tables alongside routing and help printers. When the shell invokes `__complete`, the handler walks the command tree using the provided context words and returns candidates that start with the partial word, ignoring case, one per line.
+The generator emits completion lookup tables alongside routing and help printers. When the shell invokes `__complete`, the handler walks the command tree using the provided context words and returns candidates that start with the partial word, ignoring case, one per line. Lines end in `\n` on every OS, so no shell sees a stray carriage return.
 
 Completions cover:
 
