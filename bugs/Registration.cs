@@ -60,14 +60,8 @@ internal static class Registration
 #if BUG12
 		Bug12.Register(app);
 #endif
-#if BUG13
-		Bug13.Register(app);
-#endif
 #if BUG14
 		Bug14.Register(app);
-#endif
-#if BUG15
-		Bug15.Register(app);
 #endif
 #if BUG16
 		Bug16.Register(app);

@@ -7,7 +7,9 @@
 // Actual:   u:[not a uri] absolute:False
 // Expected: an error for empty and whitespace values   (clap's path/URL parsers reject an empty value)
 //
-// The optional Uri? treats whitespace as absent (--opt "" -> null), so the two paths disagree.
+// The optional Uri? treats whitespace as absent: Bugs.exe bug73-opt --opt "" -> opt:null. So the two paths disagree.
+// (They are separate commands because a Uri and a Uri? in one method hit the __uri local collision that is
+// fixed on the timeonly branch.)
 // Cause: Emit.Runner.cs:1284 guards the optional path with IsNullOrWhiteSpace; :1302 binds anything
 //        Uri.TryCreate(..., UriKind.RelativeOrAbsolute) accepts.
 
@@ -18,10 +20,17 @@ namespace Bugs;
 
 internal static class Bug73
 {
-	/// <summary>Required and optional Uri flags.</summary>
+	/// <summary>Required Uri flag.</summary>
 	[NoOptionsInjection]
-	public static void Run(Uri u, Uri? opt = null) =>
-		Console.Out.WriteLine($"u:[{u}] absolute:{u.IsAbsoluteUri} opt:{opt?.ToString() ?? "null"}");
+	public static void Required(Uri u) => Console.Out.WriteLine($"u:[{u}] absolute:{u.IsAbsoluteUri}");
 
-	public static void Register(IArghRootBuilder app) => app.Map("bug73", Run);
+	/// <summary>Optional Uri flag.</summary>
+	[NoOptionsInjection]
+	public static void Optional(Uri? opt = null) => Console.Out.WriteLine($"opt:{opt?.ToString() ?? "null"}");
+
+	public static void Register(IArghRootBuilder app)
+	{
+		app.Map("bug73", Required);
+		app.Map("bug73-opt", Optional);
+	}
 }
