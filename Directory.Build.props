@@ -16,4 +16,8 @@
     <CompilerVisibleProperty Include="ArtifactsPath" />
     <CompilerVisibleProperty Include="UseArtifactsOutput" />
   </ItemGroup>
+  <!-- The framework tests deliberately target out-of-support runtimes (netcoreapp3.1, net5.0, net6.0); don't warn about them (NETSDK1138). -->
+  <PropertyGroup>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+  </PropertyGroup>
 </Project>

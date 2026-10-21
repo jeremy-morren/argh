@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Like Nullean.Argh.Tests.NetstandardHost, but loads the nullable-disabled fixture: the netstandard2.0 builds of
+    Nullean.Argh.Tests.NetstandardNullableDisabled and of the Argh libraries. Transitive references are off because
+    they would bring in the net10.0 build of the libraries instead.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Nullean.Argh.Tests.NetstandardHost</AssemblyName>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Nullean.Argh.Tests.NetstandardHost\Program.cs" Link="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nullean.Argh.Tests.NetstandardNullableDisabled\Nullean.Argh.Tests.NetstandardNullableDisabled.csproj"
+                      SetTargetFramework="TargetFramework=netstandard2.0" />
+    <!-- Single-target (netstandard2.0): SetTargetFramework here would start a second, clashing build of it. -->
+    <ProjectReference Include="..\..\src\Nullean.Argh\Nullean.Argh.csproj" />
+    <ProjectReference Include="..\..\src\Nullean.Argh.Core\Nullean.Argh.Core.csproj"
+                      SetTargetFramework="TargetFramework=netstandard2.0" />
+    <ProjectReference Include="..\..\src\Nullean.Argh.Interfaces\Nullean.Argh.Interfaces.csproj"
+                      SetTargetFramework="TargetFramework=netstandard2.0" />
+  </ItemGroup>
+
+</Project>

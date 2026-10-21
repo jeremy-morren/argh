@@ -145,7 +145,13 @@ public sealed partial class CliParserGenerator
 				? ImmutableArray<string>.Empty
 				: synopsisAliasesFromSummary;
 			var fq = collectionType.ToDisplayString(FullyQualifiedFormatWithNullableRefAnnotations);
-			var declaredNullableAnnotated = collectionType.NullableAnnotation == NullableAnnotation.Annotated;
+			// With nullable disabled, `string[] tags = null` is oblivious but means what `string[]? tags = null` means:
+			// null when no values are given. Its generated local gets the `?` so the null stays warning-free.
+			var obliviousNullDefault = collectionType.NullableAnnotation == NullableAnnotation.None
+			                           && attributeHost is IParameterSymbol { HasExplicitDefaultValue: true, ExplicitDefaultValue: null };
+			if (obliviousNullDefault)
+				fq += "?";
+			var declaredNullableAnnotated = collectionType.NullableAnnotation == NullableAnnotation.Annotated || obliviousNullDefault;
 			var collValidations = ReadValidationConstraints(attributeHost, CliScalarKind.Collection, "values", isCollection: true,
 				filesystemScalarKind: elemSk);
 			var expandProfileElem = TryReadExpandUserProfileBeforeBind(attributeHost, elemSk);

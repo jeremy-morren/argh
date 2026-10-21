@@ -585,8 +585,15 @@ public sealed partial class CliParserGenerator
 
 			sb.AppendLine($"\t\t\tif (!string.IsNullOrEmpty({p.LocalVarName}Joined))");
 			sb.AppendLine("\t\t\t{");
-			sb.AppendLine($"\t\t\t\tvar {ParamTemp(p, "sep")} = \"{Escape(sep)}\";");
-			sb.AppendLine($"\t\t\t\tforeach (var __part in {p.LocalVarName}Joined.Split({ParamTemp(p, "sep")}, StringSplitOptions.None))");
+			var sepLocal = ParamTemp(p, "sep");
+			sb.AppendLine($"\t\t\t\tvar {sepLocal} = \"{Escape(sep)}\";");
+			// string.Split(string, StringSplitOptions) needs .NET Core 2.0 or .NET Standard 2.1.
+			sb.AppendLine("#if NETCOREAPP2_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER");
+			sb.AppendLine($"\t\t\t\tforeach (var __part in {p.LocalVarName}Joined.Split({sepLocal}, StringSplitOptions.None))");
+			sb.AppendLine("#else");
+			// netstandard2.0's string.IsNullOrEmpty has no [NotNullWhen(false)], so the compiler can't see the null check.
+			sb.AppendLine($"\t\t\t\tforeach (var __part in {p.LocalVarName}Joined!.Split(new[] {{ {sepLocal} }}, StringSplitOptions.None))");
+			sb.AppendLine("#endif");
 			sb.AppendLine("\t\t\t\t{");
 			sb.AppendLine("\t\t\t\t\tif (string.IsNullOrEmpty(__part)) continue;");
 			EmitParseFromString(sb, elemModel, "__part", ParamTemp(p, "ce"), indentExtra: "\t\t", outVarKeyword: true, failureExit: failureExit, helpMethodName: helpMethodName, flagHelpStdErrMethodName: flagHelpStdErrMethodName, parseFailureRunHint: parseFailureRunHint);

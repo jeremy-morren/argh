@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Like Nullean.Argh.Tests.FrameworkHost, but runs the nullable-disabled fixture on each runtime. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net472;netcoreapp3.1;net5.0;net6.0;net8.0;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Same assembly name as the nullable-enabled host keeps the copied path short enough for .NET Framework (MAX_PATH). -->
+    <AssemblyName>Nullean.Argh.Tests.FrameworkHost</AssemblyName>
+    <!-- The .NET hosts run through `dotnet exec`, so they don't need a native launcher. -->
+    <UseAppHost Condition="'$(TargetFramework)' != 'net472'">false</UseAppHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Nullean.Argh.Tests.NetstandardHost\Program.cs" Link="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nullean.Argh.Tests.NetstandardNullableDisabled\Nullean.Argh.Tests.NetstandardNullableDisabled.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Compiles the generated code for netstandard2.0 (the fallback branches of its #if blocks), netstandard2.1, net8.0 and net10.0. -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net8.0;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Generated code must not raise nullable warnings, on any target. -->
+    <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
+  </PropertyGroup>
+  <!-- Nullean.Argh.Tests.NetstandardNullableDisabled compiles these same sources with nullable disabled. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nullean.Argh\Nullean.Argh.csproj" />
+    <ProjectReference Include="..\..\src\Nullean.Argh.Generator\Nullean.Argh.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0' Or '$(TargetFramework)' == 'netstandard2.1'">
+    <PackageReference Include="System.ComponentModel.Annotations" />
+  </ItemGroup>
+
+</Project>

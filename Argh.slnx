@@ -41,6 +41,13 @@
     <Project Path="tests/Nullean.Argh.IntegrationTests/Nullean.Argh.IntegrationTests.csproj" />
     <Project Path="tests/Nullean.Argh.Tests/Nullean.Argh.Tests.csproj" />
     <Project Path="tests/Nullean.Argh.Tests.ReferencedDtos/Nullean.Argh.Tests.ReferencedDtos.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.Netstandard/Nullean.Argh.Tests.Netstandard.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.NetstandardHost/Nullean.Argh.Tests.NetstandardHost.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.FrameworkHost/Nullean.Argh.Tests.FrameworkHost.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.NetstandardNullableDisabled/Nullean.Argh.Tests.NetstandardNullableDisabled.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.NetstandardHost.NullableDisabled/Nullean.Argh.Tests.NetstandardHost.NullableDisabled.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.FrameworkHost.NullableDisabled/Nullean.Argh.Tests.FrameworkHost.NullableDisabled.csproj" />
+    <Project Path="tests/Nullean.Argh.Tests.NetstandardPolyfilled/Nullean.Argh.Tests.NetstandardPolyfilled.csproj" />
     <Project Path="tests/Nullean.Argh.Generator.Tests/Nullean.Argh.Generator.Tests.csproj" />
     <Project Path="tests/Argh.InternalsVisibleTo.Repro/Tests/Argh.InternalsVisibleTo.Repro.Tests.csproj" />
     <Project Path="tests/Argh.ExternalNs.GlobalOptions.Repro/CliApp/Argh.ExternalNs.GlobalOptions.Repro.CliApp.csproj" />

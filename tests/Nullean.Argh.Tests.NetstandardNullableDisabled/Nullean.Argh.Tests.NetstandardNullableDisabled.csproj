@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Nullean.Argh.Tests.Netstandard built with nullable reference types disabled, as many netstandard2.0 projects are.
+    Unannotated reference types are then oblivious instead of non-nullable. It compiles the same sources under the same
+    assembly name, so its help and __schema output can be compared with the nullable-enabled build directly.
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net8.0;net10.0</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Nullean.Argh.Tests.Netstandard</AssemblyName>
+    <RootNamespace>Nullean.Argh.Tests.Netstandard</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- The shared fixture's own `?` annotations warn here (CS8632). Generated files start with #nullable enable, so they can't. -->
+    <NoWarn>$(NoWarn);CS8632</NoWarn>
+    <!-- Any nullable warning would come from generated code, so make it fail the build. -->
+    <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Nullean.Argh.Tests.Netstandard\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nullean.Argh\Nullean.Argh.csproj" />
+    <ProjectReference Include="..\..\src\Nullean.Argh.Generator\Nullean.Argh.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0' Or '$(TargetFramework)' == 'netstandard2.1'">
+    <PackageReference Include="System.ComponentModel.Annotations" />
+  </ItemGroup>
+
+</Project>
