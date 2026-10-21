@@ -27,12 +27,31 @@ With source generation, all of that shifts to compile time:
 
 - Zero startup cost from CLI plumbing
 - Fully AOT-compatible, no trimmer warnings
-- Diagnostic errors at build time (AGH0001-AGH0022)
+- Diagnostics at build time (AGH0001-AGH0037)
 - Generated code is plain C# you can read in your IDE
 
 ## No runtime dependencies
 
 The generated code targets `netstandard2.0` and uses no `System.Linq`, no dynamic dispatch, and no reflection. Lambda handlers (`UseMiddleware` with inline delegates) are the only exception and emit a warning (`AGH0006`).
+
+## Obsolete and experimental APIs
+
+The generated code can use `[Obsolete]` or `[Experimental]` APIs on your behalf: a command in a `Map<T>()` type, an `[AsParameters]` or options property, an enum member, or a parser. Generated files suppress the compiler's warnings for them. Instead, the generator reports each one at the registration call that needs it, so you see it in your own code:
+
+| Attribute | Diagnostic at the registration |
+|---|---|
+| `[Obsolete]` | `AGH0036` warning |
+| `[Obsolete(..., error: true)]` | `AGH0037` error |
+| `[Obsolete(DiagnosticId = "X")]` | `X`, a warning or error like the attribute |
+| `[Experimental("X")]` | `X` error, like the compiler's |
+
+APIs that the registration names itself, such as the type in `Map<T>()` or a method-group handler, get the compiler's own warning there instead. A registration inside an `[Obsolete]` member reports no obsolete usages. Suppress a diagnostic the usual way, with `#pragma warning disable` around the registration or `<NoWarn>`:
+
+```csharp
+#pragma warning disable AGH0036 // OldName stays bindable for existing scripts
+app.Map("deploy", DeployCommands.Deploy);
+#pragma warning restore AGH0036
+```
 
 ## Incremental pipeline
 

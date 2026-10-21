@@ -62,7 +62,7 @@ Place `[CommandOutput]` on the parameter (or `[AsParameters]` DTO property, or G
 public static void OldCmd(...) { }
 ```
 
-`[Obsolete]` on a handler method or an `[AsParameters]` DTO property emits a `deprecated` object in the schema. The message, if provided, appears as `deprecated.message`.
+`[Obsolete]` on a handler method or an `[AsParameters]` DTO property emits a `deprecated` object in the schema. The message, if provided, appears as `deprecated.message`. The generator also reports the property at the registration as `AGH0036`; see [Obsolete and experimental APIs](source-generated.md#obsolete-and-experimental-apis).
 
 ### Environment variables and config files (`environment` object)
 

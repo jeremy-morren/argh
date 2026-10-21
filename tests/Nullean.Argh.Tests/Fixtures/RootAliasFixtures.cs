@@ -12,6 +12,7 @@ internal sealed class RootAliasTestCommands
 	/// <param name="g">Injected global CLI options.</param>
 	/// <param name="output">-o,--output, Output folder.</param>
 	/// <param name="force">--force, Force a full rebuild.</param>
+	/// <param name="ct">Cancellation token.</param>
 	[DefaultCommand]
 	public static void Build(TestGlobalCliOptions g, string? output, bool? force, CancellationToken ct) =>
 		Console.Out.WriteLine($"marker:alias-build output={output ?? "null"} force={force?.ToString() ?? "null"}");
@@ -19,6 +20,7 @@ internal sealed class RootAliasTestCommands
 	/// <summary>Serve the documentation set locally.</summary>
 	/// <param name="g">Injected global CLI options.</param>
 	/// <param name="port">-p,--port, Port to listen on.</param>
+	/// <param name="ct">Cancellation token.</param>
 	public static void Serve(TestGlobalCliOptions g, int port = 3000, CancellationToken ct = default) =>
 		Console.Out.WriteLine($"marker:alias-serve port={port}");
 }

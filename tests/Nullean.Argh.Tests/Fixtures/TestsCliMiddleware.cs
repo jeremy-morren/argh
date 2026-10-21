@@ -6,7 +6,7 @@ internal sealed class TestsGlobalMiddleware : ICommandMiddleware
 {
 	public static int InvokeCount;
 	public static IReadOnlyList<CommandArgument> LastArguments = [];
-	public static bool ReportAfterNext;
+	public static bool ReportAfterNext = false; // set by the in-process middleware tests
 
 	public async ValueTask InvokeAsync(CommandContext context, CommandMiddlewareDelegate next)
 	{

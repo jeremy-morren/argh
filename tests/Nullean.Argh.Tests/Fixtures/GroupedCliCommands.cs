@@ -10,7 +10,7 @@ internal enum FixtureSeverity
 	Warning
 }
 
-/// <summary>Second enum for <see cref="CliTestHandlers.MultiEnumAsParamsArgs"/> (mixed nullability, CS0136 fix).</summary>
+/// <summary>Second enum for <see cref="MultiEnumAsParamsArgs"/> (mixed nullability, CS0136 fix).</summary>
 internal enum FixtureConfigSource
 {
 	File,

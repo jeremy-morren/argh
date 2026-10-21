@@ -186,6 +186,11 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 			var ((((analyzedArray, (asmName, asmVer, asmSchemaVer)), caps), po), artifactsPathValue) = tuple;
 			Execute(spc, analyzedArray, asmName, asmVer, asmSchemaVer, caps, po, artifactsPathValue);
 		});
+
+		// Obsolete/experimental usages are reported in their own output: it needs the Compilation to place each one in its
+		// syntax tree (so #pragma applies), and keeping it apart leaves the code-generating output above Compilation-free.
+		context.RegisterSourceOutput(analyzed.Combine(context.CompilationProvider), static (spc, tuple) =>
+			ReportSymbolUsages(spc, tuple.Left, tuple.Right));
 	}
 
 
@@ -208,7 +213,10 @@ public sealed partial class CliParserGenerator : IIncrementalGenerator
 
 		var built = TryBuildAppEmitModel(context, analyzed, out var appModel);
 		if (appModel is not null)
+		{
+			appModel.GeneratedCodeSuppressionPragma = GeneratedCodeSuppressionPragma(analyzed);
 			EmitNamespaceSegmentCodegen(context, appModel);
+		}
 
 		if (!built || appModel is null)
 		{

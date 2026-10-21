@@ -105,9 +105,17 @@ internal static class CliRegistrationModule
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);
 		app.Map<SchemaHiddenCommands>();
+		// These commands and the --old-name member are [Obsolete] on purpose: the schema tests read them as deprecated.
+		// CS0612/CS0618 are the compiler's warnings for the handlers; AGH0036 is Argh's for the member the generated code binds.
+#pragma warning disable CS0612, CS0618, AGH0036
 		app.Map("schema-deprecated-simple", SchemaDeprecatedHandlers.SchemaDeprecatedSimple);
 		app.Map("schema-deprecated-with-message", SchemaDeprecatedHandlers.SchemaDeprecatedWithMessage);
 		app.Map("schema-deprecated-param", SchemaDeprecatedHandlers.SchemaDeprecatedParam);
+#pragma warning restore CS0612, CS0618, AGH0036
+		// FixtureStage.Preview is [Experimental]; Argh reports ARGHTEST001 here because its generated code uses it.
+#pragma warning disable ARGHTEST001
+		app.Map("experimental-api", ExperimentalApiHandlers.ExperimentalApi);
+#pragma warning restore ARGHTEST001
 		app.Map("schema-intent-destructive", SchemaIntentHandlers.SchemaIntentDestructive);
 		app.Map("schema-intent-read", SchemaIntentHandlers.SchemaIntentRead);
 		app.Map("schema-output-formats", SchemaOutputHandlers.SchemaOutputFormats);
