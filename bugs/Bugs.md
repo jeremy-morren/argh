@@ -391,6 +391,8 @@ Generated: `global::Level level = 10;` → four `CS0266: Cannot implicitly conve
 
 Cause: `TryGetDefaultLiteral` in `src/Nullean.Argh.Generator/CliParserGenerator.ParameterModel.cs:977-996` formats `ExplicitDefaultValue` (the underlying integer) through `IFormattable`. Options-type properties go through `QualifyOptionsEnumDefaultLiteral`, which looks the member up; method parameters don't.
 
+**Fix:** never emit a bare number for a typed default. An enum default is emitted as its qualified member, `global::Level.High`, or as a cast, `(global::Level)10`, when the value isn't a named member (flags combinations). The same rule applies to every constant the generator writes into typed code (see bug 11).
+
 ### 11. `float`, `decimal`, `char`, `NaN` and `Infinity` defaults don't compile
 
 | Declared | Generated | Error |
@@ -405,6 +407,8 @@ Cause: `TryGetDefaultLiteral` in `src/Nullean.Argh.Generator/CliParserGenerator.
 Same cause as bug 10: `TryGetDefaultLiteral` drops the type suffix. `long.MinValue`, `1e-7`, and strings with quotes or braces are fine.
 
 Options-type properties have the same problem through a different path: `decimal Money { get; set; } = 1.25m`, `double Ratio = 0.5` and `float Scale = 0.5f` on a global options class generate `decimal money = 1.25;` and fail with CS0664. `TryFormatInitializerOperation` (`src/Nullean.Argh.Generator/CliParserGenerator.SymbolReaders.cs:403`) formats the literal's constant value without its `m`/`f` suffix, and `Emit.Runner.cs:387` emits it.
+
+**Fix:** every constant the generator emits must carry its C# type, either as the literal's suffix or as an explicit type, so the compiler never has to guess: `1.5m` for `decimal`, `1.5f` for `float`, `1.5d` for `double`, `5L`/`5UL`/`5U` for the wide integers, `'x'` (escaped) for `char`, and the named constants `double.NaN`, `double.PositiveInfinity`, `float.NegativeInfinity`, `decimal.MaxValue` and so on, which have no literal form. Where no suffix exists, write the type: `(global::Level)10`, `(byte)200`. Use the `R` round-trip format for floating-point values so the emitted literal equals the declared one. This covers both paths, `TryGetDefaultLiteral` (method parameters) and `TryFormatInitializerOperation` (options properties), and the `[Range]` bounds of bug 58, which are spliced into comparisons the same way.
 
 ### 12. Unsupported scalar types are treated as `string` and don't compile
 
