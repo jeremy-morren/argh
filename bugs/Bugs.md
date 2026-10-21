@@ -135,6 +135,8 @@ The shell scripts, the `__complete` engine, and the cli-schema JSON that agents 
 | 41 | A committed `--flag=value` breaks bash completion | `bug41.cs` |
 | 62 | Completion lists flags after `--`, an unknown flag or a positional inside a command, but not at the root or in a namespace | `bug62.cs` |
 | 63 | Enum collections lose their member names in `__schema` | `bug63.cs` |
+| 86 | The bash completion script needs bash 4 (`mapfile`), so macOS's system bash can't complete anything | `bug86.cs` (comment only) |
+| 87 | On Windows every completion candidate ends in `\r`, so Git Bash never matches one | `bug87.cs` (comment only) |
 
 ## Background
 
@@ -231,6 +233,8 @@ Bugs fixed on the open branches are removed: 53 (en dash in help, and no Windows
 | 83 | Command names are case-insensitive but flags aren't; the unknown `-V` message depends on position | Parsing | Minor |
 | 84 | `HashSet<T>` parameters aren't recognised as collections and don't compile | Generator | Build break |
 | 85 | The incremental generator's cache never hits, so every edit re-runs the whole emit | Generator | Performance |
+| 86 | The bash completion script needs bash 4 (`mapfile`), so macOS's system bash can't complete anything | Completion | Wrong result |
+| 87 | On Windows every completion candidate ends in `\r`, so Git Bash never matches one | Completion | Wrong result |
 
 ## Parsing and binding
 
@@ -1033,6 +1037,24 @@ With step tracking on, the `Argh.AnalyzedInvocation` step reports `Modified` aft
 Cause: `AIMapCommand` (`CliParserGenerator.Models.cs:206-209`) carries `ImmutableArray<CommandModel> Commands`, and the nested models hold more `ImmutableArray`s. `ImmutableArray<T>.Equals` is reference equality of the backing array, and the generator has no equatable wrapper and no custom `Equals`, so records from two runs are never equal. `CLAUDE.md` describes these records as ones "that Roslyn can cache per invocation"; they are symbol-free but not cacheable. Found and measured by session `argh-a5` with a probe and a skipped test in `IncrementalCachingTests` on its `netstandard-fixes` branch; confirmed here from the code.
 
 **Fix:** an `EquatableArray<T>` wrapper with structural equality and hashing, used throughout the models, as the System.Text.Json source generator does.
+
+### 86. The bash completion script needs bash 4, so macOS's system bash can't complete anything
+
+The bash template (`CompletionScriptTemplates.GetBash`, `src/Nullean.Argh.Core/Help/CompletionScriptTemplates.cs:35-40`) reads the candidates with `mapfile -t COMPREPLY < <(...)`. `mapfile`/`readarray` exist only in bash 4+, and macOS ships `/bin/bash` 3.2, so every completion there fails with `bash: mapfile: command not found`. Confirmed live by the `completion-test` CI job on the `completion-test` branch ([run 39528730773](https://github.com/jeremy-morren/argh/actions/runs/39528730773)), which also confirmed bugs 31 (fish 3.7 and 4.9) and 32 (zsh 5.9): every non-root case fails in both, and root-level completion passes only because the app returns every command and the shell filters.
+
+**Expected (clap/cobra):** cobra's bash script avoids `mapfile` for this reason and reads the output with a `while IFS='' read -r` loop.
+
+### 87. On Windows every completion candidate ends in `\r`, so Git Bash never matches one
+
+`CompletionWriter.WriteFiltered` writes each candidate with `Console.Out.WriteLine`, which is `\r\n` on Windows:
+
+```
+Bugs.exe __complete bash -- bug0 | od -c    →   b u g 0 1 \r \n ...
+```
+
+In Git Bash (bash 5.3) `mapfile -t` strips only the `\n`, so each `COMPREPLY` entry keeps a trailing `\r` and nothing the user typed matches. Found by the same CI job.
+
+**Expected (clap/cobra):** both write `\n` regardless of platform. Have `__complete` write `\n` explicitly so the protocol has one line ending everywhere; stripping `\r` in the bash template is the fallback.
 
 ### By design, after checking
 
