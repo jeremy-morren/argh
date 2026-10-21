@@ -229,6 +229,8 @@ The flag is `[required]` in help. The repeatable-flag path checks the item count
 
 **Expected (clap/cobra):** both keep the empty parts as values and let the element parser reject them. pflag's `IntSlice` gives `invalid argument "" for "--ids" flag: strconv.Atoi: parsing "": invalid syntax` ([int_slice.go#L22-L30](https://github.com/spf13/pflag/blob/v1.0.10/int_slice.go#L22-L30)). clap splits `--ids=` into `[""]` and `--ids ,,` into three empty strings ([parser.rs#L1178-L1195](https://github.com/clap-rs/clap/blob/v4.6.7/clap_builder/src/parser/parser.rs#L1178-L1195)), and an integer parser reports `cannot parse integer from empty string`. Follow them: don't skip empty parts silently.
 
+Dev note: Separate PR: handle collections: parse into empty strings, then pass to the underlying type parser, who can then reject them if necessary. Add tests that a parameter of T (or T?) is parsed in the same way as a parameter of type T[] i.e. a user can define a custom argument parser on a collection parameter T?[] for type T and it is used. As a result, the default path for e.g. int (empty string is invalid) is handled correctly.
+
 ### 19. `[Env]` on a positional argument is shown in help but never read
 
 ```csharp
@@ -241,11 +243,15 @@ Cause: `Emit.Runner.cs:289` skips positionals (`if (p.Kind == ParameterKind.Posi
 
 **Expected (clap/cobra):** clap's `env` works on positionals the same as on options.
 
+Dev note: garden variety bug, fix.
+
 ### 20. `params string[]` is treated as required
 
 A handler with `params string[] items`, run with no arguments → `missing required flag --items`.
 
 Cause: `ComputeRequired` (`ParameterModel.cs:953`) ignores `IParameterSymbol.IsParams`.
+
+Dev note: garden variety bug, fix.
 
 ### 67. A required namespace option is only accepted before the command
 
@@ -259,6 +265,9 @@ EXE scalars-ns P show        → runs
 Cause: the required check runs in the namespace pre-parse, before the command is matched (`src/Nullean.Argh.Generator/CliParserGenerator.Emit.Parsing.cs:302-309`), and fails before the command's own arguments are read.
 
 **Expected (clap/cobra):** clap's `global(true)` arguments and cobra's persistent flags can appear before or after the subcommand, and required checks run after the whole command line is parsed.
+
+
+Dev note: garden variety bug: match clap/cobra, fix.
 
 ### 71. `float`, `double` and `decimal` accept thousands separators
 
@@ -275,6 +284,8 @@ Cause: `NumberStyles.Float | NumberStyles.AllowThousands` at `Emit.Runner.cs:137
 **Expected (clap/cobra):** both reject `1,5`: Rust's `f64::from_str` and Go's `strconv.ParseFloat` take no thousands separators, and both are culture-independent.
 
 **Partly addressed on `parse-culture` ([#88](https://github.com/nullean/argh/pull/88)):** the default is unchanged (.NET's own number styles, which allow thousands separators), but `ParserOptions.NumberStyles` now lets an app exclude `AllowThousands`.
+
+Dev note: completely fix this as part of the parse-culture branch/pr.
 
 ### 73. A required `Uri` binds empty, whitespace and garbage values as relative URIs
 
