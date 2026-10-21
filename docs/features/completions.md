@@ -97,3 +97,4 @@ Completions cover:
 - Subcommand and namespace names
 - Flag names (including aliases and `--help`)
 - Flag values with a fixed set of choices: enums (using `[EnumValue]` names), collections of enums, and `[AllowedValues]`. Values complete after `--flag ` and inside `--flag=`.
+  Numeric `[AllowedValues]` are offered in the app's parse culture (`1,5` under `de-DE`), so they parse back; see [Culture and styles](../parameters/index.md#culture-and-styles).

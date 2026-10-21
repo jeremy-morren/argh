@@ -224,6 +224,19 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine("\t\t}");
 		sb.AppendLine();
 
+		// Parser options overloads: ArghRuntime.ParserOptions returns the given options for the duration of the parse.
+		foreach (var exact in new[] { false, true })
+		{
+			var name = exact ? "TryParseArghExact" : "TryParseArgh";
+			sb.AppendLine($"\t\t/// <summary>Like <c>{name}</c>, but parses values with <paramref name=\"options\"/> instead of <see cref=\"global::Nullean.Argh.Runtime.ArghRuntime.ParserOptions\"/>.</summary>");
+			sb.AppendLine($"\t\tpublic static bool {name}<T>(this Type type, string[] args, global::Nullean.Argh.Parsing.ParserOptions options, [NotNullWhen(true)] out T? value) where T : class");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine("\t\t\tusing (global::Nullean.Argh.Runtime.ArghRuntime.PushParserOptions(options))");
+			sb.AppendLine($"\t\t\t\treturn {name}<T>(type, args, out value);");
+			sb.AppendLine("\t\t}");
+			sb.AppendLine();
+		}
+
 		foreach (var t in targets)
 		{
 			if (t.IsGeneric)
@@ -239,6 +252,16 @@ public sealed partial class CliParserGenerator
 			sb.AppendLine($"\t\t\t\tglobal::Nullean.Argh.{arghGeneratedRootTypeName}.{lenientMethod}(args, out value);");
 			sb.AppendLine($"\t\t\t{vis} static bool TryParseArghExact(string[] args, [NotNullWhen(true)] out {fq}? value) =>");
 			sb.AppendLine($"\t\t\t\tglobal::Nullean.Argh.{arghGeneratedRootTypeName}.{strictMethod}(args, out value);");
+			sb.AppendLine($"\t\t\t{vis} static bool TryParseArgh(string[] args, global::Nullean.Argh.Parsing.ParserOptions options, [NotNullWhen(true)] out {fq}? value)");
+			sb.AppendLine("\t\t\t{");
+			sb.AppendLine("\t\t\t\tusing (global::Nullean.Argh.Runtime.ArghRuntime.PushParserOptions(options))");
+			sb.AppendLine($"\t\t\t\t\treturn global::Nullean.Argh.{arghGeneratedRootTypeName}.{lenientMethod}(args, out value);");
+			sb.AppendLine("\t\t\t}");
+			sb.AppendLine($"\t\t\t{vis} static bool TryParseArghExact(string[] args, global::Nullean.Argh.Parsing.ParserOptions options, [NotNullWhen(true)] out {fq}? value)");
+			sb.AppendLine("\t\t\t{");
+			sb.AppendLine("\t\t\t\tusing (global::Nullean.Argh.Runtime.ArghRuntime.PushParserOptions(options))");
+			sb.AppendLine($"\t\t\t\t\treturn global::Nullean.Argh.{arghGeneratedRootTypeName}.{strictMethod}(args, out value);");
+			sb.AppendLine("\t\t\t}");
 			sb.AppendLine("\t\t}");
 			sb.AppendLine();
 		}

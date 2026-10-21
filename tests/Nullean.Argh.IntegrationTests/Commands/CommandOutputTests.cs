@@ -94,6 +94,37 @@ public class CommandOutputTests
 		CliHostRunner.StdoutText(result).Trim().Should().Be("point-as-params:7,8");
 	}
 
+	// optional-point-cmd prints --at (parameter) | --near (DTO member) | --either (DTO member), each Point? or "none".
+	[Theory]
+	[InlineData(new string[0], "none|none|none")]
+	[InlineData(new[] { "--at", "1,2" }, "1,2|none|none")]
+	[InlineData(new[] { "--near", "3,4" }, "none|3,4|none")]
+	public void CustomParser_for_T_binds_a_nullable_T(string[] args, string expected)
+	{
+		var result = CliHostRunner.Run(["optional-point-cmd", .. args]);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be(expected);
+	}
+
+	// NullablePointParser's IArgumentParser<Point> rejects every value, so these parse only through IArgumentParser<Point?>.
+	[Theory]
+	[InlineData("5,6", "none|none|5,6")]
+	[InlineData("none", "none|none|none")]
+	public void CustomParser_for_nullable_T_is_preferred_over_T(string value, string expected)
+	{
+		var result = CliHostRunner.Run("optional-point-cmd", "--either", value);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be(expected);
+	}
+
+	[Fact]
+	public void CustomParser_for_T_rejects_an_invalid_nullable_T()
+	{
+		var result = CliHostRunner.Run("optional-point-cmd", "--at", "x");
+		result.ExitCode.Should().Be(2);
+		CliHostRunner.StderrText(result).Should().Contain("invalid value for --at");
+	}
+
 	[Fact]
 	public void WholeCollection_ArgumentParser_on_IReadOnlySet_parameter()
 	{

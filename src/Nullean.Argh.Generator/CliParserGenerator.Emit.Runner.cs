@@ -729,6 +729,7 @@ public sealed partial class CliParserGenerator
 			EnumMemberCliNames = p.ElementEnumMemberCliNames,
 			ParserTypeFq = p.ElementParserTypeFq,
 			CustomValueTypeFq = p.ElementCustomValueTypeFq,
+			ParserValueTypeFq = p.ElementParserValueTypeFq,
 			Special = BoolSpecialKind.None,
 			IsCollection = false,
 			IsRequired = true
@@ -810,7 +811,9 @@ public sealed partial class CliParserGenerator
 			case CliScalarKind.Uri:
 				return (p.IsRequired || p.UsesRuntimeDefault) && !p.IsNullableAnnotated ? "global::System.Uri" : "global::System.Uri?";
 			case CliScalarKind.CustomParser when p.CustomValueTypeFq is not null:
-				return (p.IsRequired || p.UsesRuntimeDefault) && !p.IsNullableAnnotated ? p.CustomValueTypeFq : p.CustomValueTypeFq + "?";
+				return (p.IsRequired || p.UsesRuntimeDefault) && !p.IsNullableAnnotated || p.CustomValueTypeFq.EndsWith("?", StringComparison.Ordinal)
+					? p.CustomValueTypeFq
+					: p.CustomValueTypeFq + "?";
 			default:
 				break;
 		}
@@ -1143,15 +1146,9 @@ public sealed partial class CliParserGenerator
 			return;
 		}
 
-		if (p.Special == BoolSpecialKind.None && p.TypeName is "int?" or "long?" or "float?" or "double?" or "decimal?")
+		if (p.Special == BoolSpecialKind.None && IsLiftableNullable(p.TypeName))
 		{
-			EmitNullableNumericParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-			return;
-		}
-
-		if (p.Special == BoolSpecialKind.None && p.TypeName is "DateTime?" or "DateTimeOffset?" or "TimeSpan?" or "DateOnly?" or "TimeOnly?")
-		{
-			EmitNullableTemporalParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+			EmitLiftedNullableParseFromString(sb, p, rawExpr, targetVar, ind, outVarKeyword, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 			return;
 		}
 
@@ -1317,22 +1314,36 @@ else
 return;
 	}
 
+	/// <summary>
+	/// The type of the local that holds a custom parser: the <c>IArgumentParser&lt;T&gt;</c> it's called through, which picks
+	/// the right <c>TryParse</c> when the parser implements both <c>IArgumentParser&lt;T&gt;</c> and <c>IArgumentParser&lt;T?&gt;</c>,
+	/// or <c>var</c> when it implements neither.
+	/// </summary>
+	private static string CustomParserLocalType(ParameterModel p) =>
+		p.ParserValueTypeFq is { } parsed ? $"global::Nullean.Argh.Parsing.IArgumentParser<{parsed}>" : "var";
+
+	/// <summary>True when a <c>T?</c> value is parsed through the parser's <c>IArgumentParser&lt;T&gt;</c>.</summary>
+	private static bool IsLiftedCustomParser(ParameterModel p) =>
+		p.ParserValueTypeFq is { } parsed && p.CustomValueTypeFq is { } declared && parsed + "?" == declared;
+
 	private static void EmitCustomParserFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar, string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
 	{
 		var e = Escape(p.CliLongName);
 var parser = ParamTemp(p, "parser");
 var parsed = ParamTemp(p, "pv");
-sb.AppendLine($"{ind}var {parser} = new {p.ParserTypeFq}();");
-sb.AppendLine($"{ind}if (!{parser}.TryParse({rawExpr}!, out var {parsed}))");
+sb.AppendLine($"{ind}{CustomParserLocalType(p)} {parser} = new {p.ParserTypeFq}();");
+sb.AppendLine($"{ind}if (!{parser}.TryParse({rawExpr}!, {ParserOptionsExpr}, out var {parsed}))");
 sb.AppendLine($"{ind}{{");
 sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid value for --{e}.\");");
 EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 sb.AppendLine($"{ind}\t{failureExit};");
 sb.AppendLine($"{ind}}}");
+// A T? value parsed through IArgumentParser<T> is converted, so a var target is T?.
+var value = IsLiftedCustomParser(p) ? $"({p.CustomValueTypeFq}){parsed}" : parsed;
 if (outVarKeyword)
-	sb.AppendLine($"{ind}var {targetVar} = {parsed};");
+	sb.AppendLine($"{ind}var {targetVar} = {value};");
 else
-	sb.AppendLine($"{ind}{targetVar} = {parsed};");
+	sb.AppendLine($"{ind}{targetVar} = {value};");
 return;
 	}
 
@@ -1356,7 +1367,7 @@ switch (p.Special)
 	}
 	case BoolSpecialKind.None when p.TypeName == "int":
 		sb.AppendLine(
-			$"{ind}if (!int.TryParse({rawExpr}, NumberStyles.Integer, CultureInfo.InvariantCulture, {Out(targetVar)}))");
+			$"{ind}if (!{ScalarTryParseCall("int", rawExpr, Out(targetVar))})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid int for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1365,7 +1376,7 @@ switch (p.Special)
 		break;
 	case BoolSpecialKind.None when p.TypeName == "long":
 		sb.AppendLine(
-			$"{ind}if (!long.TryParse({rawExpr}, NumberStyles.Integer, CultureInfo.InvariantCulture, {Out(targetVar)}))");
+			$"{ind}if (!{ScalarTryParseCall("long", rawExpr, Out(targetVar))})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid long for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1374,7 +1385,7 @@ switch (p.Special)
 		break;
 	case BoolSpecialKind.None when p.TypeName == "float":
 		sb.AppendLine(
-			$"{ind}if (!float.TryParse({rawExpr}, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, {Out(targetVar)}))");
+			$"{ind}if (!{ScalarTryParseCall("float", rawExpr, Out(targetVar))})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid float for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1383,7 +1394,7 @@ switch (p.Special)
 		break;
 	case BoolSpecialKind.None when p.TypeName == "double":
 		sb.AppendLine(
-			$"{ind}if (!double.TryParse({rawExpr}, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, {Out(targetVar)}))");
+			$"{ind}if (!{ScalarTryParseCall("double", rawExpr, Out(targetVar))})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid double for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1392,7 +1403,7 @@ switch (p.Special)
 		break;
 	case BoolSpecialKind.None when p.TypeName == "decimal":
 		sb.AppendLine(
-			$"{ind}if (!decimal.TryParse({rawExpr}, NumberStyles.Number, CultureInfo.InvariantCulture, {Out(targetVar)}))");
+			$"{ind}if (!{ScalarTryParseCall("decimal", rawExpr, Out(targetVar))})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid decimal for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1403,7 +1414,7 @@ switch (p.Special)
 	{
 		var tmp = ParamTemp(p, "dt");
 		sb.AppendLine(
-			$"{ind}if (!global::System.DateTime.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmp}))");
+			$"{ind}if (!{ScalarTryParseCall("DateTime", rawExpr, "out var " + tmp)})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateTime for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1419,7 +1430,7 @@ switch (p.Special)
 	{
 		var tmp = ParamTemp(p, "dto");
 		sb.AppendLine(
-			$"{ind}if (!global::System.DateTimeOffset.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmp}))");
+			$"{ind}if (!{ScalarTryParseCall("DateTimeOffset", rawExpr, "out var " + tmp)})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateTimeOffset for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1434,7 +1445,7 @@ switch (p.Special)
 	case BoolSpecialKind.None when p.TypeName == "TimeSpan":
 	{
 		var tmp = ParamTemp(p, "ts");
-		sb.AppendLine($"{ind}if (!global::Nullean.Argh.ArghTimeSpan.TryParse({rawExpr}, out var {tmp}))");
+		sb.AppendLine($"{ind}if (!{ScalarTryParseCall("TimeSpan", rawExpr, "out var " + tmp)})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeSpan for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1450,7 +1461,7 @@ switch (p.Special)
 	{
 		var tmp = ParamTemp(p, "do");
 		sb.AppendLine(
-			$"{ind}if (!global::System.DateOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmp}))");
+			$"{ind}if (!{ScalarTryParseCall("DateOnly", rawExpr, "out var " + tmp)})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid DateOnly for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1466,7 +1477,7 @@ switch (p.Special)
 	{
 		var tmp = ParamTemp(p, "to");
 		sb.AppendLine(
-			$"{ind}if (!global::System.TimeOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmp}))");
+			$"{ind}if (!{ScalarTryParseCall("TimeOnly", rawExpr, "out var " + tmp)})");
 		sb.AppendLine($"{ind}{{");
 		sb.AppendLine($"{ind}\tConsole.Error.WriteLine($\"Error: invalid TimeOnly for --{e}: '{{{rawExpr}}}'.\");");
 		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
@@ -1497,107 +1508,33 @@ switch (p.Special)
 }
 	}
 
-	private static void EmitNullableNumericParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar,
-		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
-	{
-		var e = Escape(p.CliLongName);
-		var tmpVar = ParamTemp(p, "nullableNumericParsed");
-		var parsedOut = ParamTemp(p, "nv");
-		var csharpNullable = GetCSharpCliType(p);
+	/// <summary>
+	/// Parses <c>T?</c> exactly as <c>T</c>: the value stays <see langword="null"/> when absent, and otherwise goes through
+	/// <c>T</c>'s own parse code, with the same styles, culture and error message.
+	/// </summary>
+	/// <summary>A nullable value type whose non-nullable form has its own parse code in <see cref="EmitPrimitiveScalarParseFromString"/>.</summary>
+	private static bool IsLiftableNullable(string typeName) =>
+		typeName.EndsWith("?", StringComparison.Ordinal)
+		&& typeName.TrimEnd('?') is "int" or "long" or "float" or "double" or "decimal"
+			or "DateTime" or "DateTimeOffset" or "TimeSpan" or "DateOnly" or "TimeOnly";
 
-		sb.AppendLine($"{ind}{csharpNullable} {tmpVar} = null;");
+	private static void EmitLiftedNullableParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar,
+		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName, string? parseFailureRunHint)
+	{
+		var lifted = ParamTemp(p, "lifted");
+		var value = ParamTemp(p, "value");
+		sb.AppendLine($"{ind}{GetCSharpCliType(p)} {lifted} = null;");
 		sb.AppendLine($"{ind}if ({rawExpr} is not null)");
 		sb.AppendLine($"{ind}{{");
-
-		switch (p.TypeName)
-		{
-			case "int?":
-				sb.AppendLine(
-					$"{ind}\tif (!int.TryParse({rawExpr}, NumberStyles.Integer, CultureInfo.InvariantCulture, out var {parsedOut}))");
-				break;
-			case "long?":
-				sb.AppendLine(
-					$"{ind}\tif (!long.TryParse({rawExpr}, NumberStyles.Integer, CultureInfo.InvariantCulture, out var {parsedOut}))");
-				break;
-			case "float?":
-				sb.AppendLine(
-					$"{ind}\tif (!float.TryParse({rawExpr}, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var {parsedOut}))");
-				break;
-			case "double?":
-				sb.AppendLine(
-					$"{ind}\tif (!double.TryParse({rawExpr}, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var {parsedOut}))");
-				break;
-			case "decimal?":
-				sb.AppendLine(
-					$"{ind}\tif (!decimal.TryParse({rawExpr}, NumberStyles.Number, CultureInfo.InvariantCulture, out var {parsedOut}))");
-				break;
-			default:
-				throw new InvalidOperationException($"Unexpected nullable numeric type '{p.TypeName}'.");
-		}
-
-		sb.AppendLine($"{ind}\t{{");
-		sb.AppendLine($"{ind}\t\tConsole.Error.WriteLine($\"Error: invalid {p.TypeName.TrimEnd('?')} for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t\t{failureExit};");
-		sb.AppendLine($"{ind}\t}}");
-		sb.AppendLine($"{ind}\t{tmpVar} = {parsedOut};");
+		EmitPrimitiveScalarParseFromString(sb, p with { TypeName = p.TypeName.TrimEnd('?') }, rawExpr, value, ind + "\t",
+			outVarKeyword: true, failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
+		sb.AppendLine($"{ind}\t{lifted} = {value};");
 		sb.AppendLine($"{ind}}}");
 
 		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmpVar};");
+			sb.AppendLine($"{ind}var {targetVar} = {lifted};");
 		else
-			sb.AppendLine($"{ind}{targetVar} = {tmpVar};");
-	}
-
-	private static void EmitNullableTemporalParseFromString(StringBuilder sb, ParameterModel p, string rawExpr, string targetVar,
-		string ind, bool outVarKeyword, string failureExit, string? helpMethodName, string? flagHelpStdErrMethodName = null, string? parseFailureRunHint = null)
-	{
-		var e = Escape(p.CliLongName);
-		var tmpVar = ParamTemp(p, "nullableTemporalParsed");
-		var parsedOut = ParamTemp(p, "nt");
-		var csharpNullable = GetCSharpCliType(p);
-
-		sb.AppendLine($"{ind}{csharpNullable} {tmpVar} = null;");
-		sb.AppendLine($"{ind}if ({rawExpr} is not null)");
-		sb.AppendLine($"{ind}{{");
-
-		switch (p.TypeName)
-		{
-			case "DateTime?":
-				sb.AppendLine(
-					$"{ind}\tif (!global::System.DateTime.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {parsedOut}))");
-				break;
-			case "DateTimeOffset?":
-				sb.AppendLine(
-					$"{ind}\tif (!global::System.DateTimeOffset.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {parsedOut}))");
-				break;
-			case "TimeSpan?":
-				sb.AppendLine($"{ind}\tif (!global::Nullean.Argh.ArghTimeSpan.TryParse({rawExpr}, out var {parsedOut}))");
-				break;
-			case "DateOnly?":
-				sb.AppendLine(
-					$"{ind}\tif (!global::System.DateOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {parsedOut}))");
-				break;
-			case "TimeOnly?":
-				sb.AppendLine(
-					$"{ind}\tif (!global::System.TimeOnly.TryParse({rawExpr}, CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {parsedOut}))");
-				break;
-			default:
-				throw new InvalidOperationException($"Unexpected nullable temporal type '{p.TypeName}'.");
-		}
-
-		sb.AppendLine($"{ind}\t{{");
-		sb.AppendLine($"{ind}\t\tConsole.Error.WriteLine($\"Error: invalid {p.TypeName.TrimEnd('?')} for --{e}: '{{{rawExpr}}}'.\");");
-		EmitAfterCliParseErrorHelp(sb, p, $"{ind}\t\t", helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
-		sb.AppendLine($"{ind}\t\t{failureExit};");
-		sb.AppendLine($"{ind}\t}}");
-		sb.AppendLine($"{ind}\t{tmpVar} = {parsedOut};");
-		sb.AppendLine($"{ind}}}");
-
-		if (outVarKeyword)
-			sb.AppendLine($"{ind}var {targetVar} = {tmpVar};");
-		else
-			sb.AppendLine($"{ind}{targetVar} = {tmpVar};");
+			sb.AppendLine($"{ind}{targetVar} = {lifted};");
 	}
 
 	private static void EmitInvocation(

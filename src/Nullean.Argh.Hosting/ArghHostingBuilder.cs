@@ -170,6 +170,20 @@ public sealed class ArghHostingBuilder : IArghHostingBuilder
 	}
 
 	/// <inheritdoc />
+	IArghRootBuilder IArghRootBuilder.UseCulture(System.Globalization.CultureInfo culture)
+	{
+		_ = _inner.UseCulture(culture);
+		return this;
+	}
+
+	/// <inheritdoc />
+	IArghRootBuilder IArghRootBuilder.UseParserOptions(Nullean.Argh.Parsing.ParserOptions options)
+	{
+		_ = _inner.UseParserOptions(options);
+		return this;
+	}
+
+	/// <inheritdoc />
 	IArghBuilder IArghBuilder.MapRoot(Delegate handler)
 	{
 		_ = _inner.MapRoot(handler);

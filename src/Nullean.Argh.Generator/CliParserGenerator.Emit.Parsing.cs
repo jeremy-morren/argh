@@ -434,49 +434,14 @@ public sealed partial class CliParserGenerator
 					if (m.ScalarKind == CliScalarKind.Primitive)
 					{
 						// Re-parse from text if present, keeping static value if not.
-						var parseExpr = m.TypeName switch
-						{
-							"int" => $"int.TryParse({tmpName}Txt, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"int?" =>
-								$"int.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? (int?){tmpName}P : {tmpName}",
-							"long" => $"long.TryParse({tmpName}Txt, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"long?" =>
-								$"long.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? (long?){tmpName}P : {tmpName}",
-							"double" =>
-								$"double.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"double?" =>
-								$"double.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? (double?){tmpName}P : {tmpName}",
-							"float" =>
-								$"float.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"float?" =>
-								$"float.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? (float?){tmpName}P : {tmpName}",
-							"decimal" =>
-								$"decimal.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"decimal?" =>
-								$"decimal.TryParse({tmpName}Txt, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var {tmpName}P) ? (decimal?){tmpName}P : {tmpName}",
-							"DateTime" =>
-								$"global::System.DateTime.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"DateTime?" =>
-								$"global::System.DateTime.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmpName}P) ? (global::System.DateTime?){tmpName}P : {tmpName}",
-							"DateTimeOffset" =>
-								$"global::System.DateTimeOffset.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"DateTimeOffset?" =>
-								$"global::System.DateTimeOffset.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.RoundtripKind | global::System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var {tmpName}P) ? (global::System.DateTimeOffset?){tmpName}P : {tmpName}",
-							"TimeSpan" =>
-								$"global::Nullean.Argh.ArghTimeSpan.TryParse({tmpName}Txt, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"TimeSpan?" =>
-								$"global::Nullean.Argh.ArghTimeSpan.TryParse({tmpName}Txt, out var {tmpName}P) ? (global::System.TimeSpan?){tmpName}P : {tmpName}",
-							"DateOnly" =>
-								$"global::System.DateOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"DateOnly?" =>
-								$"global::System.DateOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? (global::System.DateOnly?){tmpName}P : {tmpName}",
-							"TimeOnly" =>
-								$"global::System.TimeOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? {tmpName}P : {tmpName}",
-							"TimeOnly?" =>
-								$"global::System.TimeOnly.TryParse({tmpName}Txt, System.Globalization.CultureInfo.InvariantCulture, global::System.Globalization.DateTimeStyles.None, out var {tmpName}P) ? (global::System.TimeOnly?){tmpName}P : {tmpName}",
-							"string" or "string?" => $"{tmpName}Txt ?? {tmpName}",
-							_ => $"{tmpName}Txt != null ? {tmpName}Txt : {tmpName}"
-						};
+						// T? re-parses through T's TryParse; a value that doesn't parse keeps the static fallback.
+						var reparse = ScalarTryParseCall(m.TypeName.TrimEnd('?'), tmpName + "Txt", "out var " + tmpName + "P");
+						var cast = m.TypeName.EndsWith("?", StringComparison.Ordinal) ? "(" + GetCSharpCliType(m) + ")" : "";
+						var parseExpr = reparse is not null
+							? $"{reparse} ? {cast}{tmpName}P : {tmpName}"
+							: m.TypeName is "string" or "string?"
+								? $"{tmpName}Txt ?? {tmpName}"
+								: $"{tmpName}Txt != null ? {tmpName}Txt : {tmpName}";
 						if (m.TypeName is "string" or "string?")
 							sb.AppendLine($"\t\t\t{tmpName} = {parseExpr};");
 						else
@@ -533,8 +498,8 @@ public sealed partial class CliParserGenerator
 						var pvVar = "__pv_ropt_" + m.LocalVarName;
 						sb.AppendLine($"\t\t\tif ({tmpName}Txt is not null)");
 						sb.AppendLine("\t\t\t{");
-						sb.AppendLine($"\t\t\t\tvar {parserVar} = new {m.ParserTypeFq}();");
-						sb.AppendLine($"\t\t\t\tif ({parserVar}.TryParse({tmpName}Txt, out var {pvVar}))");
+						sb.AppendLine($"\t\t\t\t{CustomParserLocalType(m)} {parserVar} = new {m.ParserTypeFq}();");
+						sb.AppendLine($"\t\t\t\tif ({parserVar}.TryParse({tmpName}Txt, {ParserOptionsExpr}, out var {pvVar}))");
 						sb.AppendLine($"\t\t\t\t\t{tmpName} = {pvVar};");
 						sb.AppendLine("\t\t\t}");
 					}
@@ -882,7 +847,8 @@ public sealed partial class CliParserGenerator
 		var access = isNullableValueType ? $"{varName}.Value" : varName;
 		sb.AppendLine($"\t\t\tif ({guard}{access} < {r.MinLiteral} || {access} > {r.MaxLiteral}{closeGuard})");
 		sb.AppendLine("\t\t\t{");
-		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: value must be between {Escape(r.MinLiteral.Trim('"'))} and {Escape(r.MaxLiteral.Trim('"'))}.\");");
+		var rangeMessage = $"Error: --{cliName}: value must be between {RangeBoundText(r, r.MinLiteral)} and {RangeBoundText(r, r.MaxLiteral)}.";
+		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine($\"{EscapeForHelpInterpolation(rangeMessage)}\");");
 		EmitValidationErrorFooter(sb, p, cliName, "\t\t\t\t", flagHelpStdErrMethodName, runHint);
 		sb.AppendLine($"\t\t\t\t{failureExit};");
 		sb.AppendLine("\t\t\t}");
@@ -898,7 +864,7 @@ public sealed partial class CliParserGenerator
 			&& p.TypeName.EndsWith("?", StringComparison.Ordinal);
 		var tsMin = "__tsRangeMin_" + varName;
 		var tsMax = "__tsRangeMax_" + varName;
-		sb.AppendLine($"\t\t\tif (!global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MinLiteral}, out var {tsMin}) || !global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MaxLiteral}, out var {tsMax}))");
+		sb.AppendLine($"\t\t\tif (!global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MinLiteral}, global::System.Globalization.CultureInfo.InvariantCulture, out var {tsMin}) || !global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MaxLiteral}, global::System.Globalization.CultureInfo.InvariantCulture, out var {tsMax}))");
 		sb.AppendLine("\t\t\t{");
 		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: invalid TimeSpanRange bounds.\");");
 		EmitValidationErrorFooter(sb, p, cliName, "\t\t\t\t", flagHelpStdErrMethodName, runHint);
@@ -1025,10 +991,10 @@ public sealed partial class CliParserGenerator
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
 			cond = $"{nullGuard}({string.Join(" && ", checks.Select(c => c.Replace(varName, access)))})";
 		}
-		var displayVals = string.Join(", ", av.DisplayValues);
+		var allowedMessage = $"Error: --{cliName}: value must be one of: {string.Join(", ", CultureDisplayValues(av.Values, av.DisplayValues, av.CultureTypes))}.";
 		sb.AppendLine($"\t\t\tif ({cond})");
 		sb.AppendLine("\t\t\t{");
-		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: value must be one of: {Escape(displayVals)}.\");");
+		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine($\"{EscapeForHelpInterpolation(allowedMessage)}\");");
 		EmitValidationErrorFooter(sb, p, cliName, "\t\t\t\t", flagHelpStdErrMethodName, runHint);
 		sb.AppendLine($"\t\t\t\t{failureExit};");
 		sb.AppendLine("\t\t\t}");
@@ -1060,10 +1026,10 @@ public sealed partial class CliParserGenerator
 			var access = isNullableValueType ? $"{varName}.Value" : varName;
 			cond = $"{nullGuard}({string.Join(" || ", checks.Select(c => c.Replace(varName, access)))})";
 		}
-		var displayVals = string.Join(", ", dv.DisplayValues);
+		var deniedMessage = $"Error: --{cliName}: value must not be: {string.Join(", ", CultureDisplayValues(dv.Values, dv.DisplayValues, dv.CultureTypes))}.";
 		sb.AppendLine($"\t\t\tif ({cond})");
 		sb.AppendLine("\t\t\t{");
-		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine(\"Error: --{Escape(cliName)}: value must not be: {Escape(displayVals)}.\");");
+		sb.AppendLine($"\t\t\t\tConsole.Error.WriteLine($\"{EscapeForHelpInterpolation(deniedMessage)}\");");
 		EmitValidationErrorFooter(sb, p, cliName, "\t\t\t\t", flagHelpStdErrMethodName, runHint);
 		sb.AppendLine($"\t\t\t\t{failureExit};");
 		sb.AppendLine("\t\t\t}");

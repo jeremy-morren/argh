@@ -246,6 +246,91 @@ public class NetstandardFixtureTests
 
 	[SkippableTheory]
 	[MemberData(nameof(AllFrameworks))]
+	public void German_culture_parses_the_same_on_every_framework(string framework)
+	{
+		var result = Run(framework, new Dictionary<string, string> { ["ARGH_TEST_CULTURE"] = "de-DE" },
+			"scalars", "--wait", "00:00:01,5", "--when", "15.06.2024 14:30:00", "--at", "2024-06-15T14:30:00+10:00",
+			"--link", "https://example.com", "--file", "a.txt", "--dir", "out", "--ratio", "1,5", "--big", "9000000000",
+			"--amount=2,25", "--limit=7");
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		Stdout(result).Should().Be(
+			"1.5|2024-06-15T14:30:00.0000000|2024-06-15T14:30:00.0000000+10:00|example.com|a.txt|out|1.5|9000000000|2.25|none|7|none\n");
+	}
+
+	/// <summary>Runs <c>scalars</c> under <paramref name="culture"/> and returns its fields: index 1 is <c>--when</c>, 8 is <c>--amount</c>.</summary>
+	private static string[] ScalarFields(string host, string culture, string when, string amount)
+	{
+		var result = Run(host, new Dictionary<string, string> { ["ARGH_TEST_CULTURE"] = culture },
+			"scalars", "--wait", "5m", "--when", when, "--at", "2024-06-15T14:30:00+10:00", "--link", "https://example.com",
+			"--file", "a.txt", "--dir", "out", "--ratio", "1", "--big", "1", "--amount", amount);
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		return Stdout(result).TrimEnd('\n').Split('|');
+	}
+
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void English_cultures_read_day_and_month_in_their_own_order_on_every_framework(string framework)
+	{
+		ScalarFields(framework, "en-US", "06/07/2024", "1")[1].Should().Be("2024-06-07T00:00:00.0000000");
+		ScalarFields(framework, "en-GB", "06/07/2024", "1")[1].Should().Be("2024-07-06T00:00:00.0000000");
+	}
+
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void French_culture_uses_a_decimal_comma_on_every_framework(string framework) =>
+		ScalarFields(framework, "fr-FR", "2024-06-15", "1,5")[8].Should().Be("1.5");
+
+	/// <summary>Runs <c>scalars</c> with the given <c>--ratio</c> (double), <c>--big</c> (long), <c>--amount</c> (decimal) and <c>--limit</c> (int?).</summary>
+	private static ProcessCaptureResult RunNumbers(string host, IReadOnlyDictionary<string, string>? environment,
+		string ratio, string big, string amount, string limit) =>
+		Run(host, environment, "scalars", "--wait", "5m", "--when", "2024-06-15", "--at", "2024-06-15T14:30:00+10:00",
+			"--link", "https://example.com", "--file", "a.txt", "--dir", "out", "--ratio", ratio, "--big", big, "--amount", amount,
+			$"--limit={limit}");
+
+	/// <summary>The <c>--ratio</c>, <c>--big</c>, <c>--amount</c> and <c>--limit</c> fields of a successful <see cref="RunNumbers"/>.</summary>
+	private static string NumberFields(ProcessCaptureResult result)
+	{
+		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
+		var fields = Stdout(result).TrimEnd('\n').Split('|');
+		return string.Join("|", fields[6], fields[7], fields[8], fields[10]);
+	}
+
+	// The default Float styles: an exponent, whitespace, and a decimal point in an integer only for a whole number.
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void Default_number_styles_parse_the_same_on_every_framework(string framework)
+	{
+		NumberFields(RunNumbers(framework, null, " 1.5e2 ", "9e9", "2.5E1", "1.0")).Should().Be("150|9000000000|25|1");
+		NumberFields(RunNumbers(framework, null, "1", "-1", "1", " 1e3 ")).Should().Be("1|-1|1|1000");
+		RunNumbers(framework, null, "1", "1", "1", "1.5").ExitCode.Should().Be(2);
+		RunNumbers(framework, null, "1", "1,000", "1", "1").ExitCode.Should().Be(2);
+		RunNumbers(framework, null, "1,000.5", "1", "1", "1").ExitCode.Should().Be(2);
+	}
+
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
+	public void Allowing_thousands_accepts_group_separators_on_every_framework(string framework) =>
+		NumberFields(RunNumbers(framework, new Dictionary<string, string> { ["ARGH_TEST_NUMBER_STYLES"] = "Float, AllowThousands" },
+			"1,000.5", "1,000", "1,000.5", "1,000")).Should().Be("1000.5|1000|1000.5|1000");
+
+	// .NET Framework reads Windows NLS culture data, which differs from the ICU data .NET 5+ uses (CultureBindingTests).
+
+	[SkippableFact]
+	public void Persian_culture_uses_a_slash_decimal_separator_on_net_framework() =>
+		ScalarFields("net472", "fa-IR", "2024-06-15", "1/5")[8].Should().Be("1.5");
+
+	[SkippableFact]
+	public void Swedish_culture_rejects_the_unicode_minus_sign_on_net_framework()
+	{
+		ScalarFields("net472", "sv-SE", "2024-06-15", "-5")[8].Should().Be("-5");
+		var result = Run("net472", new Dictionary<string, string> { ["ARGH_TEST_CULTURE"] = "sv-SE" },
+			"scalars", "--wait", "5m", "--when", "2024-06-15", "--at", "2024-06-15T14:30:00+10:00", "--link", "https://example.com",
+			"--file", "a.txt", "--dir", "out", "--ratio", "1", "--big", "1", "--amount", $"{(char)0x2212}5");
+		result.ExitCode.Should().Be(2);
+	}
+
+	[SkippableTheory]
+	[MemberData(nameof(AllFrameworks))]
 	public void Existing_file_check_accepts_a_real_file(string framework)
 	{
 		var result = Run(framework, "files", "--input", HostPath(framework));

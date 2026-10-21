@@ -44,6 +44,27 @@ public sealed partial class ArghApp : IArghRootBuilder
 	public ArghApp UseEnvironmentPrefix(string prefix) => this;
 
 	/// <summary>
+	/// Sets the culture used to parse argument and environment-variable values (numbers, dates and times, <c>TimeSpan</c>).
+	/// The default is <see cref="System.Globalization.CultureInfo.InvariantCulture"/>. Unlike the other builder methods this
+	/// takes effect at runtime: it sets <see cref="ArghRuntime.Culture"/>.
+	/// </summary>
+	public ArghApp UseCulture(System.Globalization.CultureInfo culture)
+	{
+		ArghRuntime.Culture = culture ?? throw new ArgumentNullException(nameof(culture));
+		return this;
+	}
+
+	/// <summary>
+	/// Sets how argument and environment-variable values are parsed: the culture and the number styles. Unlike the other
+	/// builder methods this takes effect at runtime: it sets <see cref="ArghRuntime.ParserOptions"/>.
+	/// </summary>
+	public ArghApp UseParserOptions(Nullean.Argh.Parsing.ParserOptions options)
+	{
+		ArghRuntime.ParserOptions = options ?? throw new ArgumentNullException(nameof(options));
+		return this;
+	}
+
+	/// <summary>
 	/// Registers a default handler when no subcommand or namespace segment applies at the current scope
 	/// (app root or inside a <see cref="MapNamespace"/> block). Analyzed by the source generator.
 	/// </summary>

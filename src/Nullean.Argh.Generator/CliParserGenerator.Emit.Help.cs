@@ -557,15 +557,15 @@ public sealed partial class CliParserGenerator
 			else if (validationOnNewLine)
 			{
 				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 			}
 			else if (string.IsNullOrEmpty(desc))
 			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 			}
 			else
 			{
-				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 			}
 		}
 	}
@@ -589,17 +589,17 @@ public sealed partial class CliParserGenerator
 			sb.AppendLine(
 				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)}\");");
 			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				$"{lineIndent}Console.Error.WriteLine($\"{continuationIndent}{{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 		}
 		else if (string.IsNullOrEmpty(desc))
 		{
 			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 		}
 		else
 		{
 			sb.AppendLine(
-				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine(\"{Escape(validationLine)}\")}}\");");
+				$"{lineIndent}Console.Error.WriteLine($\"  {{CliHelpFormatting.Accent(\"{Escape(left)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(validationLine)})}}\");");
 		}
 	}
 
@@ -762,11 +762,11 @@ public sealed partial class CliParserGenerator
 				}
 				else if (string.IsNullOrEmpty(desc))
 				{
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {{CliHelpFormatting.DocRemarksLine(\"{Escape(argValidationLine)}\")}}\");");
+					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(argValidationLine)})}}\");");
 				}
 				else
 				{
-					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine(\"{Escape(argValidationLine)}\")}}\");");
+					sb.AppendLine($"\t\t\tConsole.Out.WriteLine($\"  {{CliHelpFormatting.Placeholder(\"{Escape(nameCellPadded)}\")}}  {EscapeForHelpInterpolation(desc)} {{CliHelpFormatting.DocRemarksLine({HelpTextExpr(argValidationLine)})}}\");");
 				}
 			}
 
@@ -907,7 +907,7 @@ public sealed partial class CliParserGenerator
 		if (p.Special == BoolSpecialKind.None)
 		{
 			if (p.DefaultValueLiteral is not null)
-				parts.Add($"[default: {FormatDefaultForHelp(p)}]");
+				parts.Add($"[default: {FormatDefaultForHelpText(p)}]");
 		}
 
 		var envVarName = ComputeEffectiveEnvVarName(p, environmentPrefix);
@@ -917,6 +917,50 @@ public sealed partial class CliParserGenerator
 		return string.Join(" ", parts.Where(s => !string.IsNullOrWhiteSpace(s)));
 	}
 
+
+	private const string RuntimeDefaultMarkerStart = "<<argh-default:";
+	private const string RuntimeDefaultMarkerEnd = ">>";
+
+	/// <summary>
+	/// The default value as help shows it. A numeric default is formatted at runtime with the parse culture, so help shows
+	/// it the way users type it (see <see cref="RuntimeCultureText"/>). Other defaults, and <c>__schema</c>, use the
+	/// invariant text from <see cref="FormatDefaultForHelp"/>.
+	/// </summary>
+	private static string FormatDefaultForHelpText(ParameterModel p)
+	{
+		var type = p.TypeName.TrimEnd('?');
+		var literal = p.DefaultValueLiteral?.Trim();
+		if (literal is not null and not "default" and not "null" && type is "int" or "long" or "float" or "double" or "decimal")
+			return RuntimeCultureText(type, literal);
+		return FormatDefaultForHelp(p);
+	}
+
+	/// <summary>
+	/// A numeric constant (<paramref name="type"/> keyword and C# <paramref name="literal"/>) in help or error text, formatted
+	/// at runtime with the parse culture so users see it the way they type it. Returns a marker that
+	/// <see cref="ExpandRuntimeDefaults"/> turns into an interpolation hole, so the text must go through
+	/// <see cref="EscapeForHelpInterpolation"/> into an interpolated string.
+	/// </summary>
+	private static string RuntimeCultureText(string type, string literal) =>
+		RuntimeDefaultMarkerStart + type + ":" + literal + RuntimeDefaultMarkerEnd;
+
+	/// <summary>
+	/// A C# string expression for help text: an interpolated string when the text holds <see cref="RuntimeCultureText"/>
+	/// markers, a plain literal otherwise.
+	/// </summary>
+	private static string HelpTextExpr(string text) =>
+		text.IndexOf(RuntimeDefaultMarkerStart, StringComparison.Ordinal) < 0
+			? "\"" + Escape(text) + "\""
+			: "$\"" + EscapeForHelpInterpolation(text) + "\"";
+
+	/// <summary>Replaces each <see cref="RuntimeCultureText"/> marker in escaped help text with a hole that formats the value at runtime.</summary>
+	private static string ExpandRuntimeDefaults(string escaped) =>
+		escaped.IndexOf(RuntimeDefaultMarkerStart, StringComparison.Ordinal) < 0
+			? escaped
+			: System.Text.RegularExpressions.Regex.Replace(
+				escaped,
+				"<<argh-default:([a-z]+):([^>]*)>>",
+				m => "{((" + m.Groups[1].Value + ")(" + m.Groups[2].Value + ")).ToString(" + ParseCulture + ")}");
 
 	private static string FormatDefaultForHelp(ParameterModel p)
 	{

@@ -47,6 +47,9 @@ internal static class CliRegistrationModule
 		app.Map("unicode-docs", CliTestHandlers.UnicodeDocs);
 		app.Map("point-cmd", CliTestHandlers.PointCmd);
 		app.Map("point-as-params-cmd", CliTestHandlers.PointAsParamsCmd);
+		app.Map("optional-point-cmd", CliTestHandlers.OptionalPointCmd);
+		app.Map("culture-choices", CliTestHandlers.CultureChoices);
+		app.Map("culture-cmd", CliTestHandlers.CultureCmd);
 		app.Map("local-names", CliTestHandlers.LocalNames);
 		app.Map("local-names-dto", CliTestHandlers.LocalNamesDto);
 		app.Map("tag-set-parser", CliTestHandlers.TagSetParser);

@@ -300,7 +300,7 @@ public class SymbolUsageDiagnosticsTests
 			[Obsolete("Use a newer parser.")]
 			public sealed class OldParser : IArgumentParser<int>
 			{
-				public bool TryParse(string raw, out int value) => int.TryParse(raw, out value);
+				public bool TryParse(string raw, ParserOptions options, out int value) => int.TryParse(raw, System.Globalization.NumberStyles.Integer, options.Culture, out value);
 			}
 
 			public sealed class GlobalMiddleware : ICommandMiddleware

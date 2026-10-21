@@ -89,12 +89,11 @@ public sealed partial class CliParserGenerator
 				var spellings = ExpandFlagStrings(p).Where(s => !s.StartsWith("--no-", StringComparison.Ordinal) && seen.Add(s)).ToList();
 				if (spellings.Count == 0)
 					continue;
-				var key = string.Join("\n", values);
+				var key = string.Join("\n", values.Select(v => v.CultureType + "|" + v.Literal + "|" + v.Text));
 				if (!tables.TryGetValue(key, out var table))
 				{
-					table = $"__c_values_{tables.Count}";
+					table = EmitCompletionValueTable(sb, $"__c_values_{tables.Count}", values);
 					tables.Add(key, table);
-					EmitCompletionStringArray(sb, table, values);
 				}
 
 				flags.Add((spellings, table));
@@ -178,28 +177,61 @@ public sealed partial class CliParserGenerator
 		sb.AppendLine();
 	}
 
+	/// <summary>
+	/// A value completion offers: its invariant <paramref name="Text"/>, or, for a numeric constant, the C#
+	/// <paramref name="Literal"/> that the generated code formats with the parse culture (<paramref name="CultureType"/> is
+	/// its keyword), so the completed text parses back to the same value in the culture users type in.
+	/// </summary>
+	private readonly record struct CompletionValue(string Text, string CultureType, string Literal);
+
 	/// <summary>The closed set of values a flag accepts, or <see langword="null"/> when its values are open-ended.</summary>
-	private static List<string>? CompletionValuesFor(ParameterModel p)
+	private static List<CompletionValue>? CompletionValuesFor(ParameterModel p)
 	{
 		if (p.Kind != ParameterKind.Flag && p.Kind != ParameterKind.OptionsInjected)
 			return null;
 		if (p.ScalarKind == CliScalarKind.Enum && !p.EnumMemberNames.IsDefaultOrEmpty)
-			return p.EnumMemberNames.Select((m, i) => ResolveEnumMemberCliName(p.EnumMemberCliNames, i, m)).ToList();
+			return p.EnumMemberNames.Select((m, i) => new CompletionValue(ResolveEnumMemberCliName(p.EnumMemberCliNames, i, m), "", "")).ToList();
 		if (p.IsCollection && p.ElementScalarKind == CliScalarKind.Enum && !p.ElementEnumMemberNames.IsDefaultOrEmpty)
-			return p.ElementEnumMemberNames.Select((m, i) => ResolveEnumMemberCliName(p.ElementEnumMemberCliNames, i, m)).ToList();
+			return p.ElementEnumMemberNames.Select((m, i) => new CompletionValue(ResolveEnumMemberCliName(p.ElementEnumMemberCliNames, i, m), "", "")).ToList();
 		if (!p.Validations.IsDefaultOrEmpty)
 		{
 			foreach (var c in p.Validations)
 			{
 				if (c is AllowedValuesConstraint av)
-					return av.Values.Zip(av.DisplayValues, (literal, value) => (literal, value))
-						.Where(x => x.literal != "null")
-						.Select(x => x.value)
+					return av.Values.Select((literal, i) => new CompletionValue(av.DisplayValues[i], av.CultureTypes[i], literal))
+						.Where(v => v.Literal != "null")
 						.ToList();
 			}
 		}
 
 		return null;
+	}
+
+	/// <summary>
+	/// Emits a value table and returns the expression that reads it. A table with a numeric constant is a method that
+	/// formats it with the parse culture at completion time; any other table is a static array.
+	/// </summary>
+	private static string EmitCompletionValueTable(StringBuilder sb, string name, List<CompletionValue> values)
+	{
+		if (values.All(v => v.CultureType.Length == 0))
+		{
+			EmitCompletionStringArray(sb, name, values.Select(v => v.Text).ToList());
+			return name;
+		}
+
+		sb.AppendLine($"\t\tprivate static string[] {name}() => new string[]");
+		sb.AppendLine("\t\t{");
+		for (var i = 0; i < values.Count; i++)
+		{
+			var v = values[i];
+			sb.Append("\t\t\t").Append(v.CultureType.Length > 0
+				? $"(({v.CultureType})({v.Literal})).ToString({ParseCulture})"
+				: $"\"{Escape(v.Text)}\"");
+			sb.AppendLine(i < values.Count - 1 ? "," : "");
+		}
+
+		sb.AppendLine("\t\t};");
+		return name + "()";
 	}
 
 	private static void EmitCompleteHierarchicalBody(StringBuilder sb, AppEmitModel app, ImmutableArray<ParameterModel> globalMembers)

@@ -40,4 +40,19 @@ public interface IArghRootBuilder : IArghBuilder
 	/// Does not affect the <c>--version</c> CLI flag, which always shows the full informational version.
 	/// </summary>
 	IArghRootBuilder UseSchemaVersion(string version);
+
+	/// <summary>
+	/// Sets the culture used to parse argument and environment-variable values: numbers, dates and times, and
+	/// <c>TimeSpan</c>. The default is <see cref="System.Globalization.CultureInfo.InvariantCulture"/>. A shortcut for
+	/// <see cref="UseParserOptions"/> that keeps the configured number styles.
+	/// Unlike the other root options this is a runtime setting: it applies to every parse after the call.
+	/// </summary>
+	IArghRootBuilder UseCulture(System.Globalization.CultureInfo culture);
+
+	/// <summary>
+	/// Sets how argument and environment-variable values are parsed: the culture and the number styles (see
+	/// <see cref="Parsing.ParserOptions"/>). Custom <see cref="Parsing.IArgumentParser{T}"/> implementations receive the same options.
+	/// Unlike the other root options this is a runtime setting: it applies to every parse after the call.
+	/// </summary>
+	IArghRootBuilder UseParserOptions(Parsing.ParserOptions options);
 }

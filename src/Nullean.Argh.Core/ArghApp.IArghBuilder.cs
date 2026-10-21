@@ -57,6 +57,20 @@ public sealed partial class ArghApp
 	}
 
 	/// <inheritdoc />
+	IArghRootBuilder IArghRootBuilder.UseCulture(System.Globalization.CultureInfo culture)
+	{
+		_ = UseCulture(culture);
+		return this;
+	}
+
+	/// <inheritdoc />
+	IArghRootBuilder IArghRootBuilder.UseParserOptions(Nullean.Argh.Parsing.ParserOptions options)
+	{
+		_ = UseParserOptions(options);
+		return this;
+	}
+
+	/// <inheritdoc />
 	IArghBuilder IArghBuilder.MapRoot(Delegate handler)
 	{
 		_ = MapRoot(handler);

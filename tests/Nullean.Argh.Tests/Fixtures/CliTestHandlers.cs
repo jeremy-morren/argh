@@ -75,6 +75,32 @@ internal sealed class PointAsParamsArgs
 	public CliTestHandlers.Point Point { get; init; }
 }
 
+/// <summary>[AsParameters] DTO whose values parse differently depending on the culture.</summary>
+internal sealed class CultureArgs
+{
+	public decimal Amount { get; init; }
+	public DateTime? When { get; init; }
+	public DateOnly? Day { get; init; }
+	public TimeSpan? Wait { get; init; }
+	public DateTimeOffset? At { get; init; }
+	public List<decimal>? Amounts { get; init; }
+	public int? Count { get; init; }
+	public double? Scale { get; init; }
+
+	[ArgumentParser(typeof(CliTestHandlers.CultureNameParser))]
+	public string? Tag { get; init; }
+}
+
+/// <summary>[AsParameters] DTO with <c>Point?</c> members: one parsed through <c>IArgumentParser&lt;Point&gt;</c>, one through <c>IArgumentParser&lt;Point?&gt;</c>.</summary>
+internal sealed class OptionalPointArgs
+{
+	[ArgumentParser(typeof(CliTestHandlers.PointParser))]
+	public CliTestHandlers.Point? Near { get; init; }
+
+	[ArgumentParser(typeof(CliTestHandlers.NullablePointParser))]
+	public CliTestHandlers.Point? Either { get; init; }
+}
+
 /// <summary>[AsParameters] DTO with two members that use the same custom parser.</summary>
 internal sealed class TwoPointsArgs
 {
@@ -275,6 +301,48 @@ internal static class CliTestHandlers
 	public static void LocalNamesDto(TestGlobalCliOptions g, [AsParameters] TwoPointsArgs args) =>
 		Console.Out.WriteLine($"{args.From.X},{args.From.Y}|{args.To.X},{args.To.Y}");
 
+	/// <summary>Culture test: numeric allowed values, denied values and a range.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="rate">One of a fixed list, completed and shown in the parsing culture.</param>
+	/// <param name="step">Anything but one value.</param>
+	/// <param name="ratio">A bounded value.</param>
+	public static void CultureChoices(TestGlobalCliOptions g,
+		[System.ComponentModel.DataAnnotations.AllowedValues(1.5, 2.5, 10)] double rate = 1.5,
+		[System.ComponentModel.DataAnnotations.DeniedValues(0.5)] double? step = null,
+		[System.ComponentModel.DataAnnotations.Range(0.5, 9.5)] double? ratio = null)
+	{
+		var inv = System.Globalization.CultureInfo.InvariantCulture;
+		Console.Out.WriteLine(string.Join("|", rate.ToString(inv), step?.ToString(inv) ?? "none", ratio?.ToString(inv) ?? "none"));
+	}
+
+	/// <summary>Culture test: values whose parsing depends on the culture.</summary>
+	/// <param name="g">Injected global CLI options.</param>
+	/// <param name="args">Culture-sensitive values.</param>
+	/// <param name="envAmount">A decimal read from <c>ARGH_TEST_AMOUNT</c>.</param>
+	/// <param name="ratio">A double with a default, which help shows in the parsing culture.</param>
+	public static void CultureCmd(TestGlobalCliOptions g, [AsParameters] CultureArgs args, [Env("ARGH_TEST_AMOUNT")] decimal? envAmount = null, double ratio = 1.5)
+	{
+		var inv = System.Globalization.CultureInfo.InvariantCulture;
+		Console.Out.WriteLine(string.Join("|",
+			args.Amount.ToString(inv),
+			args.When?.ToString("yyyy-MM-dd HH:mm", inv) ?? "none",
+			args.Day?.ToString("yyyy-MM-dd", inv) ?? "none",
+			args.Wait?.TotalSeconds.ToString(inv) ?? "none",
+			args.At?.ToString("o", inv) ?? "none",
+			args.Amounts is null ? "none" : string.Join(",", args.Amounts.Select(a => a.ToString(inv))),
+			envAmount?.ToString(inv) ?? "none",
+			args.Tag ?? "none",
+			args.Count?.ToString(inv) ?? "none",
+			args.Scale?.ToString(inv) ?? "none",
+			ratio.ToString(inv)));
+	}
+
+	public static void OptionalPointCmd(TestGlobalCliOptions g, [AsParameters] OptionalPointArgs args,
+		[ArgumentParser(typeof(PointParser))] Point? at = null) =>
+		Console.Out.WriteLine($"{Show(at)}|{Show(args.Near)}|{Show(args.Either)}");
+
+	private static string Show(Point? point) => point is { } p ? $"{p.X},{p.Y}" : "none";
+
 	public static void PointAsParamsCmd(TestGlobalCliOptions g, [AsParameters] PointAsParamsArgs args) =>
 		Console.Out.WriteLine($"point-as-params:{args.Point.X},{args.Point.Y}");
 
@@ -331,19 +399,53 @@ internal static class CliTestHandlers
 
 	internal sealed class PointParser : IArgumentParser<Point>
 	{
-		public bool TryParse(string raw, out Point value)
+		public bool TryParse(string raw, ParserOptions options, out Point value)
 		{
 			value = default;
 			var parts = raw.Split(',');
-			if (parts.Length == 2 && int.TryParse(parts[0], out var x) && int.TryParse(parts[1], out var y))
+			if (parts.Length == 2 && int.TryParse(parts[0], options.NumberStyles, options.Culture, out var x) && int.TryParse(parts[1], options.NumberStyles, options.Culture, out var y))
 			{ value = new Point(x, y); return true; }
 			return false;
 		}
 	}
 
+	/// <summary>
+	/// Implements both <c>IArgumentParser&lt;Point&gt;</c>, which rejects every value, and <c>IArgumentParser&lt;Point?&gt;</c>,
+	/// which parses like <see cref="PointParser"/> and maps <c>none</c> to null. A <c>Point?</c> must use the second.
+	/// </summary>
+	internal sealed class NullablePointParser : IArgumentParser<Point>, IArgumentParser<Point?>
+	{
+		bool IArgumentParser<Point>.TryParse(string raw, ParserOptions options, out Point value)
+		{
+			value = default;
+			return false;
+		}
+
+		bool IArgumentParser<Point?>.TryParse(string raw, ParserOptions options, out Point? value)
+		{
+			value = null;
+			if (raw == "none")
+				return true;
+			if (!new PointParser().TryParse(raw, options, out var point))
+				return false;
+			value = point;
+			return true;
+		}
+	}
+
+	/// <summary>Returns the raw value with the name of the culture it was given, and the number styles unless they're the default, so tests can see which options reached the parser.</summary>
+	internal sealed class CultureNameParser : IArgumentParser<string>
+	{
+		public bool TryParse(string raw, ParserOptions options, out string value)
+		{
+			value = raw + "@" + (options.Culture.Name.Length == 0 ? "invariant" : options.Culture.Name) + (options.NumberStyles == System.Globalization.NumberStyles.Float ? "" : "/" + options.NumberStyles);
+			return true;
+		}
+	}
+
 	internal sealed class StringSetParser : IArgumentParser<IReadOnlySet<string>>
 	{
-		public bool TryParse(string raw, out IReadOnlySet<string> value)
+		public bool TryParse(string raw, ParserOptions options, out IReadOnlySet<string> value)
 		{
 			value = new HashSet<string>(raw.Split(',', StringSplitOptions.RemoveEmptyEntries));
 			return true;

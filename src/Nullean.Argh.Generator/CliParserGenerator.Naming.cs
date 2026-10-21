@@ -22,7 +22,7 @@ public sealed partial class CliParserGenerator
 	private static string EscapeInterpolationBraces(string s) =>
 		s.Replace("{", "{{").Replace("}", "}}");
 
-	private static string EscapeForHelpInterpolation(string s) => EscapeInterpolationBraces(Escape(s));
+	private static string EscapeForHelpInterpolation(string s) => ExpandRuntimeDefaults(EscapeInterpolationBraces(Escape(s)));
 
 	private static string EscapeDocXml(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
 

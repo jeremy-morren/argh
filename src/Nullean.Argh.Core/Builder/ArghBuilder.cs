@@ -75,6 +75,20 @@ public sealed class ArghBuilder : IArghRootBuilder
 	}
 
 	/// <inheritdoc />
+	public IArghRootBuilder UseCulture(System.Globalization.CultureInfo culture)
+	{
+		_ = _app.UseCulture(culture);
+		return this;
+	}
+
+	/// <inheritdoc />
+	public IArghRootBuilder UseParserOptions(Nullean.Argh.Parsing.ParserOptions options)
+	{
+		_ = _app.UseParserOptions(options);
+		return this;
+	}
+
+	/// <inheritdoc />
 	public IArghBuilder MapRoot(Delegate handler)
 	{
 		_ = _app.MapRoot(handler);

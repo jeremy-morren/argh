@@ -41,7 +41,7 @@ public static class ArghTimeSpan
 #else
 		var numPart = trimmed.Substring(0, trimmed.Length - 1);
 #endif
-		if (!ulong.TryParse(numPart, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
+		if (!ulong.TryParse(numPart, NumberStyles.None, formatProvider, out var n))
 			return TimeSpan.TryParse(trimmed, formatProvider, out value);
 
 		try

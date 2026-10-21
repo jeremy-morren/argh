@@ -17,6 +17,13 @@ public static class NetstandardCli
 	public static Task<int> RunAsync(string[] args)
 	{
 		var app = new ArghApp();
+		// Parser option tests set the culture and number styles through ARGH_TEST_CULTURE and ARGH_TEST_NUMBER_STYLES.
+		var parserOptions = new ParserOptions();
+		if (Environment.GetEnvironmentVariable("ARGH_TEST_CULTURE") is { Length: > 0 } culture)
+			parserOptions.Culture = CultureInfo.GetCultureInfo(culture);
+		if (Environment.GetEnvironmentVariable("ARGH_TEST_NUMBER_STYLES") is { Length: > 0 } numberStyles)
+			parserOptions.NumberStyles = (NumberStyles)Enum.Parse(typeof(NumberStyles), numberStyles);
+		app.UseParserOptions(parserOptions);
 		app.UseGlobalOptions<NsGlobalOptions>();
 		app.UseMiddleware<NsMiddleware>();
 		app.Map("echo", NsHandlers.Echo);
@@ -95,10 +102,10 @@ public readonly struct NsPoint
 public sealed class NsPointParser : IArgumentParser<NsPoint>
 {
 	/// <inheritdoc />
-	public bool TryParse(string raw, out NsPoint value)
+	public bool TryParse(string raw, ParserOptions options, out NsPoint value)
 	{
 		var parts = raw.Split(',');
-		if (parts.Length == 2 && int.TryParse(parts[0], out var x) && int.TryParse(parts[1], out var y))
+		if (parts.Length == 2 && int.TryParse(parts[0], options.NumberStyles, options.Culture, out var x) && int.TryParse(parts[1], options.NumberStyles, options.Culture, out var y))
 		{
 			value = new NsPoint(x, y);
 			return true;

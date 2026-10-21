@@ -80,7 +80,13 @@ public sealed partial class CliParserGenerator
 		bool IsDeprecated = false,
 		string? DeprecationMessage = null,
 		string? EnvVarName = null,
-		bool EnvTreatEmptyAsUnset = true)
+		bool EnvTreatEmptyAsUnset = true,
+		/// <summary>
+		/// The <c>T</c> of the <c>IArgumentParser&lt;T&gt;</c> the custom parser is called through (see <see cref="TryParserValueTypeFq"/>),
+		/// or null when it implements neither and its <c>TryParse</c> is called directly.
+		/// </summary>
+		string? ParserValueTypeFq = null,
+		string? ElementParserValueTypeFq = null)
 	{
 		// ── shared helpers ──────────────────────────────────────────────────────
 
@@ -102,12 +108,13 @@ public sealed partial class CliParserGenerator
 			out string? enumFq,
 			out ImmutableArray<string> enumMembers,
 			out string? parserFq,
-			out string? customValueTypeFq)
+			out string? customValueTypeFq,
+			out string? parserValueTypeFq)
 		{
 			if (isSeparateType)
-				ClassifyScalarForType(type, attributeHost, bs, out sk, out typeName, out enumFq, out enumMembers, out parserFq, out customValueTypeFq);
+				ClassifyScalarForType(type, attributeHost, bs, out sk, out typeName, out enumFq, out enumMembers, out parserFq, out customValueTypeFq, out parserValueTypeFq);
 			else
-				ClassifyScalar((IParameterSymbol)attributeHost, bs, out sk, out typeName, out enumFq, out enumMembers, out parserFq, out customValueTypeFq);
+				ClassifyScalar((IParameterSymbol)attributeHost, bs, out sk, out typeName, out enumFq, out enumMembers, out parserFq, out customValueTypeFq, out parserValueTypeFq);
 		}
 
 		private static ParameterModel BuildCollectionParameterModel(
@@ -129,7 +136,7 @@ public sealed partial class CliParserGenerator
 			Location? reportFallbackLocation = null)
 		{
 			ClassifyScalarForType(elementType, attributeHost, BoolSpecialKind.None,
-				out var elemSk, out var elemTn, out var eFq, out var eMem, out var pFq, out var cFq);
+				out var elemSk, out var elemTn, out var eFq, out var eMem, out var pFq, out var cFq, out var pvFq);
 			var eCliMem = elemSk == CliScalarKind.Enum ? TryGetEnumCliNames(elementType) : default;
 			var elemEnumDocs = elemSk == CliScalarKind.Enum ? TryGetEnumDocs(elementType) : null;
 			if (reportAcc is not null)
@@ -187,6 +194,7 @@ public sealed partial class CliParserGenerator
 				ElementEnumMemberCliNames: eCliMem,
 				ElementParserTypeFq: pFq,
 				ElementCustomValueTypeFq: cFq,
+				ElementParserValueTypeFq: pvFq,
 				FullDeclaredTypeFq: fq,
 				CollectionTargetIsArray: collectionType is IArrayTypeSymbol,
 				CollectionTargetIsReadOnlySet: defFq == "global::System.Collections.Generic.IReadOnlySet<T>",
@@ -251,7 +259,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			ClassifyScalarUnified(p.Type, p, bs, isSeparateType: false,
-				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq);
+				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(p, sk, p.Name, reportAcc, reportFallbackLocation);
 
@@ -282,6 +290,7 @@ public sealed partial class CliParserGenerator
 				"",
 				null,
 				ImmutableArray<string>.Empty,
+				ParserValueTypeFq: parserValFq,
 				EnumMemberCliNames: enumCliNames,
 				EnumMemberDocs: enumDocs,
 				ExpandUserProfileBeforeBind: expandProf,
@@ -315,7 +324,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			ClassifyScalarUnified(prop.Type, prop, bs, isSeparateType: true,
-				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq);
+				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			// A property initializer supplies a CLI default: the flag is not required on the command line.
 			// For cross-assembly types, DeclaringSyntaxReferences is empty so we can't read the initializer
 			// expression from syntax. Mark the property as using a runtime default instead of "required".
@@ -345,6 +354,7 @@ public sealed partial class CliParserGenerator
 				doc.Description,
 				doc.ShortOpt,
 				doc.Aliases,
+				ParserValueTypeFq: parserValFq,
 				EnumMemberCliNames: enumCliNames,
 				EnumMemberDocs: enumDocs,
 				ExpandUserProfileBeforeBind: expandProf,
@@ -381,7 +391,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			ClassifyScalarUnified(field.Type, field, bs, isSeparateType: true,
-				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq);
+				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			var isCrossAssemblyDefault = defaultValueLiteral is null && field.DeclaringSyntaxReferences.IsEmpty;
 			var required = !isCrossAssemblyDefault && ComputeRequiredForOptionsType(field.Type, bs) && defaultValueLiteral is null;
 			var enumCliNames = sk == CliScalarKind.Enum ? TryGetEnumCliNames(field.Type) : default;
@@ -407,6 +417,7 @@ public sealed partial class CliParserGenerator
 				doc.Description,
 				doc.ShortOpt,
 				doc.Aliases,
+				ParserValueTypeFq: parserValFq,
 				EnumMemberCliNames: enumCliNames,
 				ExpandUserProfileBeforeBind: expandProf,
 				Validations: validations,
@@ -492,7 +503,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			ClassifyScalarUnified(cp.Type, cp, bs, isSeparateType: false,
-				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq);
+				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(cp, sk, cp.Name, reportAcc,
 					cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
@@ -522,6 +533,7 @@ public sealed partial class CliParserGenerator
 				desc,
 				null,
 				ImmutableArray<string>.Empty,
+				ParserValueTypeFq: parserValFq,
 				EnumMemberCliNames: enumCliNames,
 				AsParametersOwnerParamName: methodParamName,
 				AsParametersMemberOrder: memberOrder,
@@ -600,7 +612,7 @@ public sealed partial class CliParserGenerator
 			}
 
 			ClassifyScalarUnified(prop.Type, prop, bs, isSeparateType: true,
-				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq);
+				out var sk, out var typeName, out var enumFq, out var enumMembers, out var parserFq, out var customValFq, out var parserValFq);
 			if (reportAcc is not null)
 				ReportFilesystemPathAttributeIssues(prop, sk, prop.Name, reportAcc,
 					prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
@@ -633,6 +645,7 @@ public sealed partial class CliParserGenerator
 				doc.Description,
 				doc.ShortOpt,
 				doc.Aliases,
+				ParserValueTypeFq: parserValFq,
 				EnumMemberCliNames: enumCliNames,
 				AsParametersOwnerParamName: methodParamName,
 				AsParametersMemberOrder: memberOrder,
@@ -680,12 +693,14 @@ public sealed partial class CliParserGenerator
 			out string? enumFq,
 			out ImmutableArray<string> enumMembers,
 			out string? parserFq,
-			out string? customValueFq)
+			out string? customValueFq,
+			out string? parserValueFq)
 		{
 			enumFq = null;
 			enumMembers = ImmutableArray<string>.Empty;
 			parserFq = null;
 			customValueFq = null;
+			parserValueFq = null;
 			if (bs != BoolSpecialKind.None)
 			{
 				kind = CliScalarKind.Primitive;
@@ -699,6 +714,7 @@ public sealed partial class CliParserGenerator
 				kind = CliScalarKind.CustomParser;
 				primitiveName = "custom";
 				customValueFq = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				parserValueFq = TryParserValueTypeFq(attributeHost, type);
 				return;
 			}
 
@@ -760,6 +776,44 @@ public sealed partial class CliParserGenerator
 			return null;
 		}
 
+		/// <summary>
+		/// The <c>T</c> of the <c>IArgumentParser&lt;T&gt;</c> to call the custom parser through: the value's own type when the parser
+		/// implements it; otherwise, for a <c>Nullable&lt;T&gt;</c> value, <c>T</c> when the parser implements that, and the parsed
+		/// value is assigned to the <c>T?</c>. Null when the parser implements neither.
+		/// </summary>
+		private static string? TryParserValueTypeFq(ISymbol symbol, ITypeSymbol valueType)
+		{
+			foreach (var attr in symbol.GetAttributes())
+			{
+				if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) !=
+				    "global::Nullean.Argh.ArgumentParserAttribute"
+				    || attr.ConstructorArguments.Length == 0
+				    || attr.ConstructorArguments[0].Value is not INamedTypeSymbol parser)
+					continue;
+
+				var underlying = valueType is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+					? nullable.TypeArguments[0]
+					: null;
+				ITypeSymbol? lifted = null;
+				foreach (var iface in parser.AllInterfaces)
+				{
+					if (iface.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) !=
+					    "global::Nullean.Argh.Parsing.IArgumentParser<T>")
+						continue;
+
+					var parsed = iface.TypeArguments[0];
+					if (SymbolEqualityComparer.Default.Equals(parsed, valueType))
+						return parsed.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					if (underlying is not null && SymbolEqualityComparer.Default.Equals(parsed, underlying))
+						lifted = parsed;
+				}
+
+				return lifted?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+			}
+
+			return null;
+		}
+
 		private static void ClassifyScalar(
 			IParameterSymbol p,
 			BoolSpecialKind bs,
@@ -768,12 +822,14 @@ public sealed partial class CliParserGenerator
 			out string? enumFq,
 			out ImmutableArray<string> enumMembers,
 			out string? parserFq,
-			out string? customValueFq)
+			out string? customValueFq,
+			out string? parserValueFq)
 		{
 			enumFq = null;
 			enumMembers = ImmutableArray<string>.Empty;
 			parserFq = null;
 			customValueFq = null;
+			parserValueFq = null;
 			if (bs != BoolSpecialKind.None)
 			{
 				kind = CliScalarKind.Primitive;
@@ -787,6 +843,7 @@ public sealed partial class CliParserGenerator
 				kind = CliScalarKind.CustomParser;
 				primitiveName = "custom";
 				customValueFq = p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				parserValueFq = TryParserValueTypeFq(p, p.Type);
 				return;
 			}
 
@@ -1029,5 +1086,40 @@ public sealed partial class CliParserGenerator
 	/// collide with a user local because it doesn't start with <see cref="UserLocalPrefix"/>.
 	/// </summary>
 	private static string ParamTemp(ParameterModel p, string role) => "__" + role + "_" + p.LocalVarName;
+
+	/// <summary>The parser options generated code reads, set by <c>UseParserOptions</c>.</summary>
+	private const string ParserOptionsExpr = "global::Nullean.Argh.Runtime.ArghRuntime.ParserOptions";
+
+	/// <summary>
+	/// The culture generated code parses argument and environment-variable values with (invariant by default).
+	/// Developer-written constants, such as <c>[TimeSpanRange]</c> bounds, are parsed invariantly instead.
+	/// </summary>
+	private const string ParseCulture = ParserOptionsExpr + ".Culture";
+
+	/// <summary>
+	/// The <c>TryParse</c> call for a built-in scalar type (the non-nullable name), or <see langword="null"/> when the type has none.
+	/// Numbers go through <c>ArghNumberParsing</c> with the configured <c>NumberStyles</c>;
+	/// every type uses the configured culture. A nullable type parses through its non-nullable call.
+	/// </summary>
+	private static string? ScalarTryParseCall(string type, string text, string outArg)
+	{
+		const string numbers = "global::Nullean.Argh.Runtime.ArghNumberParsing";
+		const string dateStyles = "global::System.Globalization.DateTimeStyles";
+		return type switch
+		{
+			"int" => $"{numbers}.TryParseInt32({text}, {ParserOptionsExpr}, {outArg})",
+			"long" => $"{numbers}.TryParseInt64({text}, {ParserOptionsExpr}, {outArg})",
+			"float" => $"{numbers}.TryParseSingle({text}, {ParserOptionsExpr}, {outArg})",
+			"double" => $"{numbers}.TryParseDouble({text}, {ParserOptionsExpr}, {outArg})",
+			"decimal" => $"{numbers}.TryParseDecimal({text}, {ParserOptionsExpr}, {outArg})",
+			"DateTime" => $"global::System.DateTime.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles, {outArg})",
+			"DateTimeOffset" => $"global::System.DateTimeOffset.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles, {outArg})",
+			"TimeSpan" => $"global::Nullean.Argh.ArghTimeSpan.TryParse({text}, {ParseCulture}, {outArg})",
+			// DateOnly and TimeOnly fail to parse when given any DateTimeStyles flag but the whitespace ones.
+			"DateOnly" => $"global::System.DateOnly.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles & {dateStyles}.AllowWhiteSpaces, {outArg})",
+			"TimeOnly" => $"global::System.TimeOnly.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles & {dateStyles}.AllowWhiteSpaces, {outArg})",
+			_ => null,
+		};
+	}
 
 }

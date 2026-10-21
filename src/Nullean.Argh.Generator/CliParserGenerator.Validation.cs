@@ -279,7 +279,8 @@ public sealed partial class CliParserGenerator
 			{
 				case "global::System.ComponentModel.DataAnnotations.RangeAttribute":
 					if (attr.ConstructorArguments.Length >= 2)
-						builder.Add(new RangeConstraint(attr.ConstructorArguments[0].ToCSharpString(), attr.ConstructorArguments[1].ToCSharpString()));
+						builder.Add(new RangeConstraint(attr.ConstructorArguments[0].ToCSharpString(), attr.ConstructorArguments[1].ToCSharpString(),
+							CultureFormattedType(attr.ConstructorArguments[0]) ?? ""));
 					break;
 				case "global::Nullean.Argh.TimeSpanRangeAttribute":
 					if (primitiveTypeName is "TimeSpan" or "TimeSpan?" &&
@@ -339,7 +340,8 @@ public sealed partial class CliParserGenerator
 						if (!args.IsEmpty)
 							builder.Add(new AllowedValuesConstraint(
 								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
-								args.Select(ConstantDisplayValue).ToImmutableArray()));
+								args.Select(ConstantDisplayValue).ToImmutableArray(),
+								args.Select(v => CultureFormattedType(v) ?? "").ToImmutableArray()));
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.DeniedValuesAttribute":
@@ -349,7 +351,8 @@ public sealed partial class CliParserGenerator
 						if (!args.IsEmpty)
 							builder.Add(new DeniedValuesConstraint(
 								args.Select(v => v.ToCSharpString()).ToImmutableArray(),
-								args.Select(ConstantDisplayValue).ToImmutableArray()));
+								args.Select(ConstantDisplayValue).ToImmutableArray(),
+								args.Select(v => CultureFormattedType(v) ?? "").ToImmutableArray()));
 					}
 					break;
 				case "global::System.ComponentModel.DataAnnotations.EmailAddressAttribute":
@@ -484,7 +487,7 @@ public sealed partial class CliParserGenerator
 				switch (v)
 				{
 					case RangeConstraint r:
-						tokens.Add($"[range: {r.MinLiteral.Trim('"')}-{r.MaxLiteral.Trim('"')}]");
+						tokens.Add($"[range: {RangeBoundText(r, r.MinLiteral)}-{RangeBoundText(r, r.MaxLiteral)}]");
 						break;
 					case CollectionCountConstraint cc when cc.Min.HasValue && cc.Max.HasValue:
 						tokens.Add($"[count: {cc.Min}-{cc.Max}]");
@@ -508,10 +511,10 @@ public sealed partial class CliParserGenerator
 						tokens.Add($"[pattern: {rx.Pattern}]");
 						break;
 					case AllowedValuesConstraint av:
-						tokens.Add("[allowed: " + string.Join("|", av.DisplayValues) + "]");
+						tokens.Add("[allowed: " + string.Join("|", CultureDisplayValues(av.Values, av.DisplayValues, av.CultureTypes)) + "]");
 						break;
 					case DeniedValuesConstraint dv:
-						tokens.Add("[denied: " + string.Join("|", dv.DisplayValues) + "]");
+						tokens.Add("[denied: " + string.Join("|", CultureDisplayValues(dv.Values, dv.DisplayValues, dv.CultureTypes)) + "]");
 						break;
 					case EmailConstraint:
 						tokens.Add("[email]");
@@ -549,15 +552,52 @@ public sealed partial class CliParserGenerator
 
 	private abstract record ValidationConstraint;
 	private sealed record CollectionCountConstraint(int? Min, int? Max) : ValidationConstraint;
-	private sealed record RangeConstraint(string MinLiteral, string MaxLiteral) : ValidationConstraint;
+	/// <param name="CultureType">The C# keyword of a numeric bound, which help and errors format with the parse culture; empty otherwise.</param>
+	private sealed record RangeConstraint(string MinLiteral, string MaxLiteral, string CultureType) : ValidationConstraint;
+
+	/// <summary>A range bound as help and errors show it: numeric bounds are formatted with the parse culture.</summary>
+	private static string RangeBoundText(RangeConstraint r, string literal) =>
+		r.CultureType.Length > 0 ? RuntimeCultureText(r.CultureType, literal) : literal.Trim('"');
 	private sealed record TimeSpanRangeConstraint(string MinLiteral, string MaxLiteral) : ValidationConstraint;
 	private sealed record StringLengthConstraint(int? Min, int? Max) : ValidationConstraint;
 	private sealed record RegexConstraint(string Pattern) : ValidationConstraint;
 	/// <param name="Values">C# literals, for the emitted equality checks (e.g. <c>"dev"</c> with its quotes).</param>
-	/// <param name="DisplayValues">The values as the user types them, for help, errors, completion and <c>__schema</c>.</param>
-	private sealed record AllowedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues) : ValidationConstraint;
+	/// <param name="DisplayValues">The values as the user types them in the invariant culture, for <c>__schema</c> and non-numeric values.</param>
+	/// <param name="CultureTypes">
+	/// Per value, the C# keyword of a numeric constant, which help, errors and completion format with the parse culture
+	/// (see <see cref="CultureDisplayValues"/>); empty for other values.
+	/// </param>
+	private sealed record AllowedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes)
+		: ValidationConstraint;
 	/// <inheritdoc cref="AllowedValuesConstraint"/>
-	private sealed record DeniedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues) : ValidationConstraint;
+	private sealed record DeniedValuesConstraint(ImmutableArray<string> Values, ImmutableArray<string> DisplayValues, ImmutableArray<string> CultureTypes)
+		: ValidationConstraint;
+
+	/// <summary>
+	/// The values as help and errors show them: numeric constants become runtime-formatted markers (see
+	/// <see cref="RuntimeCultureText"/>), so users see them in the culture they type in; other values are the invariant text.
+	/// </summary>
+	private static IEnumerable<string> CultureDisplayValues(ImmutableArray<string> values, ImmutableArray<string> displayValues, ImmutableArray<string> cultureTypes) =>
+		displayValues.Select((display, i) => cultureTypes[i].Length > 0 ? RuntimeCultureText(cultureTypes[i], values[i]) : display);
+
+	/// <summary>The C# keyword of a numeric attribute constant, whose text depends on the culture, or <see langword="null"/>.</summary>
+	private static string? CultureFormattedType(TypedConstant v) =>
+		v.IsNull || v.Kind != TypedConstantKind.Primitive
+			? null
+			: v.Type?.SpecialType switch
+			{
+				SpecialType.System_Int32 => "int",
+				SpecialType.System_Int64 => "long",
+				SpecialType.System_Single => "float",
+				SpecialType.System_Double => "double",
+				SpecialType.System_Int16 => "short",
+				SpecialType.System_UInt16 => "ushort",
+				SpecialType.System_UInt32 => "uint",
+				SpecialType.System_UInt64 => "ulong",
+				SpecialType.System_Byte => "byte",
+				SpecialType.System_SByte => "sbyte",
+				_ => null,
+			};
 
 	/// <summary>The value of an attribute argument as the user types it on the command line.</summary>
 	private static string ConstantDisplayValue(TypedConstant v)

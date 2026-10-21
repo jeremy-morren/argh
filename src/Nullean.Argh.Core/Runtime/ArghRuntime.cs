@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Globalization;
+using Nullean.Argh.Parsing;
 using Nullean.Argh.Schema;
 
 namespace Nullean.Argh.Runtime;
@@ -12,6 +15,49 @@ public static class ArghRuntime
 	private static Func<string[], RouteMatch?>? _routeFunc;
 	private static Func<ArghCliSchemaDocument>? _cliSchemaFactory;
 	private static Func<string[], bool>? _intrinsicFunc;
+	private static ParserOptions _parserOptions = new();
+	private static readonly AsyncLocal<ParserOptions?> s_scopedParserOptions = new();
+
+	/// <summary>
+	/// How Argh parses argument and environment-variable values: the culture, and the number styles.
+	/// Set them with <c>UseParserOptions</c> (or <c>UseCulture</c>) on the app or hosting builder; setting <see langword="null"/>
+	/// restores the defaults. Custom <c>IArgumentParser&lt;T&gt;</c> implementations receive them as an argument; middleware can read them here.
+	/// </summary>
+	public static ParserOptions ParserOptions
+	{
+		get => s_scopedParserOptions.Value ?? _parserOptions;
+		set => _parserOptions = value ?? new ParserOptions();
+	}
+
+	/// <summary>
+	/// The culture in <see cref="ParserOptions"/>, <see cref="CultureInfo.InvariantCulture"/> by default. Setting it keeps the
+	/// configured number and date styles.
+	/// </summary>
+	public static CultureInfo Culture
+	{
+		get => ParserOptions.Culture;
+		set => _parserOptions = new ParserOptions
+		{
+			Culture = value, NumberStyles = _parserOptions.NumberStyles, DateTimeStyles = _parserOptions.DateTimeStyles,
+		};
+	}
+
+	/// <summary>
+	/// Makes <see cref="ParserOptions"/> return <paramref name="options"/> in the current async flow until the returned scope is disposed.
+	/// Used by the generated <c>TryParseArgh</c> overloads that take parser options; not intended for app code.
+	/// </summary>
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	public static IDisposable PushParserOptions(ParserOptions? options)
+	{
+		var previous = s_scopedParserOptions.Value;
+		s_scopedParserOptions.Value = options;
+		return new ParserOptionsScope(previous);
+	}
+
+	private sealed class ParserOptionsScope(ParserOptions? previous) : IDisposable
+	{
+		public void Dispose() => s_scopedParserOptions.Value = previous;
+	}
 
 	/// <summary>
 	/// Registers the generated CLI runner. Called from emitted module initialization; not intended for app code.

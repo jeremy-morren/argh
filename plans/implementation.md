@@ -156,7 +156,7 @@ internal static partial class ArghGenerated
 - [ ] Enum help documentation — `[values: a, b, c]` in options table; per-member XML doc lines if present
 - [ ] `FileInfo`, `DirectoryInfo` — parse from string path
 - [ ] `Uri` — parse from string
-- [ ] `IArgumentParser<T>` — generated call to `parser.TryParse(string, out T)` (user implements, registered via attribute or convention TBD)
+- [ ] `IArgumentParser<T>` — generated call to `parser.TryParse(string, ParserOptions, out T)` (user implements, registered via attribute or convention TBD)
 - [ ] Short opts: `-e value` and `-e=value` parsing
 - [ ] Long alias: `--environment` as synonym for `--env`
 

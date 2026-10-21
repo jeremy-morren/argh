@@ -71,6 +71,11 @@ public class RootAndNamespaceHelpTests
 			                                                before it.
 			  count-cmd
 			  cross-assembly-echo
+			  culture-choices                               Culture test: numeric allowed
+			                                                values, denied values and a
+			                                                range.
+			  culture-cmd                                   Culture test: values whose
+			                                                parsing depends on the culture.
 			  deploy
 			  dir-cmd
 			  doc-lambda                                    Documented handler for
@@ -114,6 +119,7 @@ public class RootAndNamespaceHelpTests
 			                                                (-m still parses).
 			  nullable-numeric-as-params
 			  opt-tag-set
+			  optional-point-cmd
 			  optional-uri-as-params
 			  other
 			  param-comment-record
