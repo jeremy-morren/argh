@@ -244,12 +244,9 @@ public sealed partial class CliParserGenerator
 					if (TryBuildRangeConstraint(attr, attributeHost) is { } range)
 						builder.Add(range);
 					break;
-				case "global::Nullean.Argh.TimeSpanRangeAttribute":
-					if (primitiveTypeName is "TimeSpan" or "TimeSpan?" &&
-					    attr.ConstructorArguments.Length >= 2)
-						builder.Add(new TimeSpanRangeConstraint(
-							attr.ConstructorArguments[0].ToCSharpString(),
-							attr.ConstructorArguments[1].ToCSharpString()));
+				case TimeSpanRangeAttributeFq:
+					if (primitiveTypeName is "TimeSpan" or "TimeSpan?" && TryBuildTimeSpanRangeConstraint(attr) is { } timeSpanRange)
+						builder.Add(timeSpanRange);
 					break;
 				case "global::System.ComponentModel.DataAnnotations.StringLengthAttribute":
 					if (attr.ConstructorArguments.Length >= 1)
@@ -515,7 +512,7 @@ public sealed partial class CliParserGenerator
 						tokens.Add("[no symlinks]");
 						break;
 					case TimeSpanRangeConstraint ts:
-						tokens.Add($"[time-span-range: {ts.MinLiteral.Trim('"')}-{ts.MaxLiteral.Trim('"')}]");
+						tokens.Add($"[time-span-range: {ts.MinText}-{ts.MaxText}]");
 						break;
 				}
 			}
@@ -757,13 +754,61 @@ public sealed partial class CliParserGenerator
 			return;
 		foreach (var attr in AttributesOf(host))
 		{
-			if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != "global::System.ComponentModel.DataAnnotations.RangeAttribute")
+			var descriptor = attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) switch
+			{
+				"global::System.ComponentModel.DataAnnotations.RangeAttribute" => InvalidRangeBounds,
+				TimeSpanRangeAttributeFq => InvalidTimeSpanRangeBounds,
+				_ => null,
+			};
+			if (descriptor is null)
 				continue;
-			TryBuildRangeConstraint(attr, host, (reason, at) =>
-				acc.Add(InvalidRangeBounds,
+			void Report(string reason, SyntaxNode? at) =>
+				acc.Add(descriptor,
 					at?.GetLocation() ?? attr.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? host.Locations.FirstOrDefault() ?? fallbackLocation ?? Location.None,
-					declaredName, reason));
+					declaredName, reason);
+			if (descriptor == InvalidRangeBounds)
+				TryBuildRangeConstraint(attr, host, Report);
+			else
+				TryBuildTimeSpanRangeConstraint(attr, Report);
 		}
+	}
+
+	private const string TimeSpanRangeAttributeFq = "global::Nullean.Argh.TimeSpanRangeAttribute";
+
+	/// <summary>
+	/// Reads a <c>[TimeSpanRange]</c>, parsing its bounds now as the runtime parses a <c>TimeSpan</c> value
+	/// (<c>ArghTimeSpan</c>, invariant culture). Returns <see langword="null"/> when a bound isn't a duration or the
+	/// minimum is above the maximum; <paramref name="report"/> then gets the reason and the argument at fault.
+	/// </summary>
+	private static TimeSpanRangeConstraint? TryBuildTimeSpanRangeConstraint(AttributeData attr, Action<string, SyntaxNode?>? report = null)
+	{
+		var args = attr.ConstructorArguments;
+		if (args.Length != 2)
+			return null;
+		var syntaxArgs = (attr.ApplicationSyntaxReference?.GetSyntax() as AttributeSyntax)?.ArgumentList?.Arguments
+			.Where(static a => a.NameEquals is null).ToList();
+		ExpressionSyntax? ArgSyntax(int i) => syntaxArgs is { Count: 2 } list ? list[i].Expression : null;
+
+		long? Bound(int i)
+		{
+			var text = args[i].Value as string;
+			if (ArghTimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var value, out var error))
+				return value.Ticks;
+			report?.Invoke($"\"{text}\" isn't a duration. {error}", ArgSyntax(i));
+			return null;
+		}
+
+		var min = Bound(0);
+		var max = Bound(1);
+		if (min is null || max is null)
+			return null;
+		if (min > max)
+		{
+			report?.Invoke($"the minimum \"{args[0].Value}\" is greater than the maximum \"{args[1].Value}\".", ArgSyntax(0));
+			return null;
+		}
+
+		return new TimeSpanRangeConstraint((string)args[0].Value!, (string)args[1].Value!, min.Value, max.Value);
 	}
 
 	/// <summary>
@@ -833,7 +878,11 @@ public sealed partial class CliParserGenerator
 	/// <summary>A range bound as help and errors show it: numeric bounds are formatted with the parse culture.</summary>
 	private static string RangeBoundText(RangeConstraint r, string literal) =>
 		r.CultureType.Length > 0 ? RuntimeCultureText(r.CultureType, literal) : literal.Trim('"');
-	private sealed record TimeSpanRangeConstraint(string MinLiteral, string MaxLiteral) : ValidationConstraint;
+	/// <summary>
+	/// A <c>[TimeSpanRange]</c>: the bounds as the developer wrote them, for help and errors, and in ticks, parsed at
+	/// build time by <c>ArghTimeSpan</c> with the invariant culture.
+	/// </summary>
+	private sealed record TimeSpanRangeConstraint(string MinText, string MaxText, long MinTicks, long MaxTicks) : ValidationConstraint;
 	private sealed record StringLengthConstraint(int? Min, int? Max) : ValidationConstraint;
 	private sealed record RegexConstraint(string Pattern) : ValidationConstraint;
 	/// <param name="Values">C# literals, for the emitted equality checks (e.g. <c>"dev"</c> with its quotes).</param>

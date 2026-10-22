@@ -1200,7 +1200,7 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>
 	/// The culture generated code parses argument and environment-variable values with (invariant by default).
-	/// Developer-written constants, such as <c>[TimeSpanRange]</c> bounds, are parsed invariantly instead.
+	/// Developer-written constants, such as <c>[TimeSpanRange]</c> bounds, are parsed at build time with the invariant culture.
 	/// </summary>
 	private const string ParseCulture = ParserOptionsExpr + ".Culture";
 
@@ -1222,7 +1222,6 @@ public sealed partial class CliParserGenerator
 			"decimal" => $"{numbers}.TryParseDecimal({text}, {ParserOptionsExpr}, {outArg})",
 			"DateTime" => $"global::System.DateTime.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles, {outArg})",
 			"DateTimeOffset" => $"global::System.DateTimeOffset.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles, {outArg})",
-			"TimeSpan" => $"global::Nullean.Argh.ArghTimeSpan.TryParse({text}, {ParseCulture}, {outArg})",
 			// DateOnly and TimeOnly fail to parse when given any DateTimeStyles flag but the whitespace ones.
 			"DateOnly" => $"global::System.DateOnly.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles & {dateStyles}.AllowWhiteSpaces, {outArg})",
 			"TimeOnly" => $"global::System.TimeOnly.TryParse({text}, {ParseCulture}, {ParserOptionsExpr}.DateTimeStyles & {dateStyles}.AllowWhiteSpaces, {outArg})",

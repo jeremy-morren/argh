@@ -94,6 +94,23 @@ public class SchemaTests
 	}
 
 	[Fact]
+	public void Schema_time_span_range_bounds_are_iso_8601_durations()
+	{
+		var result = CliHostRunner.Run("__schema");
+		result.ExitCode.Should().Be(0);
+		using var doc = JsonDocument.Parse(CliHostRunner.StdoutText(result));
+		var window = doc.RootElement.GetProperty("commands").EnumerateArray()
+			.Single(c => c.GetProperty("name").GetString() == "validate-timespan-range")
+			.GetProperty("parameters").EnumerateArray()
+			.Single(p => p.GetProperty("name").GetString() == "window");
+
+		var constraint = window.GetProperty("validations").EnumerateArray().Single();
+		constraint.GetProperty("kind").GetString().Should().Be("timeSpanRange");
+		constraint.GetProperty("min").GetString().Should().Be("PT5M");
+		constraint.GetProperty("max").GetString().Should().Be("PT2H");
+	}
+
+	[Fact]
 	public void Schema_validate_allowed_command_has_allowed_constraint_with_values()
 	{
 		var result = CliHostRunner.Run("__schema");

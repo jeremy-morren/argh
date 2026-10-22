@@ -18,7 +18,15 @@
     <IsPackable>false</IsPackable>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <NoWarn>$(NoWarn);RS2008;RS1032</NoWarn>
+    <!-- Compiles the shared Core sources below as internal types. -->
+    <DefineConstants>$(DefineConstants);ARGH_GENERATOR</DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- [TimeSpanRange] bounds are parsed at build time exactly as the runtime parses TimeSpan values. -->
+    <Compile Include="..\Nullean.Argh.Core\HumanTime.cs" Link="Shared\HumanTime.cs" />
+    <Compile Include="..\Nullean.Argh.Core\ArghTimeSpan.cs" Link="Shared\ArghTimeSpan.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />

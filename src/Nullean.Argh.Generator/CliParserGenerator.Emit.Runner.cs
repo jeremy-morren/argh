@@ -909,7 +909,6 @@ public sealed partial class CliParserGenerator
 	{
 		"DateTime" => "dt",
 		"DateTimeOffset" => "dto",
-		"TimeSpan" => "ts",
 		"DateOnly" => "do",
 		"TimeOnly" => "to",
 		_ => null,
@@ -937,6 +936,17 @@ public sealed partial class CliParserGenerator
 		{
 			var outArg = outVarKeyword ? "out var " + targetVar : "out " + targetVar;
 			EmitParseError(w, $"!{ScalarTryParseCall(type, rawExpr, outArg)}", InvalidValueError(type, p, rawExpr), p, failure);
+			return;
+		}
+
+		// A TimeSpan error says why the value isn't a duration, such as a missing unit.
+		if (type == "TimeSpan")
+		{
+			var tmp = ParamTemp(p, "ts");
+			var error = ParamTemp(p, "tsError");
+			EmitParseError(w, $"!global::Nullean.Argh.ArghTimeSpan.TryParse({rawExpr}, {ParseCulture}, out var {tmp}, out var {error})",
+				$"Console.Error.WriteLine($\"Error: invalid TimeSpan for {ErrorArgName(p)}: '{{{rawExpr}}}'. {{{error}}}\");", p, failure);
+			EmitAssign(w, outVarKeyword, targetVar, tmp);
 			return;
 		}
 

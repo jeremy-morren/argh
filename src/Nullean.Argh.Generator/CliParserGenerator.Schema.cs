@@ -7,6 +7,9 @@ namespace Nullean.Argh;
 
 public sealed partial class CliParserGenerator
 {
+	/// <summary>An ISO 8601 duration for <paramref name="ticks"/>, such as <c>PT5M</c> or <c>-P1DT2H</c>.</summary>
+	private static string IsoDuration(long ticks) => System.Xml.XmlConvert.ToString(System.TimeSpan.FromTicks(ticks));
+
 	private static void EmitRootSchemaBlock(CodeWriter w)
 	{
 		using (w.If("CompletionProtocol.IsSchemaInvocation(args)"))
@@ -285,7 +288,8 @@ public sealed partial class CliParserGenerator
 						parts.Add($"new CliConstraintSchema(\"range\", Min: {rangeMin}, Max: {rangeMax})");
 						break;
 					case TimeSpanRangeConstraint ts:
-						parts.Add($"new CliConstraintSchema(\"timeSpanRange\", Min: {Quote(ts.MinLiteral)}, Max: {Quote(ts.MaxLiteral)})");
+						// cli-schema v1 gives a duration range in ISO 8601, such as PT5M.
+						parts.Add($"new CliConstraintSchema(\"timeSpanRange\", Min: {Quote(IsoDuration(ts.MinTicks))}, Max: {Quote(IsoDuration(ts.MaxTicks))})");
 						break;
 					case CollectionCountConstraint cc:
 						var ccMin = cc.Min.HasValue ? $"\"{cc.Min.Value}\"" : "null";

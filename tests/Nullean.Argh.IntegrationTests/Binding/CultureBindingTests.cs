@@ -81,6 +81,18 @@ public class CultureBindingTests
 			.Should().Be("1|none|2024-06-15|300|none|none|none|none|none|none|1.5");
 	}
 
+	[Theory]
+	[InlineData("1,5s")]
+	[InlineData("1.5s")]
+	[InlineData("1s 500ms")]
+	public void German_culture_reads_a_decimal_comma_or_a_dot_in_a_duration(string wait) =>
+		Fields(Culture("de-DE"), "--amount", "1", "--wait", wait)[3].Should().Be("1.5");
+
+	[Fact]
+	public void Default_culture_rejects_a_decimal_comma_in_a_duration() =>
+		Error(null, "culture-cmd", "--amount", "1", "--wait", "1,5s")
+			.Should().Contain("invalid TimeSpan for --wait: '1,5s'. Unexpected ',' at position 2.");
+
 	[Fact]
 	public void German_culture_parses_environment_variable_values()
 	{

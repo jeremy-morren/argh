@@ -3,70 +3,50 @@ using System.Globalization;
 namespace Nullean.Argh;
 
 /// <summary>
-/// Parses CLI <see cref="TimeSpan"/> values: compact <c>Ns</c>/<c>Nm</c>/<c>Nh</c>/<c>Nd</c> (integer, no fraction) or invariant <see cref="TimeSpan.TryParse(string?, IFormatProvider?, out TimeSpan)"/>.
+/// Parses CLI <see cref="TimeSpan"/> values: a <see cref="HumanTime"/> duration such as <c>90s</c>, <c>1h30m</c> or
+/// <c>1.5h</c>, or a value with a <c>:</c> in <see cref="TimeSpan"/>'s own format, such as <c>00:05:00</c> or
+/// <c>1.02:03:04</c>.
 /// </summary>
-public static class ArghTimeSpan
+/// <remarks>
+/// The two forms can't be confused: a <see cref="HumanTime"/> duration never contains <c>:</c>, and every
+/// <see cref="TimeSpan"/> format but a bare number of days does. A bare number such as <c>10</c> is neither, because
+/// it's unclear what unit it's in; only <c>0</c> parses.
+/// </remarks>
+#if ARGH_GENERATOR
+internal
+#else
+public
+#endif
+static class ArghTimeSpan
 {
 	/// <inheritdoc cref="TryParse(string?, IFormatProvider?, out TimeSpan)"/>
 	public static bool TryParse(string? s, out TimeSpan value) =>
 		TryParse(s, CultureInfo.InvariantCulture, out value);
 
 	/// <summary>
-	/// Parses a duration: compact form is one or more ASCII digits followed by <c>s</c>, <c>m</c>, <c>h</c>, or <c>d</c> (case-insensitive); otherwise invariant <see cref="TimeSpan"/> parsing.
+	/// Parses a duration: <see cref="TimeSpan.TryParse(string?, IFormatProvider?, out TimeSpan)"/> with
+	/// <paramref name="formatProvider"/> when <paramref name="s"/> contains <c>:</c>, otherwise
+	/// <see cref="HumanTime.TryParse(string?, IFormatProvider?, out TimeSpan)"/>.
 	/// </summary>
-	public static bool TryParse(string? s, IFormatProvider? formatProvider, out TimeSpan value)
+	public static bool TryParse(string? s, IFormatProvider? formatProvider, out TimeSpan value) =>
+		TryParse(s, formatProvider, out value, out _);
+
+	/// <summary>
+	/// Like <see cref="TryParse(string?, IFormatProvider?, out TimeSpan)"/>, and gives the reason a value doesn't parse
+	/// in <paramref name="error"/>, a sentence that error messages can show after the value.
+	/// </summary>
+	public static bool TryParse(string? s, IFormatProvider? formatProvider, out TimeSpan value, out string? error)
 	{
-		value = default;
-		if (string.IsNullOrWhiteSpace(s))
-			return false;
+		if (s is null || s.IndexOf(':') < 0)
+			return HumanTime.TryParse(s, formatProvider, out value, out error);
 
-		var trimmed = s!.Trim();
-		if (trimmed.Length < 2)
-			return TimeSpan.TryParse(trimmed, formatProvider, out value);
-
-		var last = trimmed[trimmed.Length - 1];
-		var u = char.ToLowerInvariant(last);
-		if (u is not ('s' or 'm' or 'h' or 'd'))
-			return TimeSpan.TryParse(trimmed, formatProvider, out value);
-
-		for (var i = 0; i < trimmed.Length - 1; i++)
+		if (TimeSpan.TryParse(s, formatProvider, out value))
 		{
-			if (!char.IsDigit(trimmed[i]))
-				return TimeSpan.TryParse(trimmed, formatProvider, out value);
+			error = null;
+			return true;
 		}
 
-		// The span overload (.NET Core 2.1, .NET Standard 2.1) parses the digits without allocating a substring.
-#if NETCOREAPP2_1_OR_GREATER || NETSTANDARD2_1_OR_GREATER
-		var numPart = trimmed.AsSpan(0, trimmed.Length - 1);
-#else
-		var numPart = trimmed.Substring(0, trimmed.Length - 1);
-#endif
-		if (!ulong.TryParse(numPart, NumberStyles.None, formatProvider, out var n))
-			return TimeSpan.TryParse(trimmed, formatProvider, out value);
-
-		try
-		{
-			switch (u)
-			{
-				case 's':
-					value = TimeSpan.FromSeconds(n);
-					return true;
-				case 'm':
-					value = TimeSpan.FromMinutes(n);
-					return true;
-				case 'h':
-					value = TimeSpan.FromHours(n);
-					return true;
-				case 'd':
-					value = TimeSpan.FromDays(n);
-					return true;
-				default:
-					return TimeSpan.TryParse(trimmed, formatProvider, out value);
-			}
-		}
-		catch (OverflowException)
-		{
-			return TimeSpan.TryParse(trimmed, formatProvider, out value);
-		}
+		error = "Expected [-][d.]hh:mm[:ss[.fffffff]], or a duration such as 1h30m.";
+		return false;
 	}
 }

@@ -56,6 +56,8 @@ public class CollectionElementTests
 	[InlineData("--day=2024-01-02", "day=01/02/2024")]
 	[InlineData("--day=", null)]
 	[InlineData("--wait=5m", "wait=00:05:00")]
+	[InlineData("--wait=1h30m", "wait=01:30:00")]
+	[InlineData("--wait=10", null)]
 	[InlineData("--wait=", null)]
 	[InlineData("--wait=x", null)]
 	[InlineData("--link=https://a.example/", "link=https://a.example/")]

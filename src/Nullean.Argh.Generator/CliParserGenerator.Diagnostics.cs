@@ -127,6 +127,15 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Warning,
 		isEnabledByDefault: true);
 
+	/// <summary>A <c>[TimeSpanRange]</c> bound that isn't a duration, or a minimum above the maximum.</summary>
+	private static readonly DiagnosticDescriptor InvalidTimeSpanRangeBounds = new(
+		"AGH0040",
+		"[TimeSpanRange] bounds can't be checked",
+		"[TimeSpanRange] on '{0}' can't be checked: {1}",
+		"Argh",
+		DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
+
 	private static readonly DiagnosticDescriptor AsParametersEmptyType = new(
 		"AGH0009",
 		"AsParameters type has no bindable members",
@@ -370,6 +379,7 @@ public sealed partial class CliParserGenerator
 		"AGH0033" => DuplicateShortOption,
 		"AGH0038" => InvalidRangeBounds,
 		"AGH0039" => RepeatedScalarHasNoEffect,
+		"AGH0040" => InvalidTimeSpanRangeBounds,
 		_ => throw new ArgumentException($"Unknown diagnostic id: {id}")
 	};
 

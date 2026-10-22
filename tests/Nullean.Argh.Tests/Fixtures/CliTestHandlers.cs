@@ -238,8 +238,8 @@ internal static class CliTestHandlers
 	/// <param name="g">Injected global CLI options.</param>
 	/// <param name="duration">Duration flag.</param>
 	/// <param name="on">A calendar date.</param>
-	public static void TemporalCmd(TestGlobalCliOptions g, TimeSpan duration, DateOnly on) =>
-		Console.Out.WriteLine($"temporal:{duration.TotalSeconds}:{on:yyyy-MM-dd}");
+	public static void TemporalCmd(TestGlobalCliOptions g, [Env("ARGH_TEST_DURATION")] TimeSpan duration, DateOnly on) =>
+		Console.Out.WriteLine($"temporal:{duration.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}:{on:yyyy-MM-dd}");
 
 	/// <param name="g">Injected global CLI options.</param>
 	/// <param name="at">A time of day.</param>

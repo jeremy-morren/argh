@@ -27,7 +27,7 @@ With source generation, all of that shifts to compile time:
 
 - Zero startup cost from CLI plumbing
 - Fully AOT-compatible, no trimmer warnings
-- Diagnostics at build time (AGH0001-AGH0039)
+- Diagnostics at build time (AGH0001-AGH0040)
 - Generated code is plain C# you can read in your IDE
 
 ## No runtime dependencies

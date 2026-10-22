@@ -89,7 +89,9 @@ public sealed class CollectionSyntaxAttribute : Attribute
 public sealed class MiddlewareAttribute<TMiddleware> : Attribute where TMiddleware : Nullean.Argh.Middleware.ICommandMiddleware;
 
 /// <summary>
-/// Restricts a <see cref="System.TimeSpan"/> to an inclusive range. Minimum and maximum use the same syntax as CLI <see cref="TimeSpan"/> binding (compact <c>Ns</c>/<c>Nm</c>/<c>Nh</c>/<c>Nd</c> or invariant <see cref="TimeSpan"/> text).
+/// Restricts a <see cref="System.TimeSpan"/> to an inclusive range. Minimum and maximum use the same syntax as CLI <see cref="TimeSpan"/> values,
+/// such as <c>5m</c>, <c>1h30m</c> or <c>00:05:00</c>, and are parsed at build time with the invariant culture; a bound that doesn't parse, or a
+/// minimum above the maximum, is error AGH0040.
 /// Only valid on <c>TimeSpan</c> or <c>TimeSpan?</c> parameters and properties.
 /// </summary>
 [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]

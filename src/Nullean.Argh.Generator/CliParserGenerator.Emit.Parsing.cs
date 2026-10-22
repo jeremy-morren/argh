@@ -636,18 +636,14 @@ public sealed partial class CliParserGenerator
 
 	private static void EmitTimeSpanRangeConstraintCheck(CodeWriter w, ValidationTarget t, TimeSpanRangeConstraint tsr)
 	{
+		// The bounds were parsed at build time, so the check compares ticks.
 		var varName = t.VarName;
 		var isNullableValueType = IsNullableValueTypeCheck(t.P, primitiveOnly: true);
-		var tsMin = "__tsRangeMin_" + varName;
-		var tsMax = "__tsRangeMax_" + varName;
-		EmitValidationFailure(w, t,
-			$"!global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MinLiteral}, global::System.Globalization.CultureInfo.InvariantCulture, out var {tsMin}) || !global::Nullean.Argh.ArghTimeSpan.TryParse({tsr.MaxLiteral}, global::System.Globalization.CultureInfo.InvariantCulture, out var {tsMax})",
-			FlagErrorLine(t, "invalid TimeSpanRange bounds."));
 		var guard = isNullableValueType ? $"{varName}.HasValue && (" : "";
 		var closeGuard = isNullableValueType ? ")" : "";
-		var access = isNullableValueType ? $"{varName}.Value" : varName;
-		EmitValidationFailure(w, t, $"{guard}{access} < {tsMin} || {access} > {tsMax}{closeGuard}",
-			FlagErrorLine(t, $"value must be between {Escape(tsr.MinLiteral.Trim('"'))} and {Escape(tsr.MaxLiteral.Trim('"'))}."));
+		var ticks = isNullableValueType ? $"{varName}.Value.Ticks" : $"{varName}.Ticks";
+		EmitValidationFailure(w, t, $"{guard}{ticks} < {tsr.MinTicks}L || {ticks} > {tsr.MaxTicks}L{closeGuard}",
+			FlagErrorLine(t, $"value must be between {Escape(tsr.MinText)} and {Escape(tsr.MaxText)}."));
 	}
 
 	/// <summary>The condition and message for a minimum and/or maximum on a length or count.</summary>
