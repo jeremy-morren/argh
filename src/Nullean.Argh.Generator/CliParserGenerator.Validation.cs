@@ -77,8 +77,8 @@ public sealed partial class CliParserGenerator
 	}
 
 	/// <summary>
-	/// Each generated <c>TryApplyShortFlag</c> groups all flag-like params in one scope (global prefetch, namespace
-	/// prefetch, or a single handler). Duplicate single-letter shortcuts would emit invalid duplicate <c>case</c> labels.
+	/// Each generated flag set groups all flag-like params in one scope (global prefetch, namespace prefetch, or a single
+	/// handler). A short name used twice in one would only ever reach the first flag.
 	/// </summary>
 	private static void ValidateDuplicateShortOptionLetters(SourceProductionContext context, AppEmitModel app)
 	{
@@ -735,6 +735,20 @@ public sealed partial class CliParserGenerator
 	{
 		foreach (var pd in diagnostics.IsDefault ? ImmutableArray<PendingDiagnostic>.Empty : diagnostics)
 			context.ReportDiagnostic(Diagnostic.Create(GetDescriptorById(pd.DescriptorId), pd.Span.ToLocation(), pd.Arg0, pd.Arg1));
+	}
+
+	/// <summary>Reports a <c>[RepeatedScalar]</c> on <paramref name="host"/>, which has no effect for the <paramref name="reason"/> given (AGH0039).</summary>
+	private static void ReportRepeatedScalarHasNoEffect(ISymbol host, string declaredName, string reason, DiagnosticAccumulator? acc, Location? fallbackLocation)
+	{
+		if (acc is null)
+			return;
+		foreach (var attr in AttributesOf(host))
+		{
+			if (attr.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == RepeatedScalarAttributeFq)
+				acc.Add(RepeatedScalarHasNoEffect,
+					attr.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? host.Locations.FirstOrDefault() ?? fallbackLocation ?? Location.None,
+					declaredName, reason);
+		}
 	}
 
 	private static void ReportRangeAttributeIssues(ISymbol host, string declaredName, DiagnosticAccumulator? acc, Location? fallbackLocation)

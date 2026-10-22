@@ -43,9 +43,6 @@ public sealed partial class CliParserGenerator
 		string? entryAssemblyName = null,
 		string? environmentPrefix = null)
 	{
-		// Every value of a collection flag is kept, so it can be given more than once, with or without a separator.
-		var anyRepeatedCollection = cmd.Parameters.Any(static p => p is { IsCollection: true, Kind: ParameterKind.Flag });
-
 		var failureExit = emitDtoTryParse ? "return false" : "return 2";
 		var helpMethodName = emitDtoTryParse ? null : HelpPrinterMethodForCommand(cmd);
 		var flagHelpStdErrMethodName = emitDtoTryParse || cmd.IsRootDefault ? null : $"PrintHelp_{cmd.RunMethodName}_Flag_ToStdErr";
@@ -61,8 +58,6 @@ public sealed partial class CliParserGenerator
 
 		var failure = new ParseFailure(failureExit, helpMethodName, flagHelpStdErrMethodName, parseFailureRunHint);
 		var exit = failureExit + ";";
-		string SetFlag(string value) => anyRepeatedCollection ? $"SetFlag(flagName, {value});" : $"flags[flagName] = {value};";
-		const string unknownLongOption = "Console.Error.WriteLine($\"Error: unknown option '--{flagName}'.\");";
 
 		string header;
 		if (emitDtoTryParse)
@@ -74,6 +69,8 @@ public sealed partial class CliParserGenerator
 		else
 			header = $"private static async Task<int> {cmd.RunMethodName}(string[] args, CancellationToken ct)";
 
+		var flagSet = FlagSetFieldName(dtoMethodName ?? cmd.RunMethodName);
+		EmitFlagSetField(w, flagSet, cmd.Parameters);
 		using (w.Block(header))
 		{
 			if (emitDtoTryParse)
@@ -81,208 +78,27 @@ public sealed partial class CliParserGenerator
 
 			EmitCliValueDeclarations(w, cmd, dtoOptionsTypeFq);
 
-			w.Line("var flags = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
-			if (anyRepeatedCollection)
+			// A DTO parse has no options before it and no help; help is read in order, so an error before it wins.
+			var readArgs = emitDtoTryParse
+				? $"args, {flagSet}, lenient: {BoolLiteral(dtoLenient)}, help: false"
+				: $"args, {flagSet}, {OptionFlagsSeenField}";
+			w.Line($"var __tokens = {ArghTokenizerFq}.ReadCommand({readArgs});");
+			if (helpMethodName is not null)
 			{
-				w.Line("var multiFlags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);");
-				EmitIsMultiFlagPredicate(w, cmd);
-				using (w.Block("void SetFlag(string name, string? value)"))
+				using (w.If("__tokens.HelpRequested"))
 				{
-					using (w.If("IsMultiFlag(name)"))
-					{
-						w.Line("if (value is null) return;");
-						w.Line("if (!multiFlags.TryGetValue(name, out var list)) { list = new List<string>(); multiFlags[name] = list; }");
-						w.Line("list.Add(value);");
-						w.Line("return;");
-					}
-
-					w.Line("flags[name] = value;");
+					w.Line($"{helpMethodName}();");
+					w.Return("0");
 				}
 			}
 
-			w.Line("var positionals = new List<string>();");
-			EmitBoolSwitchNames(w, cmd);
-			EmitCanonFlagNameMethod(w, cmd);
-			EmitShortFlagMethods(w, cmd, multiFlagsAvailable: anyRepeatedCollection,
-				parseFailureRunHint: emitDtoTryParse ? null : parseFailureRunHint, emitValueCharPredicate: !(emitDtoTryParse && dtoLenient));
-			EmitKnownNonBoolFlagNames(w, cmd);
 			if (!emitDtoTryParse)
 				EmitCommandRunnerFuzzyFailHelper(w, cmd, flagHelpStdErrMethodName, parseFailureRunHint);
-			using (w.For("var i = 0; i < args.Length;"))
-			{
-				w.Line("var a = args[i];");
-				// After "--" every argument is positional, even one that starts with '-'.
-				using (w.If("a == \"--\""))
-				{
-					w.Line("for (i++; i < args.Length; i++) positionals.Add(args[i]);");
-					w.Line("break;");
-				}
-
-				// Help is a flag like any other: read in order, so it can be the value of a flag before it.
-				if (helpMethodName is not null)
-				{
-					using (w.If("a == \"--help\" || a == \"-h\""))
-					{
-						w.Line($"{helpMethodName}();");
-						w.Return("0");
-					}
-				}
-
-				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
-				{
-					w.Line("var eq = a.IndexOf('=');");
-					using (w.If("eq >= 0"))
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2, eq - 2));");
-						w.Line("var flagValue = a.Substring(eq + 1);");
-						const string unknownFlag = "!IsBoolSwitchName(flagName) && !IsKnownNonBoolFlagName(flagName)";
-						if (emitDtoTryParse && !dtoLenient)
-						{
-							using (w.If(unknownFlag))
-							{
-								w.Line(unknownLongOption);
-								w.Line(exit);
-							}
-						}
-						else if (!emitDtoTryParse)
-							w.If(unknownFlag, "return FailUnknownLongOption(flagName);");
-
-						w.Line(SetFlag("flagValue"));
-						w.Line("i++;");
-					}
-
-					using (w.Else())
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2));");
-						using (w.If("IsBoolSwitchName(flagName)"))
-						{
-							// A bare switch has no value, unlike --flag=true: --no-flag=true is an error.
-							w.Line("flags[flagName] = null;");
-							w.Line("i++;");
-						}
-
-						using (w.Else())
-						{
-							if (emitDtoTryParse && dtoLenient)
-							{
-								using (w.If("!IsKnownNonBoolFlagName(flagName)"))
-								{
-									w.If("i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal)", "i += 2;");
-									w.Else("i++;");
-									w.Line("continue;");
-								}
-							}
-							else if (emitDtoTryParse)
-							{
-								using (w.If("!IsKnownNonBoolFlagName(flagName)"))
-								{
-									w.Line(unknownLongOption);
-									w.Line(exit);
-								}
-							}
-							else
-								w.If("!IsKnownNonBoolFlagName(flagName)", "return FailUnknownLongOption(flagName);");
-
-							using (w.If("i + 1 >= args.Length"))
-							{
-								w.Line("Console.Error.WriteLine($\"Error: missing value for flag --{flagName}.\");");
-								if (flagHelpStdErrMethodName is not null)
-								{
-									w.Line("Console.Error.WriteLine();");
-									w.Line($"{flagHelpStdErrMethodName}(flagName);");
-									w.Line("Console.Error.WriteLine();");
-									if (parseFailureRunHint is not null)
-										w.Line(ErrorLine(parseFailureRunHint));
-								}
-								else if (helpMethodName is not null)
-									w.Line($"{helpMethodName}();");
-								w.Line(exit);
-							}
-
-							w.Line(SetFlag("args[i + 1]"));
-							w.Line("i += 2;");
-						}
-					}
-
-					w.Line("continue;");
-				}
-
-				using (w.If("a.Length >= 2 && a[0] == '-' && a[1] != '-'"))
-				{
-					w.Line("var eqs = a.IndexOf('=');");
-					using (w.If("eqs >= 0"))
-					{
-						w.Line("var shortKey = a.Substring(1, eqs - 1);");
-						using (w.If("shortKey.Length != 1"))
-						{
-							w.Line("Console.Error.WriteLine(\"Error: short options must be a single letter (e.g. -e=value).\");");
-							if (helpMethodName is not null)
-								w.Line($"{helpMethodName}();");
-							w.Line(exit);
-						}
-
-						if (emitDtoTryParse && dtoLenient)
-							w.Line("TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1));");
-						else
-							w.If("!TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1))", exit);
-						w.Line("i++;");
-						w.Line("continue;");
-					}
-
-					using (w.If("a.Length == 2"))
-					{
-						w.Line("var sc = a[1];");
-						using (w.If("IsShortBoolChar(sc)"))
-						{
-							w.If("!TryApplyShortFlag(sc, \"true\")", exit);
-							w.Line("i++;");
-							w.Line("continue;");
-						}
-
-						if (emitDtoTryParse && dtoLenient)
-						{
-							// lenient: skip unknown value-taking short flags using same heuristic as long flags
-							using (w.If("i + 1 < args.Length && !args[i + 1].StartsWith(\"-\", StringComparison.Ordinal)"))
-							{
-								w.Line("TryApplyShortFlag(sc, args[i + 1]);");
-								w.Line("i += 2;");
-							}
-
-							using (w.Else())
-							{
-								w.Line("TryApplyShortFlag(sc, \"true\");");
-								w.Line("i++;");
-							}
-
-							w.Line("continue;");
-						}
-						else
-						{
-							// A value is missing only for a known option; an unknown one, such as -5, is reported as unknown.
-							using (w.If("i + 1 >= args.Length && IsShortValueChar(sc)"))
-							{
-								w.Line("Console.Error.WriteLine($\"Error: missing value for short flag '-{sc}'.\");");
-								if (helpMethodName is not null)
-									w.Line($"{helpMethodName}();");
-								w.Line(exit);
-							}
-
-							w.If("!TryApplyShortFlag(sc, i + 1 < args.Length ? args[i + 1] : \"\")", exit);
-							w.Line("i += 2;");
-							w.Line("continue;");
-						}
-					}
-
-					w.Line("Console.Error.WriteLine(\"Error: combined short flags (e.g. -abc) are not supported.\");");
-					if (helpMethodName is not null)
-						w.Line($"{helpMethodName}();");
-					w.Line(exit);
-				}
-
-				w.Line("positionals.Add(a);");
-				w.Line("i++;");
-			}
-
+			EmitTokenErrorCheck(w, failure, unknownOptionFailure: emitDtoTryParse ? null : "return FailUnknownLongOption(__error.Name);");
+			w.Line("var flags = __tokens.Flags;");
+			if (cmd.Parameters.Any(static p => p is { IsCollection: true, Kind: ParameterKind.Flag }))
+				w.Line("var multiFlags = __tokens.MultiFlags;");
+			w.Line("var positionals = __tokens.Positionals;");
 			w.Line();
 			if (!(emitDtoTryParse && dtoLenient))
 				EmitUnexpectedPositionalCheck(w, cmd, failure);
@@ -830,141 +646,80 @@ public sealed partial class CliParserGenerator
 	private static bool IsEmittedFlagLike(ParameterKind kind) =>
 		kind is ParameterKind.Flag or ParameterKind.OptionsInjected;
 
-	private static void EmitBoolSwitchNames(CodeWriter w, CommandModel cmd)
-	{
-		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var p in cmd.Parameters)
-		{
-			if (!IsEmittedFlagLike(p.Kind))
-				continue;
-			if (p.Special is BoolSpecialKind.Bool or BoolSpecialKind.NullableBool)
-				names.Add(p.CliLongName);
-			if (p.Special == BoolSpecialKind.NullableBool)
-				names.Add("no-" + p.CliLongName);
-		}
+	private const string ArghTokenizerFq = "global::Nullean.Argh.Runtime.ArghTokenizer";
+	private const string ArghFlagSetFq = "global::Nullean.Argh.Runtime.ArghFlagSet";
 
-		EmitNamePredicate(w, "bool IsBoolSwitchName(string name)", names);
+	/// <summary>The static field holding the <c>ArghFlagSet</c> of the command runner or options parser <paramref name="methodName"/>.</summary>
+	private static string FlagSetFieldName(string methodName) => "__flags_" + methodName;
+
+	/// <summary>
+	/// <c>private static readonly ArghFlagSet field = new ArghFlagSet(...);</c>: the flags among <paramref name="parameters"/>
+	/// (<see cref="IsEmittedFlagLike"/>) that <c>ArghTokenizer</c> reads, each long name once.
+	/// </summary>
+	private static void EmitFlagSetField(CodeWriter w, string field, IEnumerable<ParameterModel> parameters)
+	{
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var flags = parameters.Where(p => IsEmittedFlagLike(p.Kind) && seen.Add(p.CliLongName)).Select(FlagSpec).ToList();
+		var value = flags.Count == 0 ? $"new {ArghFlagSetFq}()" : CodeWriter.New(ArghFlagSetFq, flags);
+		w.Line($"private static readonly {ArghFlagSetFq} {field} = {value};");
+		w.Line();
 	}
 
-	private static void EmitKnownNonBoolFlagNames(CodeWriter w, CommandModel cmd)
+	/// <summary><c>new ArghFlag(...)</c> for a flag: its long name, how it takes a value, its short name, aliases and repeat rule.</summary>
+	private static string FlagSpec(ParameterModel p)
 	{
-		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var p in cmd.Parameters)
+		var kind = p.Special switch
 		{
-			if (!IsEmittedFlagLike(p.Kind))
-				continue;
-			if (p.Special == BoolSpecialKind.Bool || p.Special == BoolSpecialKind.NullableBool)
-				continue;
-			names.Add(p.CliLongName);
-			foreach (var al in p.Aliases)
-				names.Add(al);
-		}
-
-		EmitNamePredicate(w, "bool IsKnownNonBoolFlagName(string name)", names);
+			BoolSpecialKind.Bool => "Switch",
+			BoolSpecialKind.NullableBool => "NegatableSwitch",
+			_ => p.IsCollection ? "Collection" : "Value",
+		};
+		var args = new List<string> { Quote(p.CliLongName), "global::Nullean.Argh.Runtime.ArghFlagKind." + kind };
+		if (p.ShortOpt is char c)
+			args.Add($"shortName: '{c}'");
+		var aliases = p.Aliases
+			.Select(static a => a.TrimStart('-'))
+			.Where(a => a.Length > 0 && !string.Equals(a, p.CliLongName, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		if (aliases.Count > 0)
+			args.Add($"aliases: new[] {{ {string.Join(", ", aliases.Select(Quote))} }}");
+		if (p.RepeatedScalar is { } repeated && !p.IsCollection)
+			args.Add("repeated: global::Nullean.Argh.RepeatedScalarBehaviour." + repeated);
+		return $"new global::Nullean.Argh.Runtime.ArghFlag({string.Join(", ", args)})";
 	}
 
-	private static void EmitCanonFlagNameMethod(CodeWriter w, CommandModel cmd)
+	/// <summary>
+	/// After <c>ArghTokenizer</c> read the command line into <c>__tokens</c>: its error, then the flag's help row and the run
+	/// hint (or the help, without them), then <paramref name="failure"/>'s exit. An unknown long option goes to
+	/// <paramref name="unknownOptionFailure"/> when given, which suggests the closest flags.
+	/// </summary>
+	private static void EmitTokenErrorCheck(CodeWriter w, ParseFailure failure, string? unknownOptionFailure)
 	{
-		var cases = new List<(string from, string to)>();
-		foreach (var p in cmd.Parameters)
+		using (w.If("__tokens.Error is { } __error"))
 		{
-			if (!IsEmittedFlagLike(p.Kind))
-				continue;
-			foreach (var al in p.Aliases)
+			if (unknownOptionFailure is not null)
+				w.If("__error.Kind == global::Nullean.Argh.Runtime.ArghTokenErrorKind.UnknownOption", unknownOptionFailure);
+			w.Line("Console.Error.WriteLine(__error.Message);");
+			if (failure.FlagHelpMethod is not null)
 			{
-				if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-					continue;
-				cases.Add((al, p.CliLongName));
-			}
-
-			if (p.Special == BoolSpecialKind.NullableBool)
-			{
-				foreach (var al in p.Aliases)
+				using (w.If("__error.FlagName is { } __flag"))
 				{
-					if (string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
-						continue;
-					cases.Add(("no-" + al, "no-" + p.CliLongName));
+					w.Line("Console.Error.WriteLine();");
+					w.Line($"{failure.FlagHelpMethod}(__flag);");
 				}
 			}
-		}
 
-		const string signature = "string CanonFlagName(string raw)";
-		if (cases.Count == 0)
-			w.Line(signature + " => raw;");
-		else
-			EmitSwitchExpression(w, signature, "raw", cases.Select(static c => (Quote(c.from), Quote(c.to))), "raw");
-	}
-
-	private static void EmitShortFlagMethods(CodeWriter w, CommandModel cmd, bool multiFlagsAvailable = true, string? parseFailureRunHint = null, bool emitValueCharPredicate = false)
-	{
-		var shortCases = new List<(char c, string Primary, bool IsBool, bool IsRepeatableCollection)>();
-		foreach (var p in cmd.Parameters)
-		{
-			if (!IsEmittedFlagLike(p.Kind))
-				continue;
-			if (p.ShortOpt is not char ch)
-				continue;
-			// IsRepeatableCollection only applies when multiFlags is available in the emitted context.
-			var isRepeatableCollection = multiFlagsAvailable && p.IsCollection;
-			shortCases.Add((ch, p.CliLongName, p.Special != BoolSpecialKind.None, isRepeatableCollection));
-		}
-
-		void UnknownShortOption()
-		{
-			w.Line("Console.Error.WriteLine($\"Error: unknown short option '-{c}'.\");");
-			if (parseFailureRunHint is not null)
+			if (failure.RunHint is not null)
 			{
 				w.Line("Console.Error.WriteLine();");
-				w.Line($"Console.Error.WriteLine({Quote(parseFailureRunHint)});");
+				w.Line(ErrorLine(failure.RunHint));
 			}
-
-			w.Return("false");
+			else if (failure.HelpMethod is not null)
+				w.Line($"{failure.HelpMethod}();");
+			w.Line(failure.Exit + ";");
 		}
 
-		using (w.Block("bool TryApplyShortFlag(char c, string val)"))
-		{
-			if (shortCases.Count == 0)
-				UnknownShortOption();
-			else
-			{
-				using (w.Switch("c"))
-				{
-					foreach ((var c, var primary, _, var isRepeatableCol) in shortCases)
-					{
-						var esc = Escape(primary);
-						using (w.Case($"'{c}'"))
-						{
-							if (isRepeatableCol)
-							{
-								// Repeatable flag: append to multiFlags so short opt and long opt collect into the same list.
-								var list = "__scList_" + esc.Replace("-", "_");
-								w.Line($"if (!multiFlags.TryGetValue(\"{esc}\", out var {list})) {{ {list} = new List<string>(); multiFlags[\"{esc}\"] = {list}; }}");
-								w.Line($"{list}.Add(val);");
-							}
-							else
-								w.Line($"flags[\"{esc}\"] = val;");
-							w.Return("true");
-						}
-					}
-
-					using (w.Case("default"))
-						UnknownShortOption();
-				}
-			}
-		}
-
-		EmitShortCharPredicate(w, "IsShortBoolChar", shortCases.Where(static x => x.IsBool).Select(static x => x.c));
-		if (emitValueCharPredicate)
-			EmitShortCharPredicate(w, "IsShortValueChar", shortCases.Where(static x => !x.IsBool).Select(static x => x.c));
-	}
-
-	private static void EmitShortCharPredicate(CodeWriter w, string name, IEnumerable<char> chars)
-	{
-		var literals = chars.Select(static c => $"'{c}'").ToList();
-		if (literals.Count == 0)
-			w.Line($"bool {name}(char c) => false;");
-		else
-			EmitSwitchPredicate(w, $"bool {name}(char c)", "c", literals);
+		w.Line();
 	}
 
 	private static void EmitParseAndAssign(CodeWriter w, ParameterModel p, string rawExpr, string targetVar, ParseFailure failure)
@@ -1035,7 +790,7 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>
 	/// Binds a <c>bool</c> or <c>bool?</c> flag into <paramref name="target"/>, which already holds the value to keep when
-	/// the flag isn't on the command line: <c>--name[=value]</c> (and <c>--no-name[=value]</c> for <c>bool?</c>) wins, then
+	/// the flag isn't on the command line: <c>--name[=value]</c> (and <c>--no-name</c> for <c>bool?</c>) wins, then
 	/// <paramref name="fallback"/> when given (such as an environment variable, itself a <c>bool?</c>). A value that isn't
 	/// a boolean fails.
 	/// </summary>
@@ -1043,8 +798,7 @@ public sealed partial class CliParserGenerator
 	{
 		var cli = target + "Cli";
 		var error = target + "Err";
-		var negatable = BoolLiteral(p.Special == BoolSpecialKind.NullableBool);
-		EmitParseError(w, $"!{ArghBoolBindingFq}.TryGetFlag(flags, {Quote(p.CliLongName)}, {negatable}, out var {cli}, out var {error})",
+		EmitParseError(w, $"!{ArghBoolBindingFq}.TryGetFlag(flags, {Quote(p.CliLongName)}, out var {cli}, out var {error})",
 			$"Console.Error.WriteLine({error});", p, failure);
 		w.Line(fallback is null ? $"{target} = {cli} ?? {target};" : $"{target} = {cli} ?? {fallback} ?? {target};");
 	}

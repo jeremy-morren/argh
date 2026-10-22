@@ -100,6 +100,28 @@ public sealed partial class CliParserGenerator
 		return ImmutableArray<string>.Empty;
 	}
 
+	private const string RepeatedScalarAttributeFq = "global::Nullean.Argh.RepeatedScalarAttribute";
+
+	/// <summary>The <c>RepeatedScalarBehaviour</c> member a <c>[RepeatedScalar]</c> on <paramref name="symbol"/> sets, or null without one.</summary>
+	private static string? GetRepeatedScalarAttribute(ISymbol symbol)
+	{
+		foreach (var ad in AttributesOf(symbol))
+		{
+			if (ad.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != RepeatedScalarAttributeFq
+			    || ad.ConstructorArguments.Length != 1 || ad.ConstructorArguments[0].Value is not int value)
+				continue;
+			return value switch
+			{
+				0 => "Reject",
+				1 => "AllowIdentical",
+				2 => "TakeLast",
+				_ => null,
+			};
+		}
+
+		return null;
+	}
+
 	private static (string? VarName, bool TreatEmptyAsUnset) GetEnvAttribute(ISymbol symbol)
 	{
 		foreach (var ad in AttributesOf(symbol))

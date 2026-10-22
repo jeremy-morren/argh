@@ -455,8 +455,7 @@ public sealed partial class CliParserGenerator
 
 		foreach (var fq in optionsTypes)
 			w.Line($"private static {fq} {OptionsStaticFieldNameFq(fq)} = new {fq}();");
-		if (HasOptionsTypes(app))
-			w.Line($"private static readonly HashSet<string> {OptionFlagsSeenField} = new HashSet<string>(StringComparer.OrdinalIgnoreCase);");
+		w.Line($"private static readonly Dictionary<string, string?> {OptionFlagsSeenField} = new Dictionary<string, string?>(StringComparer.Ordinal);");
 		w.Line();
 
 		EmitCompletionForApp(w, app);
@@ -553,10 +552,6 @@ public sealed partial class CliParserGenerator
 		EmitBuildCliSchemaDocumentHierarchical(w, app, entryAssemblyName, app.SchemaVersionOverride ?? entrySchemaVersion);
 	}
 
-	private static bool HasOptionsTypes(AppEmitModel app) =>
-		app.GlobalOptionsModel is not null
-		|| EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty).Any(static n => n.node.CommandNamespaceOptionsModel is not null);
-
 	/// <summary>
 	/// For the options of the namespace at <paramref name="path"/>, the static each inherited member starts from: the
 	/// innermost enclosing options (global or an outer namespace) that declare the same member, already parsed by then.
@@ -631,8 +626,7 @@ public sealed partial class CliParserGenerator
 			EmitRootCompleteBlock(w);
 			EmitRootSchemaBlock(w);
 			w.Line("var idx = new int[1];");
-			if (HasOptionsTypes(app))
-				w.Line($"{OptionFlagsSeenField}.Clear();");
+			w.Line($"{OptionFlagsSeenField}.Clear();");
 			if (hasLeadingOptionPrefetch)
 				w.Line("if (!TryParseGlobalOptions(args, idx)) return 2;");
 

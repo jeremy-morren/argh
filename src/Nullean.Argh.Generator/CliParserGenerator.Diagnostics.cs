@@ -118,6 +118,15 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	/// <summary>A <c>[RepeatedScalar]</c> where it can't apply: a collection keeps every value, and an argument isn't a flag.</summary>
+	private static readonly DiagnosticDescriptor RepeatedScalarHasNoEffect = new(
+		"AGH0039",
+		"[RepeatedScalar] has no effect",
+		"[RepeatedScalar] on '{0}' has no effect: {1}",
+		"Argh",
+		DiagnosticSeverity.Warning,
+		isEnabledByDefault: true);
+
 	private static readonly DiagnosticDescriptor AsParametersEmptyType = new(
 		"AGH0009",
 		"AsParameters type has no bindable members",
@@ -360,6 +369,7 @@ public sealed partial class CliParserGenerator
 		"AGH0032" => FilesystemPathAttributeTypeMismatch,
 		"AGH0033" => DuplicateShortOption,
 		"AGH0038" => InvalidRangeBounds,
+		"AGH0039" => RepeatedScalarHasNoEffect,
 		_ => throw new ArgumentException($"Unknown diagnostic id: {id}")
 	};
 

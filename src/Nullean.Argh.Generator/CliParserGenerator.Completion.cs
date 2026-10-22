@@ -492,84 +492,16 @@ public sealed partial class CliParserGenerator
 		EmitOptionsConsumeForComplete(w, "ConsumeForComplete_Global", globalMembers);
 	}
 
+	/// <summary>
+	/// <c>int methodName(args, pos, end)</c>: the index after the options at <c>args[pos]</c>, read as the command line reads
+	/// them, up to the first that isn't one of <paramref name="members"/>' flags or has no value yet.
+	/// </summary>
 	private static void EmitOptionsConsumeForComplete(CodeWriter w, string methodName, ImmutableArray<ParameterModel> members)
 	{
-		var syn = SyntheticOptionsCommand(members, methodName);
-		using (w.Block($"private static int {methodName}(string[] args, int pos, int end)"))
-		{
-			w.Line("var flags = new System.Collections.Generic.Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
-			w.Line("var idx = new int[] { pos };");
-			EmitBoolSwitchNames(w, syn);
-			EmitCanonFlagNameMethod(w, syn);
-			EmitShortFlagMethods(w, syn, multiFlagsAvailable: false);
-			EmitAllowedFlagPredicate(w, members);
-			using (w.While("idx[0] < end && idx[0] < args.Length && args[idx[0]].Length > 0 && args[idx[0]][0] == '-'"))
-			{
-				w.If("args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\" || args[idx[0]] == \"--version\"", "break;");
-				w.Line("var a = args[idx[0]];");
-				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
-				{
-					w.Line("var eq = a.IndexOf('=');");
-					using (w.If("eq >= 0"))
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2, eq - 2));");
-						w.If("!IsAllowedFlag(flagName)", "break;");
-						w.Line("idx[0]++;");
-					}
-
-					using (w.Else())
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2));");
-						w.If("!IsAllowedFlag(flagName)", "break;");
-						using (w.If("IsBoolSwitchName(flagName)"))
-							w.Line("idx[0]++;");
-						using (w.Else())
-						{
-							w.If("idx[0] + 1 >= end || idx[0] + 1 >= args.Length", "break;");
-							w.Line("idx[0] += 2;");
-						}
-					}
-
-					w.Line("continue;");
-				}
-
-				using (w.If("a.Length >= 2 && a[0] == '-' && a[1] != '-'"))
-				{
-					w.Line("var eqs = a.IndexOf('=');");
-					using (w.If("eqs >= 0"))
-					{
-						w.Line("var shortKey = a.Substring(1, eqs - 1);");
-						w.If("shortKey.Length != 1", "break;");
-						w.If("!TryApplyShortFlag(shortKey[0], a.Substring(eqs + 1))", "break;");
-						w.Line("idx[0]++;");
-						w.Line("continue;");
-					}
-
-					using (w.If("a.Length == 2"))
-					{
-						w.Line("var sc = a[1];");
-						using (w.If("IsShortBoolChar(sc)"))
-						{
-							w.If("!TryApplyShortFlag(sc, \"true\")", "break;");
-							w.Line("idx[0]++;");
-							w.Line("continue;");
-						}
-
-						w.If("idx[0] + 1 >= end || idx[0] + 1 >= args.Length", "break;");
-						w.If("!TryApplyShortFlag(sc, args[idx[0] + 1])", "break;");
-						w.Line("idx[0] += 2;");
-						w.Line("continue;");
-					}
-
-					w.Line("break;");
-				}
-
-				w.Line("break;");
-			}
-
-			w.Return("idx[0]");
-		}
-
+		var flagSet = FlagSetFieldName(methodName);
+		EmitFlagSetField(w, flagSet, members);
+		w.Arrow($"private static int {methodName}(string[] args, int pos, int end)",
+			$"{ArghTokenizerFq}.ReadOptions(args, pos, {flagSet}, end: end, complete: true).Next");
 		w.Line();
 	}
 

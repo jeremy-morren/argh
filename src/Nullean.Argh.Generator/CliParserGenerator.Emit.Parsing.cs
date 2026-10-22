@@ -60,20 +60,17 @@ public sealed partial class CliParserGenerator
 	private static string FlagFuzzyCandidates(IEnumerable<ParameterModel> flags) =>
 		$"var __flagFuzzyCands = {InlineStringArray(flags.Select(static p => p.CliLongName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))};";
 
-	/// <summary>The static that records the long names of the options flags the leading options parsers saw, for the required checks.</summary>
+	/// <summary>
+	/// The static that records the options flags the leading options parsers saw, by long name with the value given, for
+	/// the required checks and for <c>ArghTokenizer</c> to check a flag given again against.
+	/// </summary>
 	private const string OptionFlagsSeenField = "s_optionFlagsSeen";
 
 	/// <summary>
-	/// Whether the leading options parsers saw the member's flag (or, for a <c>bool?</c>, its <c>--no-</c> form), so the
-	/// static already holds the command-line value.
+	/// Whether the leading options parsers saw the member's flag (for a <c>bool?</c>, <c>--no-</c> too), so the static
+	/// already holds the command-line value.
 	/// </summary>
-	private static string OptionFlagSeenCheck(ParameterModel m)
-	{
-		var seen = $"{OptionFlagsSeenField}.Contains({Quote(m.CliLongName)})";
-		return m.Special == BoolSpecialKind.NullableBool
-			? $"({seen} || {OptionFlagsSeenField}.Contains({Quote("no-" + m.CliLongName)}))"
-			: seen;
-	}
+	private static string OptionFlagSeenCheck(ParameterModel m) => $"{OptionFlagsSeenField}.ContainsKey({Quote(m.CliLongName)})";
 
 	/// <summary>
 	/// For each member long name, <c>{static}.{member}</c> from the last of <paramref name="options"/> that declares it, so
@@ -104,7 +101,6 @@ public sealed partial class CliParserGenerator
 	{
 		var defer = deferLeadingRootAliasFlags ?? ImmutableArray<ParameterModel>.Empty;
 
-		var syn = SyntheticOptionsCommand(members, methodName);
 		var flagMembers = members.Where(static p => p.Kind == ParameterKind.Flag).ToList();
 		var widthCandidates = new List<int> { "-h, --help".Length };
 		widthCandidates.AddRange(flagMembers.Select(static p => HelpLayout.FormatOptionLeftCell(p).Length));
@@ -116,154 +112,35 @@ public sealed partial class CliParserGenerator
 			EmitOptionsTryParseFlagHelpPrinter(w, methodName, flagMembers, maxOptWidth);
 
 		var flagHelpMethodName = methodName + "_FlagHelp_ToStdErr";
-		var runHint = !string.IsNullOrEmpty(entryAssemblyName)
-			? ErrorLine($"Run '{Escape(entryAssemblyName!)} --help' for usage.")
-			: null;
+		var failure = new ParseFailure("return false",
+			FlagHelpMethod: flagMembers.Count > 0 ? flagHelpMethodName : null,
+			RunHint: string.IsNullOrEmpty(entryAssemblyName) ? null : $"Run '{Escape(entryAssemblyName!)} --help' for usage.");
 
-		// An unknown long flag stops here when the root alias command takes it; otherwise it's an error.
-		void RejectUnknownFlag()
+		var flagSet = FlagSetFieldName(methodName);
+		EmitFlagSetField(w, flagSet, flagMembers);
+		var deferSet = "null";
+		if (!defer.IsDefaultOrEmpty)
 		{
-			using (w.If("!IsAllowedFlag(flagName)"))
-			{
-				w.If("ShouldDeferLeadingRootAliasCanon(flagName)", "break;");
-				if (flagMembers.Count > 0)
-					w.Return("FailUnknownLongOption(flagName)");
-				else
-				{
-					w.Line(UnknownLongOptionError);
-					w.Return("false");
-				}
-			}
-		}
-
-		// A short flag the parser rejects stops here when the root alias command takes it; otherwise it's an error.
-		void ApplyShortFlag(string c, string value)
-		{
-			using (w.If($"!TryApplyShortFlag({c}, {value})"))
-			{
-				w.Line($"if (ShouldDeferLeadingShortFlag({c})) break;");
-				w.Return("false");
-			}
+			// The default command's own flags stop these options, for it to read them.
+			deferSet = "__defer_" + methodName;
+			EmitFlagSetField(w, deferSet, defer);
 		}
 
 		using (w.Block($"private static bool {methodName}(string[] args, int[] idx)"))
 		{
-			w.Line("var flags = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
-			EmitBoolSwitchNames(w, syn);
-			EmitCanonFlagNameMethod(w, syn);
-			EmitShortFlagMethods(w, syn, multiFlagsAvailable: false);
-			EmitAllowedFlagPredicate(w, members);
-			EmitDeferLeadingRootAliasHelpers(w, defer);
-
 			if (flagMembers.Count > 0)
 			{
 				w.Line(FlagFuzzyCandidates(flagMembers));
 				using (w.Block("bool FailUnknownLongOption(string flagName)"))
-					EmitUnknownLongOptionBody(w, flagHelpMethodName, runHint, "false");
+					EmitUnknownLongOptionBody(w, flagHelpMethodName, failure.RunHint is null ? null : ErrorLine(failure.RunHint), "false");
 				w.Line();
 			}
 
-			using (w.While("idx[0] < args.Length && args[idx[0]].Length > 0 && args[idx[0]][0] == '-'"))
-			{
-				// Help, the version, and "--" or "-", which are arguments, are for the dispatcher.
-				w.If("args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\" || args[idx[0]] == \"--version\" || args[idx[0]] == \"--\" || args[idx[0]] == \"-\"", "break;");
-				w.Line("var a = args[idx[0]];");
-				using (w.If("a.StartsWith(\"--\", StringComparison.Ordinal)"))
-				{
-					w.Line("var eq = a.IndexOf('=');");
-					using (w.If("eq >= 0"))
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2, eq - 2));");
-						RejectUnknownFlag();
-						w.Line("var flagValue = a.Substring(eq + 1);");
-						w.Line("flags[flagName] = flagValue;");
-						w.Line("idx[0]++;");
-					}
-
-					using (w.Else())
-					{
-						w.Line("var flagName = CanonFlagName(a.Substring(2));");
-						RejectUnknownFlag();
-						using (w.If("IsBoolSwitchName(flagName)"))
-						{
-							// A bare switch has no value, unlike --flag=true: --no-flag=true is an error.
-							w.Line("flags[flagName] = null;");
-							w.Line("idx[0]++;");
-						}
-
-						using (w.Else())
-						{
-							using (w.If("idx[0] + 1 >= args.Length"))
-							{
-								w.Line("Console.Error.WriteLine($\"Error: missing value for flag --{flagName}.\");");
-								if (flagMembers.Count > 0)
-								{
-									w.Line("Console.Error.WriteLine();");
-									w.Line($"{flagHelpMethodName}(flagName);");
-									if (runHint is not null)
-									{
-										w.Line("Console.Error.WriteLine();");
-										w.Line(runHint);
-									}
-								}
-
-								w.Return("false");
-							}
-
-							w.Line("flags[flagName] = args[idx[0] + 1];");
-							w.Line("idx[0] += 2;");
-						}
-					}
-
-					w.Line("continue;");
-				}
-
-				using (w.If("a.Length >= 2 && a[0] == '-' && a[1] != '-'"))
-				{
-					w.Line("var eqs = a.IndexOf('=');");
-					using (w.If("eqs >= 0"))
-					{
-						w.Line("var shortKey = a.Substring(1, eqs - 1);");
-						using (w.If("shortKey.Length != 1"))
-						{
-							w.Line("Console.Error.WriteLine(\"Error: short options must be a single letter (e.g. -e=value).\");");
-							w.Return("false");
-						}
-
-						ApplyShortFlag("shortKey[0]", "a.Substring(eqs + 1)");
-						w.Line("idx[0]++;");
-						w.Line("continue;");
-					}
-
-					using (w.If("a.Length == 2"))
-					{
-						w.Line("var sc = a[1];");
-						using (w.If("IsShortBoolChar(sc)"))
-						{
-							ApplyShortFlag("sc", "\"true\"");
-							w.Line("idx[0]++;");
-							w.Line("continue;");
-						}
-
-						using (w.If("idx[0] + 1 >= args.Length"))
-						{
-							w.Line("Console.Error.WriteLine($\"Error: missing value for short flag '-{sc}'.\");");
-							w.Return("false");
-						}
-
-						ApplyShortFlag("sc", "args[idx[0] + 1]");
-						w.Line("idx[0] += 2;");
-						w.Line("continue;");
-					}
-
-					w.Line("Console.Error.WriteLine(\"Error: combined short flags (e.g. -abc) are not supported.\");");
-					w.Return("false");
-				}
-
-				w.Line("Console.Error.WriteLine($\"Error: unexpected token '{a}'.\");");
-				w.Return("false");
-			}
-
+			// Help, the version, and "--" or "-", which are arguments, are for the dispatcher.
+			w.Line($"var __tokens = {ArghTokenizerFq}.ReadOptions(args, idx[0], {flagSet}, {deferSet}, {OptionFlagsSeenField});");
+			w.Line("idx[0] = __tokens.Next;");
+			EmitTokenErrorCheck(w, failure, flagMembers.Count > 0 ? "return FailUnknownLongOption(__error.Name);" : null);
+			w.Line("var flags = __tokens.Flags;");
 			if (storeTypeFq is not null && storeFieldName is not null && members.Length > 0)
 				EmitOptionsConstructAndStore(w, storeTypeFq, members, storeFieldName, storeBestCtorParamOrder, inheritedValues);
 			w.Return("true");
@@ -274,8 +151,7 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>
 	/// After <see cref="EmitOptionsTryParse"/> parses flags into a <c>flags</c> dict, extract member values and
-	/// construct the options instance, then store it in <paramref name="storeFieldName"/> and note the flags it saw in
-	/// <see cref="OptionFlagsSeenField"/>. A member whose flag isn't here keeps the value from
+	/// construct the options instance, then store it in <paramref name="storeFieldName"/>. A member whose flag isn't here keeps the value from
 	/// <paramref name="inheritedValues"/> (keyed by long name), the enclosing options that already read it, or else its
 	/// default. Required members are checked by the command, which also reads the options given after it.
 	/// Injected just before <c>return true</c> of the parse method.
@@ -319,8 +195,6 @@ public sealed partial class CliParserGenerator
 			}
 		}
 
-		w.Foreach("var __seen in flags.Keys", $"{OptionFlagsSeenField}.Add(__seen);");
-
 		// Construct using the primary constructor if all members align, otherwise property assignment.
 		if (bestCtorParamOrder is { } ctorOrder && ctorOrder.Length == members.Length)
 			w.Line($"{storeFieldName} = new {typeFq}({string.Join(", ", ctorOrder.Select(n => byName[n].LocalVarName))});");
@@ -330,18 +204,6 @@ public sealed partial class CliParserGenerator
 			foreach (var m in members)
 				w.Line($"{storeFieldName}.{m.SymbolName} = {m.LocalVarName};");
 		}
-	}
-
-	private static void EmitIsMultiFlagPredicate(CodeWriter w, CommandModel cmd)
-	{
-		var names = cmd.Parameters
-			.Where(static p => p is { IsCollection: true, Kind: ParameterKind.Flag })
-			.Select(static p => Quote(p.CliLongName))
-			.ToList();
-		if (names.Count == 0)
-			w.Line("bool IsMultiFlag(string name) => false;");
-		else
-			EmitSwitchPredicate(w, "bool IsMultiFlag(string name)", "name", names);
 	}
 
 	/// <summary>

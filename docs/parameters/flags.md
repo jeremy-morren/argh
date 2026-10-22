@@ -49,6 +49,57 @@ public static void Build(string outputDir) { … }
 This also works on `[AsParameters]` properties, fields, and primary-constructor parameters via their `<summary>` or `<param>` doc lines.
 :::
 
+## Short flags
+
+A flag with a short name (`-n` in its doc line, see above) takes its value in the next argument, attached, or after `=`. Short flags combine, so the switches in a group can end with a flag that takes a value:
+
+```
+-v -n foo     -vn foo     -vnfoo     -vn=foo      ✓  (verbose, name "foo")
+-n foo        -nfoo       -n=foo                  ✓  (name "foo")
+-nvx                                              ✓  (name "vx": the rest of the argument is the value)
+-v=false                                          ✓  (a switch takes a value only after =)
+-vh                                               ✓  (verbose, then help)
+```
+
+## Values that start with `-`
+
+As in clap, the argument after a flag that takes a value is its value unless it's an option itself. A known option leaves the flag without a value, which is an error, and an unknown one is reported as unknown:
+
+```
+--name --help      ✗  Error: a value is required for --name but none was supplied.
+--name -v          ✗  (the same, for any known flag, long or short, and for --)
+--name -x          ✗  Error: unknown short option '-x'.
+--name=--help      ✓  (name "--help": = gives any value)
+-n=-v              ✓  (name "-v")
+```
+
+A negative number is a value, as with clap's `allow_negative_numbers`: `--offset -5`, `--ratio -1.5e3`, and `-0,5` under a culture with a decimal comma. It's also a positional argument rather than an option, so `myapp add -5` works without `--`, unless a short flag is named by its digit, such as `-1`. A lone `-` (often standard input) is a value too.
+
+## A flag given more than once
+
+A flag that takes one value, or a `bool` flag, given more than once is an error by default, as in clap. That's wherever each one is given: before the command, between a namespace and its command, or after the command. `--color` and `--no-color` are the same flag. A collection flag keeps every value instead (see [Collections](#collections)).
+
+```
+myapp deploy --env prod --env dev     ✗  Error: the argument --env cannot be used multiple times.
+myapp -v deploy -v                    ✗  (the same for -v given before and after the command)
+```
+
+Set `RepeatedScalarBehaviour` in the [parser options](index.md#culture-and-styles) to change it for every flag, and `[RepeatedScalar]` on a parameter or property to change it for one flag, which wins:
+
+| `RepeatedScalarBehaviour` | `--env prod --env dev` | `--env prod --env prod` |
+|---|---|---|
+| `Reject` (default) | error | error |
+| `AllowIdentical` | error: different values | `prod` |
+| `TakeLast` (pflag, and clap's `args_override_self`) | `dev` | `prod` |
+
+```csharp
+app.UseParserOptions(new ParserOptions { RepeatedScalarBehaviour = RepeatedScalarBehaviour.TakeLast });
+
+public static void Deploy([RepeatedScalar(RepeatedScalarBehaviour.AllowIdentical)] string env, bool verbose = false) { … }
+```
+
+`AllowIdentical` compares the text, or for a `bool` the boolean, so `-v --verbose=true` is allowed. `[RepeatedScalar]` on a collection or a positional argument has no effect, and the generator reports `AGH0039`.
+
 ## Nullable bool - `--flag` / `--no-flag` pairs
 
 A `bool?` flag generates **both** `--flag` (sets `true`) and `--no-flag` (sets `false`). Omitting either leaves the value `null`, letting you distinguish "not specified" from an explicit false.

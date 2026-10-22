@@ -157,6 +157,17 @@ internal static class CliRegistrationModule
 			g.Map("variadic", CollectionElementHandlers.Variadic);
 			g.Map("validated", CollectionElementHandlers.Validated);
 		});
+		app.MapNamespace("tokens", "Combined short flags, option-like values and repeated flags.", g =>
+		{
+			g.Map("shorts", FlagTokenHandlers.Shorts);
+			g.Map("repeats", FlagTokenHandlers.Repeats);
+			g.Map("repeats-dto", FlagTokenHandlers.RepeatsDto);
+			g.MapNamespace("ns", "Namespace options with a repeat rule.", h =>
+			{
+				h.UseNamespaceOptions<RepeatNamespaceOptions>();
+				h.Map("show", FlagTokenHandlers.RepeatsNs);
+			});
+		});
 		app.Map("schema-default-value", SchemaSpecificHandlers.SchemaDefaultValue);
 		app.Map("schema-separator-list", SchemaSpecificHandlers.SchemaSeparatorList);
 		app.Map("schema-hidden-param", SchemaSpecificHandlers.SchemaHiddenParam);

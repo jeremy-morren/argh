@@ -11,37 +11,20 @@ namespace Nullean.Argh.Runtime;
 public static class ArghBoolBinding
 {
 	/// <summary>
-	/// The value a bool flag got on the command line: <c>--name</c> or <c>--name=value</c>, and for a
-	/// <paramref name="negatable"/> (<c>bool?</c>) flag <c>--no-name</c>, which is <see langword="false"/> and wins over
-	/// <c>--name</c>. A bare switch is stored with a <see langword="null"/> value. <paramref name="value"/> is
-	/// <see langword="null"/> when the flag wasn't given.
+	/// The value a bool flag got on the command line, as <see cref="ArghTokenizer"/> stores it: <see langword="null"/> for
+	/// <c>--name</c> or <c>-n</c>, the text of <c>--name=value</c>, and <c>"false"</c> for <c>--no-name</c>.
+	/// <paramref name="value"/> is <see langword="null"/> when the flag wasn't given.
 	/// </summary>
-	/// <returns>
-	/// <see langword="false"/>, with the message in <paramref name="error"/>, when a value isn't a boolean or
-	/// <c>--no-name</c> has a value (<c>--no-name=true</c>), which it doesn't take, like git.
-	/// </returns>
-	public static bool TryGetFlag(IReadOnlyDictionary<string, string?> flags, string name, bool negatable, out bool? value, out string? error)
+	/// <returns><see langword="false"/>, with the message in <paramref name="error"/>, when a value isn't a boolean.</returns>
+	public static bool TryGetFlag(IReadOnlyDictionary<string, string?> flags, string name, out bool? value, out string? error)
 	{
 		value = null;
 		error = null;
-		if (flags.TryGetValue(name, out var raw))
-		{
-			if (!TryParseFlagValue(name, raw, out var b, out error))
-				return false;
-			value = b;
-		}
-
-		if (negatable && flags.TryGetValue("no-" + name, out var negatedRaw))
-		{
-			if (negatedRaw is not null)
-			{
-				error = $"Error: --no-{name} doesn't take a value.";
-				return false;
-			}
-
-			value = false;
-		}
-
+		if (!flags.TryGetValue(name, out var raw))
+			return true;
+		if (!TryParseFlagValue(name, raw, out var b, out error))
+			return false;
+		value = b;
 		return true;
 	}
 

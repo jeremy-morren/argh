@@ -103,7 +103,7 @@ public class ArghBoolTests
 	public void TryGetFlag_reads_the_value(string raw, bool expected)
 	{
 		var flags = new Dictionary<string, string?> { ["verbose"] = raw };
-		ArghBoolBinding.TryGetFlag(flags, "verbose", false, out var value, out var error).Should().BeTrue();
+		ArghBoolBinding.TryGetFlag(flags, "verbose", out var value, out var error).Should().BeTrue();
 		value.Should().Be(expected);
 		error.Should().BeNull();
 	}
@@ -111,7 +111,7 @@ public class ArghBoolTests
 	[Fact]
 	public void TryGetFlag_is_null_when_the_flag_is_absent()
 	{
-		ArghBoolBinding.TryGetFlag(new Dictionary<string, string?>(), "verbose", true, out var value, out _).Should().BeTrue();
+		ArghBoolBinding.TryGetFlag(new Dictionary<string, string?>(), "verbose", out var value, out _).Should().BeTrue();
 		value.Should().BeNull();
 	}
 
@@ -119,38 +119,17 @@ public class ArghBoolTests
 	public void TryGetFlag_reads_a_bare_switch_as_true()
 	{
 		var flags = new Dictionary<string, string?> { ["verbose"] = null };
-		ArghBoolBinding.TryGetFlag(flags, "verbose", false, out var value, out var error).Should().BeTrue();
+		ArghBoolBinding.TryGetFlag(flags, "verbose", out var value, out var error).Should().BeTrue();
 		value.Should().BeTrue();
 		error.Should().BeNull();
 	}
 
 	[Fact]
-	public void TryGetFlag_reads_the_no_form_as_false_which_wins()
+	public void TryGetFlag_reads_the_no_form_as_the_tokenizer_stores_it()
 	{
-		var flags = new Dictionary<string, string?> { ["dry-run"] = "true", ["no-dry-run"] = null };
-		ArghBoolBinding.TryGetFlag(flags, "dry-run", true, out var value, out _).Should().BeTrue();
+		var flags = new Dictionary<string, string?> { ["dry-run"] = "false" };
+		ArghBoolBinding.TryGetFlag(flags, "dry-run", out var value, out _).Should().BeTrue();
 		value.Should().BeFalse();
-	}
-
-	[Theory]
-	[InlineData("true")]
-	[InlineData("false")]
-	[InlineData("")]
-	[InlineData("bogus")]
-	public void TryGetFlag_rejects_a_value_on_the_no_form(string raw)
-	{
-		var flags = new Dictionary<string, string?> { ["no-dry-run"] = raw };
-		ArghBoolBinding.TryGetFlag(flags, "dry-run", true, out var value, out var error).Should().BeFalse();
-		value.Should().BeNull();
-		error.Should().Be("Error: --no-dry-run doesn't take a value.");
-	}
-
-	[Fact]
-	public void TryGetFlag_ignores_the_no_form_of_a_flag_that_isnt_negatable()
-	{
-		var flags = new Dictionary<string, string?> { ["no-verbose"] = "true" };
-		ArghBoolBinding.TryGetFlag(flags, "verbose", false, out var value, out _).Should().BeTrue();
-		value.Should().BeNull();
 	}
 
 	[Theory]
@@ -159,7 +138,7 @@ public class ArghBoolTests
 	public void TryGetFlag_rejects_a_value_that_isnt_a_boolean(string raw)
 	{
 		var flags = new Dictionary<string, string?> { ["verbose"] = raw };
-		ArghBoolBinding.TryGetFlag(flags, "verbose", true, out _, out var error).Should().BeFalse();
+		ArghBoolBinding.TryGetFlag(flags, "verbose", out _, out var error).Should().BeFalse();
 		error.Should().Be($"Error: invalid bool for --verbose: '{raw}'. Expected true/false, yes/no, y/n, t/f, on/off or 1/0.");
 	}
 

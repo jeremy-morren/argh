@@ -231,3 +231,41 @@ public sealed class HiddenAttribute : Attribute
     public bool Schema { get; set; } = false;
 }
 
+
+/// <summary>
+/// What happens when a flag that takes a single value is given more than once, such as <c>--name a --name b</c>. A
+/// <c>bool</c> flag counts too (<c>-v -v</c>, or <c>--color</c> and <c>--no-color</c>), wherever each one is given: before
+/// the command, after it, or between a namespace and its command. Collections are not affected: each value is kept.
+/// </summary>
+/// <remarks>
+/// Set it for every flag with <see cref="Parsing.ParserOptions.RepeatedScalarBehaviour"/>, and for one flag with
+/// <see cref="RepeatedScalarAttribute"/>, which wins.
+/// </remarks>
+public enum RepeatedScalarBehaviour
+{
+	/// <summary>An error, as in clap: <c>the argument --name cannot be used multiple times</c>. The default.</summary>
+	Reject = 0,
+
+	/// <summary>
+	/// Allowed when each value is the same text (for a <c>bool</c>, the same boolean: <c>-v --verbose=true</c>), so the
+	/// same flag from a shell alias and the command line doesn't fail; different values are an error.
+	/// </summary>
+	AllowIdentical = 1,
+
+	/// <summary>The last value wins, as in pflag (cobra) or with clap's <c>args_override_self</c>.</summary>
+	TakeLast = 2,
+}
+
+/// <summary>
+/// Sets what happens when this flag is given more than once (see <see cref="RepeatedScalarBehaviour"/>), over
+/// <see cref="Parsing.ParserOptions.RepeatedScalarBehaviour"/>. It has no effect on a collection, which keeps every
+/// value, or on a positional argument.
+/// </summary>
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property | AttributeTargets.Field)]
+public sealed class RepeatedScalarAttribute : Attribute
+{
+	public RepeatedScalarAttribute(RepeatedScalarBehaviour behaviour) => Behaviour = behaviour;
+
+	/// <summary>What happens when the flag is given more than once.</summary>
+	public RepeatedScalarBehaviour Behaviour { get; }
+}

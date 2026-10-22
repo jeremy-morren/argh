@@ -61,7 +61,7 @@ public class ScalarOptionsBindingTests
 	[MemberData(nameof(InvalidValues))]
 	public void AsParams_invalid_scalar_exits_2(string flag, string value, string typeName)
 	{
-		var result = CliHostRunner.Run(["as-params-scalars", .. PlainArgs, flag, value]);
+		var result = CliHostRunner.Run(["as-params-scalars", .. PlainArgsWithout(flag), flag, value]);
 		result.ExitCode.Should().Be(2);
 		ConsoleOutput.Normalize(CliHostRunner.StderrText(result))
 			.Should().Contain($"Error: invalid {typeName} for {flag}: '{value}'.");
@@ -95,7 +95,7 @@ public class ScalarOptionsBindingTests
 	[MemberData(nameof(InvalidValues))]
 	public void NamespaceOptions_invalid_scalar_before_the_command_exits_2(string flag, string value, string typeName)
 	{
-		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgs, flag, value, "show"]);
+		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgsWithout(flag), flag, value, "show"]);
 		result.ExitCode.Should().Be(2);
 		ConsoleOutput.Normalize(CliHostRunner.StderrText(result))
 			.Should().Contain($"Error: invalid {typeName} for {flag}: '{value}'.");
@@ -105,7 +105,7 @@ public class ScalarOptionsBindingTests
 	[MemberData(nameof(InvalidValues))]
 	public void NamespaceOptions_invalid_scalar_after_the_command_exits_2(string flag, string value, string typeName)
 	{
-		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgs, "show", flag, value]);
+		var result = CliHostRunner.Run(["scalars-ns", .. PlainArgsWithout(flag), "show", flag, value]);
 		result.ExitCode.Should().Be(2);
 		ConsoleOutput.Normalize(CliHostRunner.StderrText(result))
 			.Should().Contain($"Error: invalid {typeName} for {flag}: '{value}'.");
@@ -127,6 +127,13 @@ public class ScalarOptionsBindingTests
 		{ "--link", "http://[", "URI" },
 		{ "--link-opt", "http://[", "URI" },
 	};
+
+	/// <summary><see cref="PlainArgs"/> without <paramref name="flag"/> and its value, so it can be given once with another value.</summary>
+	private static string[] PlainArgsWithout(string flag)
+	{
+		var at = Array.IndexOf(PlainArgs, flag);
+		return at < 0 ? PlainArgs : [.. PlainArgs[..at], .. PlainArgs[(at + 2)..]];
+	}
 
 	private static string[] Lines(ProcNet.ProcessCaptureResult result) =>
 		CliHostRunner.StdoutText(result).Split('\n', StringSplitOptions.RemoveEmptyEntries);

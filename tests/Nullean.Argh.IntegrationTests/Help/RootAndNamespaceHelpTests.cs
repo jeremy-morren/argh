@@ -52,6 +52,7 @@ public class RootAndNamespaceHelpTests
 			  storage         Commands under storage. Nested BlobCommands must be registered
 			                  explicitly via MapNamespace<BlobCommands>.
 			  support         Support commands
+			  tokens          Combined short flags, option-like values and repeated flags.
 			  unicode         Commands with non-ASCII names.
 
 			Commands:

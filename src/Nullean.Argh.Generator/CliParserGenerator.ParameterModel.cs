@@ -91,9 +91,13 @@ public sealed partial class CliParserGenerator
 		string? ElementParserValueTypeFq = null,
 		/// <summary>A <see cref="CliScalarKind.Parsable"/> type that also implements <c>System.Numerics.INumberBase&lt;TSelf&gt;</c>, so it can take <c>NumberStyles</c>.</summary>
 		bool ParsableIsNumber = false,
-		bool ElementParsableIsNumber = false)
+		bool ElementParsableIsNumber = false,
+		/// <summary>The <c>RepeatedScalarBehaviour</c> member a <c>[RepeatedScalar]</c> sets, or null for the parser options' one.</summary>
+		string? RepeatedScalar = null)
 	{
 		// ── shared helpers ──────────────────────────────────────────────────────
+
+		private const string PositionalRepeatReason = "a positional argument isn't a flag.";
 
 		private static ImmutableDictionary<string, string>? TryGetEnumDocs(ITypeSymbol type)
 		{
@@ -168,6 +172,7 @@ public sealed partial class CliParserGenerator
 			var collValidations = ReadValidationConstraints(attributeHost, CliScalarKind.Collection, elemTn, isCollection: true,
 				filesystemScalarKind: elemSk);
 			ReportRangeAttributeIssues(attributeHost, symbolName, reportAcc, reportFallbackLocation);
+			ReportRepeatedScalarHasNoEffect(attributeHost, symbolName, "a collection keeps every value it's given.", reportAcc, reportFallbackLocation);
 			var (envVar, envTreatEmptyAsUnset) = GetEnvAttribute(attributeHost);
 			var expandProfileElem = TryReadExpandUserProfileBeforeBind(attributeHost, elemSk);
 			// Variadic positionals always allow zero items by C# params convention.
@@ -274,6 +279,8 @@ public sealed partial class CliParserGenerator
 			if (reportAcc is not null)
 				ReportPathAndUriAttributeIssues(p, sk, p.Name, reportAcc, reportFallbackLocation);
 			ReportRangeAttributeIssues(p, p.Name, reportAcc, reportFallbackLocation);
+			if (isArg)
+				ReportRepeatedScalarHasNoEffect(p, p.Name, PositionalRepeatReason, reportAcc, reportFallbackLocation);
 
 			var required = ComputeRequired(p, bs);
 			var defLit = TryGetDefaultLiteral(p, bs);
@@ -318,6 +325,7 @@ public sealed partial class CliParserGenerator
 				EnvVarName: _paramEnvVar,
 				EnvTreatEmptyAsUnset: _paramEnvEmpty,
 				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(p.Type),
+				RepeatedScalar: GetRepeatedScalarAttribute(p),
 				// Level? keeps its ? even with a default, so an unset value binds null rather than the enum's zero.
 				IsNullableAnnotated: p.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T });
 		}
@@ -386,7 +394,8 @@ public sealed partial class CliParserGenerator
 				DeprecationMessage: TryGetObsoleteAttribute(prop).Message,
 				EnvVarName: _propEnvVar,
 				EnvTreatEmptyAsUnset: _propEnvEmpty,
-				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type));
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type),
+				RepeatedScalar: GetRepeatedScalarAttribute(prop));
 		}
 
 		public static ParameterModel FromOptionsField(IFieldSymbol field, Compilation? compilation = null, string? defaultValueLiteral = null)
@@ -442,7 +451,8 @@ public sealed partial class CliParserGenerator
 					|| field.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T },
 				EnvVarName: _fieldEnvVar,
 				EnvTreatEmptyAsUnset: _fieldEnvEmpty,
-				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(field.Type));
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(field.Type),
+				RepeatedScalar: GetRepeatedScalarAttribute(field));
 		}
 		public static ParameterModel FromAsParametersCtorParameter(
 			string methodParamName,
@@ -522,6 +532,8 @@ public sealed partial class CliParserGenerator
 				ReportPathAndUriAttributeIssues(cp, sk, cp.Name, reportAcc,
 					cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
 			ReportRangeAttributeIssues(cp, cp.Name, reportAcc, cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
+			if (isArg)
+				ReportRepeatedScalarHasNoEffect(cp, cp.Name, PositionalRepeatReason, reportAcc, cp.Locations.FirstOrDefault() ?? reportFallbackLocation);
 
 			var required = ComputeRequired(cp, bs);
 			var defLit = TryGetDefaultLiteral(cp, bs);
@@ -566,6 +578,7 @@ public sealed partial class CliParserGenerator
 				EnvVarName: cpEnvVar,
 				EnvTreatEmptyAsUnset: cpEnvEmpty,
 				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(cp.Type),
+				RepeatedScalar: GetRepeatedScalarAttribute(cp),
 				// Level? keeps its ? even with a default, so an unset value binds null rather than the enum's zero.
 				IsNullableAnnotated: cp.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T });
 		}
@@ -634,6 +647,8 @@ public sealed partial class CliParserGenerator
 				ReportPathAndUriAttributeIssues(prop, sk, prop.Name, reportAcc,
 					prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
 			ReportRangeAttributeIssues(prop, prop.Name, reportAcc, prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
+			if (isArg)
+				ReportRepeatedScalarHasNoEffect(prop, prop.Name, PositionalRepeatReason, reportAcc, prop.Locations.FirstOrDefault() ?? reportFallbackLocation);
 
 			var defaultValueLiteral = compilation is not null ? TryGetOptionsPropertyDefaultLiteral(prop, compilation) : null;
 			// Cross-assembly [AsParameters] types: syntax refs empty, can't read initializer.
@@ -683,7 +698,8 @@ public sealed partial class CliParserGenerator
 				DeprecationMessage: deprecationMsgProp,
 				EnvVarName: initPropEnvVar,
 				EnvTreatEmptyAsUnset: initPropEnvEmpty,
-				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type));
+				ParsableIsNumber: sk == CliScalarKind.Parsable && IsNumberBase(prop.Type),
+				RepeatedScalar: GetRepeatedScalarAttribute(prop));
 		}
 
 		private static bool ComputeRequiredForOptionsType(ITypeSymbol type, BoolSpecialKind bs)

@@ -7,7 +7,7 @@ namespace Nullean.Argh.IntegrationTests.Commands;
 /// <summary>
 /// Global options must parse in the command runner for tokens that appear after the route
 /// (subcommand name). Leading prefetch only peels globals before the first non-option token;
-/// shorts and longs after the command rely on <c>OptionsInjected</c> + generated <c>TryApplyShortFlag</c>.
+/// shorts and longs after the command rely on <c>OptionsInjected</c> flags in the command's flag set.
 /// </summary>
 public class GlobalOptionsAfterCommandTests
 {
@@ -78,8 +78,8 @@ public class GlobalOptionsAfterCommandTests
 	[InlineData("Error: invalid value for --severity: '2'.", "severity-cmd", "--severity", "2")]
 	[InlineData("Error: invalid value for --severity: ''.", "severity-cmd", "--severity=")]
 	[InlineData("Error: invalid int for --quota: '1,000'.", "env-global", "--quota", "1,000")]
-	[InlineData("Error: invalid int for --quota: 'x'.", "env-global", "--quota", "1", "--quota", "x")]
-	[InlineData("Error: invalid decimal for --weight: '--verbose'.", "env-global", "--weight", "--verbose")]
+	[InlineData("Error: invalid int for --quota: 'x'.", "env-global", "--quota", "x")]
+	[InlineData("Error: a value is required for --weight but none was supplied.", "env-global", "--weight", "--verbose")]
 	[InlineData("Error: invalid value for --severity: 'bogus'.", "storage", "list", "--severity", "bogus")]
 	public void Invalid_global_option_after_the_command_exits_2(string error, params string[] args)
 	{
@@ -159,8 +159,7 @@ public class GlobalOptionsAfterCommandTests
 	[InlineData("storage", "--mode", "between", "list")]
 	[InlineData("storage", "-m", "between", "list")]
 	[InlineData("--mode", "between", "storage", "list")]
-	[InlineData("--mode", "before", "storage", "--mode", "between", "list")]
-	[InlineData("--mode", "before", "storage", "--prefix", "p", "list", "--mode", "between")]
+	[InlineData("storage", "--prefix", "p", "list", "--mode", "between")]
 	public void Storage_list_global_option_after_the_namespace_segment_is_applied(params string[] args)
 	{
 		var result = CliHostRunner.Run(args);

@@ -5,7 +5,8 @@ using Nullean.Argh.Runtime;
 
 /// <summary>
 /// Parser option tests set the culture and styles through ARGH_TEST_CULTURE, ARGH_TEST_NUMBER_STYLES and
-/// ARGH_TEST_DATE_STYLES. A module initializer applies them before <c>Main</c>, so <c>Program.cs</c> stays unchanged.
+/// ARGH_TEST_DATE_STYLES, and what a repeated flag does through ARGH_TEST_REPEATED. A module initializer applies them
+/// before <c>Main</c>, so <c>Program.cs</c> stays unchanged.
 /// </summary>
 internal static class TestHostParserOptions
 {
@@ -17,7 +18,9 @@ internal static class TestHostParserOptions
 		var culture = Environment.GetEnvironmentVariable("ARGH_TEST_CULTURE");
 		var numberStyles = Environment.GetEnvironmentVariable("ARGH_TEST_NUMBER_STYLES");
 		var dateStyles = Environment.GetEnvironmentVariable("ARGH_TEST_DATE_STYLES");
-		if (string.IsNullOrEmpty(culture) && string.IsNullOrEmpty(numberStyles) && string.IsNullOrEmpty(dateStyles))
+		var repeated = Environment.GetEnvironmentVariable("ARGH_TEST_REPEATED");
+		if (string.IsNullOrEmpty(culture) && string.IsNullOrEmpty(numberStyles) && string.IsNullOrEmpty(dateStyles)
+		    && string.IsNullOrEmpty(repeated))
 			return;
 
 		var options = new ParserOptions
@@ -27,6 +30,8 @@ internal static class TestHostParserOptions
 		};
 		if (!string.IsNullOrEmpty(dateStyles))
 			options.DateTimeStyles = Enum.Parse<DateTimeStyles>(dateStyles);
+		if (!string.IsNullOrEmpty(repeated))
+			options.RepeatedScalarBehaviour = Enum.Parse<Nullean.Argh.RepeatedScalarBehaviour>(repeated);
 		ArghRuntime.ParserOptions = options;
 	}
 }

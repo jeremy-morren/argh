@@ -30,6 +30,7 @@
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\SchemaSpecificHandlers.cs" Link="Fixtures\SchemaSpecificHandlers.cs" />
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\PathUriHandlers.cs" Link="Fixtures\PathUriHandlers.cs" />
     <Compile Include="..\Nullean.Argh.Tests\Fixtures\CollectionElementHandlers.cs" Link="Fixtures\CollectionElementHandlers.cs" />
+    <Compile Include="..\Nullean.Argh.Tests\Fixtures\FlagTokenHandlers.cs" Link="Fixtures\FlagTokenHandlers.cs" />
   </ItemGroup>
 
 </Project>

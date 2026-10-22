@@ -34,4 +34,11 @@ public sealed class ParserOptions
 	/// <c>DateOnly</c> and <c>TimeOnly</c> accept only the whitespace flags, so they get just those. <c>TimeSpan</c> doesn't use it.
 	/// </summary>
 	public DateTimeStyles DateTimeStyles { get; set; } = DateTimeStyles.RoundtripKind | DateTimeStyles.AllowWhiteSpaces;
+
+	/// <summary>
+	/// What happens when a flag that takes a single value (or a <c>bool</c> flag) is given more than once, such as
+	/// <c>--name a --name b</c>. Defaults to <see cref="RepeatedScalarBehaviour.Reject"/>, an error, as in clap; a flag's
+	/// <see cref="RepeatedScalarAttribute"/> wins over it. Collections keep every value whatever this is.
+	/// </summary>
+	public RepeatedScalarBehaviour RepeatedScalarBehaviour { get; set; } = RepeatedScalarBehaviour.Reject;
 }

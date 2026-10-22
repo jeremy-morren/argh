@@ -44,7 +44,7 @@ public class ParseErrorTests
 			"--severity");
 		result.ExitCode.Should().Be(2);
 		var err = ConsoleOutput.Normalize(CliHostRunner.StderrText(result));
-		err.Should().Contain("Error: missing value for flag --severity.");
+		err.Should().Contain("Error: a value is required for --severity but none was supplied.");
 		err.Should().Contain("--severity <enum>");
 		err.Should().Contain($"Run '{CliHostPaths.CliHostAssemblyName} --help' for usage.");
 	}

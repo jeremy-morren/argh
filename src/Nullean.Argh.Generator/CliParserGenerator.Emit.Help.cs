@@ -248,6 +248,7 @@ public sealed partial class CliParserGenerator
 			w.Line("match = default;");
 			w.Line("if (CompletionProtocol.IsArghMetaCompletionInvocation(args)) return false;");
 			w.Line("var idx = new int[1];");
+			w.Line($"{OptionFlagsSeenField}.Clear();");
 			if (hasLeadingOptionPrefetch)
 				w.Line("if (!TryParseGlobalOptions(args, idx)) return false;");
 			w.Line("if (args.Length == 0) return false;");
@@ -433,83 +434,6 @@ public sealed partial class CliParserGenerator
 			"",   // UsageHints
 			ImmutableArray<(string, bool)>.Empty);
 
-
-	/// <summary>A flag's long name and aliases, plus their <c>no-</c> forms for a nullable bool.</summary>
-	private static void AddFlagNames(HashSet<string> names, ParameterModel p)
-	{
-		var aliases = p.Aliases.Where(al => !string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase)).ToList();
-		names.Add(p.CliLongName);
-		foreach (var al in aliases)
-			names.Add(al);
-		if (p.Special != BoolSpecialKind.NullableBool)
-			return;
-		names.Add("no-" + p.CliLongName);
-		foreach (var al in aliases)
-			names.Add("no-" + al);
-	}
-
-	/// <summary>A local function <c>F(x) =&gt; x switch { pattern =&gt; result, …, _ =&gt; default };</c>.</summary>
-	private static void EmitSwitchExpression(CodeWriter w, string signature, string subject, IEnumerable<(string Pattern, string Result)> arms, string defaultResult)
-	{
-		using (w.Block($"{signature} => {subject} switch", ";"))
-		{
-			foreach ((var pattern, var result) in arms)
-				w.Line($"{pattern} => {result},");
-			w.Line("_ => " + defaultResult);
-		}
-	}
-
-	/// <summary>A local function <c>bool F(x) =&gt; x switch { … =&gt; true, _ =&gt; false };</c> over <paramref name="literals"/>.</summary>
-	private static void EmitSwitchPredicate(CodeWriter w, string signature, string subject, IEnumerable<string> literals) =>
-		EmitSwitchExpression(w, signature, subject, literals.Select(static l => (l, "true")), "false");
-
-	/// <summary>Like <see cref="EmitSwitchPredicate"/> over string names, or <c>=&gt; false;</c> when there are none.</summary>
-	private static void EmitNamePredicate(CodeWriter w, string signature, IReadOnlyCollection<string> names)
-	{
-		if (names.Count == 0)
-			w.Line(signature + " => false;");
-		else
-			EmitSwitchPredicate(w, signature, "name", names.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
-	}
-
-	private static void EmitAllowedFlagPredicate(CodeWriter w, ImmutableArray<ParameterModel> members)
-	{
-		var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var p in members)
-		{
-			if (p.Kind == ParameterKind.Flag)
-				AddFlagNames(allowed, p);
-		}
-
-		EmitSwitchPredicate(w, "bool IsAllowedFlag(string name)", "name", allowed.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
-	}
-
-	private static void EmitDeferLeadingRootAliasHelpers(CodeWriter w, ImmutableArray<ParameterModel> defer)
-	{
-		const string canonSignature = "bool ShouldDeferLeadingRootAliasCanon(string name)";
-		const string shortSignature = "bool ShouldDeferLeadingShortFlag(char c)";
-		if (defer.IsDefaultOrEmpty)
-		{
-			w.Line(canonSignature + " => false;");
-			w.Line(shortSignature + " => false;");
-			return;
-		}
-
-		var canonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		var shortChars = new HashSet<char>();
-		foreach (var p in defer)
-		{
-			AddFlagNames(canonNames, p);
-			if (p.ShortOpt is char ch)
-				shortChars.Add(ch);
-		}
-
-		EmitSwitchPredicate(w, canonSignature, "name", canonNames.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).Select(Quote));
-		if (shortChars.Count == 0)
-			w.Line(shortSignature + " => false;");
-		else
-			EmitSwitchPredicate(w, shortSignature, "c", shortChars.OrderBy(static x => x).Select(static ch => $"'{ch}'"));
-	}
 
 	private static bool HelpUsesEnumChoiceContinuationLayout(ParameterModel p) =>
 		p.ScalarKind == CliScalarKind.Enum

@@ -194,24 +194,20 @@ public sealed partial class ArghApp : IArghRootBuilder
 		(CompletionProtocol.IsArghMetaCompletionInvocation(args) || AsksForHelpOrVersion(args));
 
 	/// <summary>
-	/// Whether <c>--help</c>, <c>-h</c> or <c>--version</c> appears as an option of its own. Right after another option
-	/// with no <c>=value</c> it may be that option's value (<c>--name --help</c>), and after <c>--</c> it's an operand, so
-	/// neither counts. Errs towards <see langword="false"/>, which only means the command line runs the normal way.
+	/// Whether <c>--help</c>, <c>-h</c> or <c>--version</c> appears before any <c>--</c>, after which it's an operand. It
+	/// can't be the value of the flag before it: <c>--name --help</c> is missing a value, as in clap, and
+	/// <c>--name=--help</c> is how to pass it as one.
 	/// </summary>
 	private static bool AsksForHelpOrVersion(string[] args)
 	{
-		for (var i = 0; i < args.Length; i++)
+		foreach (var a in args)
 		{
-			var a = args[i];
 			if (a == "--")
 				return false;
-			if (a is "--help" or "-h" or "--version" && (i == 0 || !MayTakeNextAsValue(args[i - 1])))
+			if (a is "--help" or "-h" or "--version")
 				return true;
 		}
 
 		return false;
-
-		static bool MayTakeNextAsValue(string option) =>
-			option.Length > 1 && option[0] == '-' && option.IndexOf('=') < 0;
 	}
 }

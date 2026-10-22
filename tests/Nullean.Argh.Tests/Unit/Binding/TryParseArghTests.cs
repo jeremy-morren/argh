@@ -55,6 +55,34 @@ public class TryParseArghTests
 	public void TryParseArgh_on_options_type_rejects_a_bool_value_that_isnt_a_boolean(string arg) =>
 		TestGlobalCliOptions.TryParseArgh([arg], out _).Should().BeFalse();
 
+	[Theory]
+	[InlineData("-vm", "x")]
+	[InlineData("-vmx")]
+	[InlineData("-vm=x")]
+	public void TryParseArgh_on_options_type_reads_combined_short_flags(params string[] args)
+	{
+		TestGlobalCliOptions.TryParseArgh(args, out var o).Should().BeTrue();
+		o!.Verbose.Should().BeTrue();
+		o.Mode.Should().Be("x");
+	}
+
+	[Theory]
+	[InlineData("--mode", "a", "--mode", "b")]
+	[InlineData("--mode", "--verbose")]
+	public void TryParseArgh_on_options_type_rejects_a_repeated_flag_or_a_missing_value(params string[] args)
+	{
+		TestGlobalCliOptions.TryParseArgh(args, out _).Should().BeFalse();
+		TestGlobalCliOptions.TryParseArghExact(args, out _).Should().BeFalse();
+	}
+
+	[Fact]
+	public void TryParseArgh_with_parser_options_reads_a_repeated_flag_as_they_say()
+	{
+		var options = new Nullean.Argh.Parsing.ParserOptions { RepeatedScalarBehaviour = RepeatedScalarBehaviour.TakeLast };
+		TestGlobalCliOptions.TryParseArgh(["--mode", "a", "-m", "b"], options, out var o).Should().BeTrue();
+		o!.Mode.Should().Be("b");
+	}
+
 	[Fact]
 	public void TryParseArgh_static_on_options_type_binds_global_short_bool_without_value()
 	{

@@ -123,11 +123,19 @@ public class UnexpectedArgumentTests
 	}
 
 	[Fact]
-	public void Short_option_like_value_without_double_dash_is_an_unknown_option()
+	public void Negative_number_is_a_positional_argument()
 	{
 		var result = CliHostRunner.Run(NoColor, "copy-variadic", "red", "-5");
+		result.ExitCode.Should().Be(0, Stderr(result));
+		CliHostRunner.StdoutText(result).Trim().Should().Be("mode:Red files:-5");
+	}
+
+	[Fact]
+	public void Short_option_like_value_without_double_dash_is_an_unknown_option()
+	{
+		var result = CliHostRunner.Run(NoColor, "copy-variadic", "red", "-x");
 		result.ExitCode.Should().Be(2);
-		Stderr(result).Should().StartWith("Error: unknown short option '-5'.");
+		Stderr(result).Should().StartWith("Error: unknown short option '-x'.");
 	}
 
 	[Fact]
@@ -135,6 +143,6 @@ public class UnexpectedArgumentTests
 	{
 		var result = CliHostRunner.Run(NoColor, "hello", "-m");
 		result.ExitCode.Should().Be(2);
-		Stderr(result).Should().StartWith("Error: missing value for short flag '-m'.");
+		Stderr(result).Should().StartWith("Error: a value is required for --mode but none was supplied.");
 	}
 }
