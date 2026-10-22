@@ -110,11 +110,9 @@ internal static class Registration
 		Bug69.Register(app);
 
 		// Third pass: parsing and runtime (bug78 and bug79 live in bugs/hosted)
-		Bug75.Register(app);
 		Bug76.Register(app);
 		Bug77.Register(app);
 		Bug80.Register(app);
-		Bug81.Register(app);
 #if BUG82
 		Bug82.Register(app);
 #endif
@@ -124,7 +122,6 @@ internal static class Registration
 		Bug88.Register(app);
 		Bug91.Register(app);
 		Bug94.Register(app);
-		Bug95.Register(app);
 		Bug99.Register(app);
 #if BUG98
 		Bug98.Register(app);
