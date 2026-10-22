@@ -9,6 +9,8 @@ namespace Nullean.Argh.Parsing;
 public sealed class ParserOptions
 {
 	private CultureInfo _culture = CultureInfo.InvariantCulture;
+	private StringComparer _commandStringComparer = StringComparer.OrdinalIgnoreCase;
+	private StringComparer _argumentStringComparer = StringComparer.Ordinal;
 
 	/// <summary>
 	/// The culture for numbers, dates and times, and <c>TimeSpan</c> values. Defaults to <see cref="CultureInfo.InvariantCulture"/>;
@@ -41,4 +43,31 @@ public sealed class ParserOptions
 	/// <see cref="RepeatedScalarAttribute"/> wins over it. Collections keep every value whatever this is.
 	/// </summary>
 	public RepeatedScalarBehaviour RepeatedScalarBehaviour { get; set; } = RepeatedScalarBehaviour.Reject;
+
+	/// <summary>
+	/// How a command or namespace name on the command line matches a registered one, for running, routing, help, shell
+	/// completion and "did you mean" suggestions. Defaults to <see cref="StringComparer.OrdinalIgnoreCase"/>, so
+	/// <c>DEPLOY</c> runs <c>deploy</c>; set <see cref="StringComparer.Ordinal"/> to match case, as clap and cobra do.
+	/// Setting <see langword="null"/> restores the default. Two names in one scope that it treats as the same fail at
+	/// startup with an <see cref="InvalidOperationException"/>.
+	/// </summary>
+	public StringComparer CommandStringComparer
+	{
+		get => _commandStringComparer;
+		set => _commandStringComparer = value ?? StringComparer.OrdinalIgnoreCase;
+	}
+
+	/// <summary>
+	/// How a long option on the command line, such as <c>--name</c> or <c>--no-color</c>, matches a flag's name or alias,
+	/// including <c>--help</c> and <c>--version</c>, for parsing, shell completion and "did you mean" suggestions.
+	/// Defaults to <see cref="StringComparer.Ordinal"/>, as in clap and cobra, so <c>--NAME</c> is an unknown option.
+	/// Short options such as <c>-v</c> always match case, so <c>-v</c> and <c>-V</c> stay different flags. Setting
+	/// <see langword="null"/> restores the default. Two flags of one command that it treats as the same fail when the
+	/// app starts with an <see cref="InvalidOperationException"/>.
+	/// </summary>
+	public StringComparer ArgumentStringComparer
+	{
+		get => _argumentStringComparer;
+		set => _argumentStringComparer = value ?? StringComparer.Ordinal;
+	}
 }

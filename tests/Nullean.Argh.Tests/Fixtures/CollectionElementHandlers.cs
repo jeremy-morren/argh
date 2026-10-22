@@ -86,7 +86,7 @@ internal static class CollectionElementHandlers
 	/// <summary>Constraints that apply to each element.</summary>
 	/// <param name="small">Ints from 1 to 10, at most three of them.</param>
 	/// <param name="letter">Each a or b.</param>
-	/// <param name="site">Each an http or https URL.</param>
+	/// <param name="site">Each an http, https or ftp URL.</param>
 	/// <param name="secure">Each an https URI.</param>
 	/// <param name="code">Each two lowercase letters.</param>
 	[NoOptionsInjection]

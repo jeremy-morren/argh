@@ -88,4 +88,24 @@ public class UriAttributeGeneratorTests
 		Assert.Empty(diagnostics);
 		AssertCompiles(output);
 	}
+
+	[Theory]
+	[InlineData("[Url] Uri link")]
+	[InlineData("[Url] Uri? link = null")]
+	[InlineData("[Url] Uri[] link")]
+	[InlineData("[Url] string link")]
+	[InlineData("[Url] List<string> link")]
+	public void Url_means_the_same_on_a_string_and_a_Uri(string parameter)
+	{
+		var generated = Generate(Source(parameter), out var output, out var diagnostics);
+
+		Assert.Empty(diagnostics);
+		AssertCompiles(output);
+		Assert.Contains("!global::Nullean.Argh.Runtime.ArghPathBinding.IsUrl(__url_", generated);
+		Assert.Contains("value is not a valid URL.", generated);
+		Assert.Contains("[url]", generated);
+		Assert.Contains("new CliConstraintSchema(\"url\")", generated);
+		Assert.DoesNotContain("uriScheme", generated);
+		Assert.DoesNotContain("[schemes:", generated);
+	}
 }

@@ -5,7 +5,8 @@ using Nullean.Argh.Runtime;
 
 /// <summary>
 /// Parser option tests set the culture and styles through ARGH_TEST_CULTURE, ARGH_TEST_NUMBER_STYLES and
-/// ARGH_TEST_DATE_STYLES, and what a repeated flag does through ARGH_TEST_REPEATED. A module initializer applies them
+/// ARGH_TEST_DATE_STYLES, what a repeated flag does through ARGH_TEST_REPEATED, and how names match through
+/// ARGH_TEST_COMMAND_COMPARER and ARGH_TEST_ARGUMENT_COMPARER (a <see cref="StringComparison"/> name). A module initializer applies them
 /// before <c>Main</c>, so <c>Program.cs</c> stays unchanged.
 /// </summary>
 internal static class TestHostParserOptions
@@ -19,8 +20,10 @@ internal static class TestHostParserOptions
 		var numberStyles = Environment.GetEnvironmentVariable("ARGH_TEST_NUMBER_STYLES");
 		var dateStyles = Environment.GetEnvironmentVariable("ARGH_TEST_DATE_STYLES");
 		var repeated = Environment.GetEnvironmentVariable("ARGH_TEST_REPEATED");
+		var commandComparer = Environment.GetEnvironmentVariable("ARGH_TEST_COMMAND_COMPARER");
+		var argumentComparer = Environment.GetEnvironmentVariable("ARGH_TEST_ARGUMENT_COMPARER");
 		if (string.IsNullOrEmpty(culture) && string.IsNullOrEmpty(numberStyles) && string.IsNullOrEmpty(dateStyles)
-		    && string.IsNullOrEmpty(repeated))
+		    && string.IsNullOrEmpty(repeated) && string.IsNullOrEmpty(commandComparer) && string.IsNullOrEmpty(argumentComparer))
 			return;
 
 		var options = new ParserOptions
@@ -32,6 +35,10 @@ internal static class TestHostParserOptions
 			options.DateTimeStyles = Enum.Parse<DateTimeStyles>(dateStyles);
 		if (!string.IsNullOrEmpty(repeated))
 			options.RepeatedScalarBehaviour = Enum.Parse<Nullean.Argh.RepeatedScalarBehaviour>(repeated);
+		if (!string.IsNullOrEmpty(commandComparer))
+			options.CommandStringComparer = StringComparer.FromComparison(Enum.Parse<StringComparison>(commandComparer));
+		if (!string.IsNullOrEmpty(argumentComparer))
+			options.ArgumentStringComparer = StringComparer.FromComparison(Enum.Parse<StringComparison>(argumentComparer));
 		ArghRuntime.ParserOptions = options;
 	}
 }

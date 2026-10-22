@@ -89,6 +89,8 @@ public sealed class ArghTokens
 /// <item>A flag that takes one value, or a <c>bool</c> flag, given more than once follows the <see cref="RepeatedScalarBehaviour"/>;
 /// a collection flag keeps each value.</item>
 /// <item>Every argument after <c>--</c> is positional.</item>
+/// <item>A long option, <c>--help</c> and <c>--version</c> included, matches a flag's name with
+/// <see cref="Parsing.ParserOptions.ArgumentStringComparer"/>; a short option matches case.</item>
 /// </list>
 /// </remarks>
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -204,7 +206,7 @@ public static class ArghTokenizer
 					break;
 				}
 
-				if (help && a is "--help" or "-h")
+				if (help && ArghNames.IsHelp(a))
 				{
 					Tokens.HelpRequested = true;
 					Tokens.Next = i;
@@ -225,7 +227,7 @@ public static class ArghTokenizer
 			while (i < end)
 			{
 				var a = args[i];
-				if (a is "--help" or "-h" or "--version" or "--" or "-")
+				if (a is "--" or "-" || ArghNames.IsHelp(a) || ArghNames.IsVersion(a))
 					break;
 				Step step;
 				if (IsLong(a))
@@ -404,7 +406,7 @@ public static class ArghTokenizer
 			{
 				var eq = a.IndexOf('=', 2);
 				var name = eq < 0 ? a.Substring(2) : a.Substring(2, eq - 2);
-				if (help && name is "help" or "version")
+				if (help && (ArghNames.ArgumentComparer.Equals(name, "help") || ArghNames.ArgumentComparer.Equals(name, "version")))
 					return false;
 				return !flags.TryGetLong(name, out _, out _) && !(deferTo?.TryGetLong(name, out _, out _) ?? false);
 			}

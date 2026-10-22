@@ -161,7 +161,7 @@ public class CollectionElementTests
 	[InlineData("--small=11", "Error: --small: value must be between 1 and 10.")]
 	[InlineData("--small=0", "Error: --small: value must be between 1 and 10.")]
 	[InlineData("--letter=c", "Error: --letter: value must be one of: a, b.")]
-	[InlineData("--site=ftp://x", "Error: --site: URI scheme must be one of: http, https.")]
+	[InlineData("--site=mailto:x@example.com", "Error: --site: value is not a valid URL.")]
 	[InlineData("--secure=http://x", "Error: --secure: URI scheme must be one of: https.")]
 	[InlineData("--code=ABC", "Error: --code: value does not match required pattern ^[a-z]{2}$.")]
 	public void A_value_constraint_on_a_collection_checks_each_element(string invalid, string error) =>

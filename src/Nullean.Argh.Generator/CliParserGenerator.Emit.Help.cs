@@ -246,14 +246,14 @@ public sealed partial class CliParserGenerator
 		using (w.Block("public static bool TryParseRoute(string[] args, out RouteMatch match)"))
 		{
 			w.Line("match = default;");
+			w.Line(CheckNameScopes);
 			w.Line("if (CompletionProtocol.IsArghMetaCompletionInvocation(args)) return false;");
 			w.Line("var idx = new int[1];");
 			w.Line($"{OptionFlagsSeenField}.Clear();");
 			if (hasLeadingOptionPrefetch)
 				w.Line("if (!TryParseGlobalOptions(args, idx)) return false;");
 			w.Line("if (args.Length == 0) return false;");
-			w.Line("if (idx[0] < args.Length && (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\")) return false;");
-			w.Line("if (idx[0] < args.Length && args[idx[0]] == \"--version\") return false;");
+			w.Line("if (idx[0] < args.Length && (ArghNames.IsHelp(args[idx[0]]) || ArghNames.IsVersion(args[idx[0]]))) return false;");
 			using (w.If("idx[0] >= args.Length"))
 			{
 				if ((app.Root.RootCommand ?? app.Root.RootAlias) is { } routeRoot)
@@ -291,47 +291,31 @@ public sealed partial class CliParserGenerator
 					w.Return("false");
 			}
 
-			w.Line("if (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\") return false;");
-			w.Line("var tokKey = args[idx[0]].ToLowerInvariant();");
-			using (w.Switch("tokKey"))
+			w.Line("if (ArghNames.IsHelp(args[idx[0]])) return false;");
+			EmitCommandNameSwitch(w, node, path, "args[idx[0]]", cmd =>
 			{
-				foreach (var cmd in node.Commands)
-				{
-					using (w.CaseBlock(Quote(cmd.CommandName.ToLowerInvariant())))
-					{
-						w.Line("idx[0]++;");
-						EmitRouteMatch(w, cmd);
-					}
-				}
+				w.Line("idx[0]++;");
+				EmitRouteMatch(w, cmd);
+			}, childPath =>
+			{
+				w.Line("idx[0]++;");
+				w.Return($"TryParseRouteCommandNamespace_{CommandNamespacePathKey(childPath)}(args, idx, out match)");
+			});
 
-				foreach (var ch in node.Children)
+			// The default command takes what the dispatcher gives it.
+			if ((node.RootCommand ?? node.RootAlias) is { } defaultCommand)
+			{
+				if (DefaultCommandTakesTokenCondition(defaultCommand, "args[idx[0]]") is { } takesToken)
 				{
-					var childMethod = "TryParseRouteCommandNamespace_" + CommandNamespacePathKey(AppendSegment(path, ch.Segment));
-					using (w.CaseBlock(Quote(ch.Segment.ToLowerInvariant())))
-					{
-						w.Line("idx[0]++;");
-						w.Return($"{childMethod}(args, idx, out match)");
-					}
+					using (w.If(takesToken))
+						EmitRouteMatch(w, defaultCommand);
+					w.Return("false");
 				}
-
-				// The default command takes what the dispatcher gives it.
-				using (w.CaseBlock("default"))
-				{
-					if ((node.RootCommand ?? node.RootAlias) is { } defaultCommand)
-					{
-						if (DefaultCommandTakesTokenCondition(defaultCommand, "args[idx[0]]") is { } takesToken)
-						{
-							using (w.If(takesToken))
-								EmitRouteMatch(w, defaultCommand);
-							w.Return("false");
-						}
-						else
-							EmitRouteMatch(w, defaultCommand);
-					}
-					else
-						w.Return("false");
-				}
+				else
+					EmitRouteMatch(w, defaultCommand);
 			}
+			else
+				w.Return("false");
 		}
 
 		w.Line();

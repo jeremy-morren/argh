@@ -98,6 +98,15 @@ public static class ArghPathBinding
 	private static string InvalidValueError(string what, string argName, string raw, string reason) =>
 		$"Error: invalid {what} for {argName}: '{raw}'. {reason}";
 
+	/// <summary>
+	/// Whether <paramref name="value"/> is a URL as <c>[Url]</c>, the DataAnnotations <c>UrlAttribute</c>, means it: an
+	/// absolute URI whose scheme is <c>http</c>, <c>https</c> or <c>ftp</c>.
+	/// </summary>
+	public static bool IsUrl(Uri value) => value.IsAbsoluteUri && value.Scheme is "http" or "https" or "ftp";
+
+	/// <summary>Whether <paramref name="value"/> is an absolute URI that <see cref="IsUrl(Uri)"/> accepts.</summary>
+	public static bool IsUrl(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && IsUrl(uri);
+
 	/// <summary>The exception's message without the parameter name an <see cref="ArgumentException"/> appends to it.</summary>
 	private static string ExceptionReason(Exception e)
 	{

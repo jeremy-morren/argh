@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Nullean.Argh.Parsing;
 using Nullean.Argh.Runtime;
 using Xunit;
 
@@ -56,4 +57,17 @@ public class ArghParserRouteTests
 
 	[Fact]
 	public void Route_returns_null_for_root_help() => ArghParser.Route(["--help"]).Should().BeNull();
+
+	[Fact]
+	public void Route_matches_command_and_namespace_names_with_the_command_comparer()
+	{
+		ArghParser.Route(["HELLO", "--name", "x"])!.Value.CommandPath.Should().Be("hello");
+		ArghParser.Route(["Storage", "LIST"])!.Value.CommandPath.Should().Be("storage/list");
+		using (ArghRuntime.PushParserOptions(new ParserOptions { CommandStringComparer = StringComparer.Ordinal }))
+		{
+			ArghParser.Route(["HELLO", "--name", "x"]).Should().BeNull();
+			ArghParser.Route(["Storage", "list"]).Should().BeNull();
+			ArghParser.Route(["storage", "list"])!.Value.CommandPath.Should().Be("storage/list");
+		}
+	}
 }

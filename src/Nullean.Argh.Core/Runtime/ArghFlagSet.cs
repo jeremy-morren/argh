@@ -62,38 +62,31 @@ public sealed class ArghFlag
 }
 
 /// <summary>
-/// The flags one command, or one options type, reads: looked up by long name (matching case, with <c>--no-</c> forms for a
-/// <see cref="ArghFlagKind.NegatableSwitch"/>) and by short name. Generated code builds one per command and options parser
-/// and passes it to <see cref="ArghTokenizer"/>; not intended for app code.
+/// The flags one command, or one options type, reads: looked up by long name (with
+/// <see cref="Parsing.ParserOptions.ArgumentStringComparer"/>, and with <c>--no-</c> forms for a
+/// <see cref="ArghFlagKind.NegatableSwitch"/>) and by short name, which always matches case. Generated code builds one per
+/// command and options parser and passes it to <see cref="ArghTokenizer"/>; not intended for app code.
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ArghFlagSet
+public sealed class ArghFlagSet : ArghNameScope
 {
-	private readonly Dictionary<string, (ArghFlag Flag, bool Negated)> _long = new(StringComparer.Ordinal);
+	private readonly NameMap<LongName> _long;
 	private readonly Dictionary<char, ArghFlag> _short = new();
 
-	/// <summary>The set of <paramref name="flags"/>; when two use the same name, the first keeps it.</summary>
+	/// <summary>
+	/// The set of <paramref name="flags"/>; when two use the same name, the first keeps it. Two flags whose names differ
+	/// but are the same under the comparer make the lookup throw an <see cref="InvalidOperationException"/>.
+	/// </summary>
 	public ArghFlagSet(params ArghFlag[] flags)
 	{
 		Flags = flags ?? throw new ArgumentNullException(nameof(flags));
 		foreach (var flag in flags)
 		{
-			AddLong(flag.Name, flag, negated: false);
-			foreach (var alias in flag.Aliases)
-				AddLong(alias, flag, negated: false);
 			if (flag.ShortName != '\0' && !_short.ContainsKey(flag.ShortName))
 				_short.Add(flag.ShortName, flag);
 		}
 
-		// The --no- forms last, so a flag that is itself named no-x keeps its name.
-		foreach (var flag in flags)
-		{
-			if (flag.Kind != ArghFlagKind.NegatableSwitch)
-				continue;
-			AddLong("no-" + flag.Name, flag, negated: true);
-			foreach (var alias in flag.Aliases)
-				AddLong("no-" + alias, flag, negated: true);
-		}
+		_long = new NameMap<LongName>(BuildLong);
 	}
 
 	/// <summary>The flags, in the order given.</summary>
@@ -102,7 +95,7 @@ public sealed class ArghFlagSet
 	/// <summary>The flag with the long name <paramref name="name"/> (without <c>--</c>); <paramref name="negated"/> for a <c>--no-</c> form.</summary>
 	internal bool TryGetLong(string name, out ArghFlag flag, out bool negated)
 	{
-		if (_long.TryGetValue(name, out var found))
+		if (_long.For(ArghNames.ArgumentComparer).TryGetValue(name, out var found))
 		{
 			flag = found.Flag;
 			negated = found.Negated;
@@ -119,9 +112,48 @@ public sealed class ArghFlagSet
 
 	internal bool HasShort(char c) => _short.ContainsKey(c);
 
-	private void AddLong(string name, ArghFlag flag, bool negated)
+	internal override void Check(Parsing.ParserOptions options) => _long.For(options.ArgumentStringComparer);
+
+	private Dictionary<string, LongName> BuildLong(StringComparer comparer)
 	{
-		if (!string.IsNullOrEmpty(name) && !_long.ContainsKey(name))
-			_long.Add(name, (flag, negated));
+		var map = new Dictionary<string, LongName>(comparer);
+		foreach (var flag in Flags)
+		{
+			AddLong(map, flag.Name, flag, negated: false);
+			foreach (var alias in flag.Aliases)
+				AddLong(map, alias, flag, negated: false);
+		}
+
+		// The --no- forms last, so a flag that is itself named no-x keeps its name.
+		foreach (var flag in Flags)
+		{
+			if (flag.Kind != ArghFlagKind.NegatableSwitch)
+				continue;
+			AddLong(map, "no-" + flag.Name, flag, negated: true);
+			foreach (var alias in flag.Aliases)
+				AddLong(map, "no-" + alias, flag, negated: true);
+		}
+
+		return map;
 	}
+
+	private static void AddLong(Dictionary<string, LongName> map, string name, ArghFlag flag, bool negated)
+	{
+		if (string.IsNullOrEmpty(name))
+			return;
+		if (!map.TryGetValue(name, out var first))
+		{
+			map.Add(name, new LongName(flag, negated, name));
+			return;
+		}
+
+		// The same name given twice, another spelling of the same flag, or a --no- form: the first keeps it.
+		if (negated || first.Negated || ReferenceEquals(first.Flag, flag) || string.Equals(first.Name, name, StringComparison.Ordinal))
+			return;
+		throw new InvalidOperationException(
+			$"ParserOptions.ArgumentStringComparer treats the options --{first.Name} and --{name} as the same name, but they are different flags. " +
+			"Rename one, or use a comparer that tells them apart, such as StringComparer.Ordinal.");
+	}
+
+	private readonly record struct LongName(ArghFlag Flag, bool Negated, string Name);
 }

@@ -136,6 +136,18 @@ public sealed partial class CliParserGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	/// <summary>
+	/// Two commands or namespaces in one scope whose names differ only in case: the default
+	/// <c>ParserOptions.CommandStringComparer</c> (<c>OrdinalIgnoreCase</c>) makes them the same name, and the app fails at startup.
+	/// </summary>
+	private static readonly DiagnosticDescriptor CommandNamesDifferOnlyInCase = new(
+		"AGH0041",
+		"Command names differ only in case",
+		"'{0}' and '{1}' differ only in case, so they collide under the default ParserOptions.CommandStringComparer (OrdinalIgnoreCase) and the app fails at startup; rename one, or set CommandStringComparer to StringComparer.Ordinal",
+		"Argh",
+		DiagnosticSeverity.Warning,
+		isEnabledByDefault: true);
+
 	private static readonly DiagnosticDescriptor AsParametersEmptyType = new(
 		"AGH0009",
 		"AsParameters type has no bindable members",

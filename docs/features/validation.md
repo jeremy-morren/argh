@@ -46,8 +46,7 @@ Options:
 | `[AllowedValues(v1, v2, …)]` (.NET 8) | any | value in set | `[allowed: v1\|v2\|…]` |
 | `[DeniedValues(v1, v2, …)]` (.NET 8) | any | value not in set | `[denied: v1\|v2\|…]` |
 | `[EmailAddress]` | `string` | `user@host` shape | `[email]` |
-| `[Url]` | `string` | absolute URL | `[url]` |
-| `[Url]` | `Uri` | http or https | `[schemes: http\|https]` |
+| `[Url]` | `string`, `Uri` | absolute `http`, `https` or `ftp` URL, as `UrlAttribute` | `[url]` |
 | `[FileExtensions(Extensions="json,yaml")]` | `FileInfo` (incl. collections) | file extension | `[extensions: json\|yaml]` |
 | `[UriScheme("https")]` | `Uri` | URI scheme | `[schemes: https]` |
 :::
@@ -80,7 +79,7 @@ public static void Process([MaxLength(5)] List<string> files) { … } // max 5 -
 public static void Archive([Argument][MinLength(2)][MaxLength(10)] string[] files) { … } // 2-10 positional items
 ```
 
-Every other attribute on a collection checks each element, as it would a single value of the element type: `[Range(1, 10)] int[] sizes` rejects `--sizes 11`, and `[Url] Uri[] links` rejects `--links ftp://x`.
+Every other attribute on a collection checks each element, as it would a single value of the element type: `[Range(1, 10)] int[] sizes` rejects `--sizes 11`, and `[Url] Uri[] links` rejects `--links mailto:me@example.com`.
 
 On a positional record bound with `[AsParameters]`, an attribute can target the parameter (`[Range(1, 10)] int Count`) or the property it initializes (`[property: Range(1, 10)] int Count`); both are checked.
 

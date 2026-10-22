@@ -58,7 +58,7 @@ public sealed partial class CliParserGenerator
 			foreach (var (_, _, _, _, _, flat, _) in chain)
 				list.AddRange(CollectCompletionFlagStrings(flat));
 			list.AddRange(CollectCompletionFlagStrings(cmd.Parameters));
-			var distinct = list.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s, StringComparer.Ordinal).ToList();
+			var distinct = list.Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList();
 			EmitCompletionStringArray(w, $"__c_flags_cmd_{cmd.RunMethodName}", distinct);
 		}
 
@@ -86,7 +86,7 @@ public sealed partial class CliParserGenerator
 		void AddScope(string scope, IEnumerable<ParameterModel> members)
 		{
 			var flags = new List<(List<string>, string)>();
-			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var seen = new HashSet<string>(StringComparer.Ordinal);
 			foreach (var p in members)
 			{
 				var values = CompletionValuesFor(p);
@@ -157,8 +157,7 @@ public sealed partial class CliParserGenerator
 						{
 							foreach (var (spellings, table) in flags)
 							{
-								var conditions = spellings.Select(s =>
-									$"string.Equals(flag, {Quote(s)}, StringComparison.{(s.StartsWith("--", StringComparison.Ordinal) ? "OrdinalIgnoreCase" : "Ordinal")})");
+								var conditions = spellings.Select(s => $"ArghNames.IsFlag(flag, {Quote(s)})");
 								using (w.If(string.Join(" || ", conditions)))
 								{
 									w.Line($"CompletionWriter.WriteFiltered({table}, partial, insertPrefix);");
@@ -237,7 +236,7 @@ public sealed partial class CliParserGenerator
 			w.Line("_ = shell;");
 			using (w.If("words.Length == 0"))
 			{
-				w.Line("CompletionWriter.WriteFiltered(__c_next_Root, \"\");");
+				w.Line("CompletionWriter.WriteCommands(__c_next_Root, \"\");");
 				w.Line("return;");
 			}
 
@@ -260,8 +259,8 @@ public sealed partial class CliParserGenerator
 			using (w.If("pos == committed.Length"))
 			{
 				w.If("TryWriteFlagValues(\"Root\", committed, 0, partial)", "return;");
-				w.If("partial.Length > 0 && partial[0] == '-'", "CompletionWriter.WriteFiltered(MergeSpans(__c_flags_global, __c_meta_root), partial);");
-				w.Else("CompletionWriter.WriteFiltered(__c_next_Root, partial);");
+				w.If("partial.Length > 0 && partial[0] == '-'", "CompletionWriter.WriteFlags(MergeSpans(__c_flags_global, __c_meta_root), partial);");
+				w.Else("CompletionWriter.WriteCommands(__c_next_Root, partial);");
 				w.Line("return;");
 			}
 
@@ -294,7 +293,7 @@ public sealed partial class CliParserGenerator
 					w.Line("pos++;");
 					w.If("TryWriteFlagValues(\"cmd:\" + runName, committed, pos, partial)", "return;");
 					w.Line("pos = ConsumeCommandTail(runName, committed, pos, committed.Length);");
-					w.If("partial.Length > 0 && partial[0] == '-'", "CompletionWriter.WriteFiltered(FlagsForCommand(runName), partial);");
+					w.If("partial.Length > 0 && partial[0] == '-'", "CompletionWriter.WriteFlags(FlagsForCommand(runName), partial);");
 					w.Line("return;");
 				}
 
@@ -365,13 +364,13 @@ public sealed partial class CliParserGenerator
 			.ToList();
 
 		// One case per namespace, writing the completions in that namespace's table.
-		void WriteForNamespace(string rootTable, string tablePrefix)
+		void WriteForNamespace(string write, string rootTable, string tablePrefix)
 		{
 			using (w.Switch("current"))
 			{
 				using (w.Case("\"Root\""))
 				{
-					w.Line($"CompletionWriter.WriteFiltered({rootTable}, partial);");
+					w.Line($"CompletionWriter.{write}({rootTable}, partial);");
 					w.Line("break;");
 				}
 
@@ -379,7 +378,7 @@ public sealed partial class CliParserGenerator
 				{
 					using (w.Case(Quote(key)))
 					{
-						w.Line($"CompletionWriter.WriteFiltered({tablePrefix}{key}, partial);");
+						w.Line($"CompletionWriter.{write}({tablePrefix}{key}, partial);");
 						w.Line("break;");
 					}
 				}
@@ -391,38 +390,33 @@ public sealed partial class CliParserGenerator
 		using (w.Block("private static void WriteAtNamespace(string current, string partial)"))
 		{
 			using (w.If("partial.Length > 0 && partial[0] == '-'"))
-				WriteForNamespace("MergeSpans(__c_flags_global, __c_meta_root)", "__c_flags_ns_");
+				WriteForNamespace("WriteFlags", "MergeSpans(__c_flags_global, __c_meta_root)", "__c_flags_ns_");
 			using (w.Else())
-				WriteForNamespace("__c_next_Root", "__c_next_");
+				WriteForNamespace("WriteCommands", "__c_next_Root", "__c_next_");
 		}
 
 		w.Line();
 	}
 
 	/// <summary>
-	/// A <c>switch (current)</c> over namespace keys: per namespace, one single-line <c>if</c> per child that matches
-	/// <c>tok</c>, then <c>return false;</c>. Namespaces with no children are left to <c>default</c>.
+	/// A <c>switch (current)</c> over namespace keys: per namespace, a <c>switch</c> over the registered name <c>tok</c>
+	/// matches (see <see cref="EmitCommandNameSwitch"/>), with a case per command, or per child namespace, then
+	/// <c>return false;</c>. Namespaces with none are left to <c>default</c>.
 	/// </summary>
-	private static void EmitNamespaceTokenSwitch(CodeWriter w, AppEmitModel app, Func<RegistryNode, ImmutableArray<string>, IEnumerable<string>> matches)
+	private static void EmitNamespaceTokenSwitch(CodeWriter w, AppEmitModel app, Action<CommandModel>? command,
+		Action<ImmutableArray<string>>? childNamespace)
 	{
 		using (w.Switch("current"))
 		{
-			var namespaces = new List<(string Key, List<string> Matches)>
+			var scopes = new List<(RegistryNode Node, ImmutableArray<string> Path)> { (app.Root, ImmutableArray<string>.Empty) };
+			scopes.AddRange(EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty));
+			foreach ((var node, var path) in scopes)
 			{
-				("Root", matches(app.Root, ImmutableArray<string>.Empty).ToList()),
-			};
-			foreach ((var node, var path) in EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty))
-			{
-				var lines = matches(node, path).ToList();
-				if (lines.Count > 0)
-					namespaces.Add((CommandNamespacePathKey(path), lines));
-			}
-
-			foreach ((var key, var lines) in namespaces)
-			{
-				using (w.Case(Quote(key)))
+				if (command is not null ? !node.Commands.Any(static c => !c.IsRootDefault) : node.Children.Count == 0)
+					continue;
+				using (w.Case(Quote(CommandNamespacePathKey(path))))
 				{
-					w.Lines(lines);
+					EmitCommandNameSwitch(w, node, path, "tok", command, childNamespace);
 					w.Return("false");
 				}
 			}
@@ -435,8 +429,11 @@ public sealed partial class CliParserGenerator
 	{
 		using (w.Block("private static bool TryDescendNamespace(ref string current, string tok)"))
 		{
-			EmitNamespaceTokenSwitch(w, app, static (node, path) => node.Children.Select(ch =>
-				$"if (string.Equals(tok, {Quote(ch.Segment)}, StringComparison.OrdinalIgnoreCase)) {{ current = {Quote(CommandNamespacePathKey(AppendSegment(path, ch.Segment)))}; return true; }}"));
+			EmitNamespaceTokenSwitch(w, app, command: null, child =>
+			{
+				w.Line($"current = {Quote(CommandNamespacePathKey(child))};");
+				w.Return("true");
+			});
 		}
 
 		w.Line();
@@ -447,10 +444,11 @@ public sealed partial class CliParserGenerator
 		using (w.Block("private static bool TryMatchCommand(string current, string tok, out string runMethodName)"))
 		{
 			w.Line("runMethodName = \"\";");
-			EmitNamespaceTokenSwitch(w, app, (node, path) =>
-				(path.IsDefaultOrEmpty ? app.AllCommands.Where(static c => !c.IsRootDefault && c.RoutePrefix.IsDefaultOrEmpty) : node.Commands)
-				.Select(cmd =>
-					$"if (string.Equals(tok, {Quote(cmd.CommandName)}, StringComparison.OrdinalIgnoreCase)) {{ runMethodName = {Quote(cmd.RunMethodName)}; return true; }}"));
+			EmitNamespaceTokenSwitch(w, app, cmd =>
+			{
+				w.Line($"runMethodName = {Quote(cmd.RunMethodName)};");
+				w.Return("true");
+			}, childNamespace: null);
 		}
 
 		w.Line();
@@ -538,7 +536,7 @@ public sealed partial class CliParserGenerator
 		yield return "--" + p.CliLongName;
 		foreach (var al in p.Aliases)
 		{
-			if (string.IsNullOrEmpty(al) || string.Equals(al, p.CliLongName, StringComparison.OrdinalIgnoreCase))
+			if (string.IsNullOrEmpty(al) || string.Equals(al, p.CliLongName, StringComparison.Ordinal))
 				continue;
 			yield return al.StartsWith("-", StringComparison.Ordinal) ? al : "--" + al;
 		}
@@ -553,7 +551,7 @@ public sealed partial class CliParserGenerator
 		ImmutableArray<ParameterModel> global,
 		ImmutableArray<ParameterModel> ns)
 	{
-		var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var set = new HashSet<string>(StringComparer.Ordinal);
 		var list = new List<string>();
 		foreach (var s in CollectCompletionFlagStrings(global))
 		{

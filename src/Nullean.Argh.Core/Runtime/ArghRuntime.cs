@@ -19,7 +19,8 @@ public static class ArghRuntime
 	private static readonly AsyncLocal<ParserOptions?> s_scopedParserOptions = new();
 
 	/// <summary>
-	/// How Argh parses argument and environment-variable values: the culture, the number styles, and what a repeated flag does.
+	/// How Argh parses argument and environment-variable values: the culture, the number styles, what a repeated flag does,
+	/// and how command and option names match.
 	/// Set them with <c>UseParserOptions</c> (or <c>UseCulture</c>) on the app or hosting builder; setting <see langword="null"/>
 	/// restores the defaults. Custom <c>IArgumentParser&lt;T&gt;</c> implementations receive them as an argument; middleware can read them here.
 	/// </summary>
@@ -31,7 +32,7 @@ public static class ArghRuntime
 
 	/// <summary>
 	/// The culture in <see cref="ParserOptions"/>, <see cref="CultureInfo.InvariantCulture"/> by default. Setting it keeps the
-	/// configured number and date styles.
+	/// other configured options.
 	/// </summary>
 	public static CultureInfo Culture
 	{
@@ -40,6 +41,7 @@ public static class ArghRuntime
 		{
 			Culture = value, NumberStyles = _parserOptions.NumberStyles, DateTimeStyles = _parserOptions.DateTimeStyles,
 			RepeatedScalarBehaviour = _parserOptions.RepeatedScalarBehaviour,
+			CommandStringComparer = _parserOptions.CommandStringComparer, ArgumentStringComparer = _parserOptions.ArgumentStringComparer,
 		};
 	}
 

@@ -278,8 +278,7 @@ public sealed partial class CliParserGenerator
 
 		w.Line("var __tok = tok;");
 		w.Line($"var __app = {Quote(entryAssemblyName)};");
-		w.Line($"var __cands = {InlineStringArray(sorted.Select(e => e.Name))};");
-		w.Line($"var __matches = FuzzyMatch.FindClosest(__tok, __cands, {FuzzyMaxDistance});");
+		w.Line($"var __matches = {CommandSetFieldName(path)}.Suggest(__tok);");
 		const string kind = "command or namespace";
 		using (w.If("__matches.Count == 0"))
 		{
@@ -303,7 +302,7 @@ public sealed partial class CliParserGenerator
 			w.Line("Console.Error.WriteLine();");
 			foreach (var e in sorted)
 			{
-				using (w.If($"__matches.Any(__x => string.Equals(__x, {Quote(e.Name)}, StringComparison.OrdinalIgnoreCase))"))
+				using (w.If($"__matches.Any(__x => string.Equals(__x, {Quote(e.Name)}, StringComparison.Ordinal))"))
 					w.Line($"Console.Error.WriteLine(\"  \" + CliHelpFormatting.Accent({Quote(pathPrefix + e.Name)}) + \"    {Escape(e.Summary)}\");");
 			}
 
@@ -456,6 +455,7 @@ public sealed partial class CliParserGenerator
 		foreach (var fq in optionsTypes)
 			w.Line($"private static {fq} {OptionsStaticFieldNameFq(fq)} = new {fq}();");
 		w.Line($"private static readonly Dictionary<string, string?> {OptionFlagsSeenField} = new Dictionary<string, string?>(StringComparer.Ordinal);");
+		EmitCommandSetFields(w, app);
 		w.Line();
 
 		EmitCompletionForApp(w, app);
@@ -560,7 +560,7 @@ public sealed partial class CliParserGenerator
 		OptionsMemberStatics(EnclosingOptions(app, path).Select(o => (
 			OptionsStaticFieldNameFq(o.TypeFq),
 			o.FlattenedMembers.Where(m => options.FlattenedMembers.Any(own =>
-				string.Equals(own.CliLongName, m.CliLongName, StringComparison.OrdinalIgnoreCase)
+				string.Equals(own.CliLongName, m.CliLongName, StringComparison.Ordinal)
 				&& own.SymbolName == m.SymbolName && own.TypeName == m.TypeName)).ToImmutableArray())));
 
 	/// <summary>The options that enclose the namespace at <paramref name="path"/>: the global options, then each outer namespace's.</summary>
@@ -571,7 +571,7 @@ public sealed partial class CliParserGenerator
 		var node = app.Root;
 		for (var i = 0; i < path.Length - 1; i++)
 		{
-			var child = node.Children.FirstOrDefault(c => string.Equals(c.Segment, path[i], StringComparison.OrdinalIgnoreCase));
+			var child = node.Children.FirstOrDefault(c => string.Equals(c.Segment, path[i], StringComparison.Ordinal));
 			if (child is null)
 				yield break;
 			node = child.Node;
@@ -622,6 +622,7 @@ public sealed partial class CliParserGenerator
 			CollectRootPrefetchGlobalMembers(app).Length > 0 || CollectDeferredRootAliasPrefetchFlags(app).Length > 0;
 		using (w.Block("private static async Task<int> RunCoreAsync(string[] args, CancellationToken ct)"))
 		{
+			w.Line(CheckNameScopes);
 			EmitRootCompletionScriptBlock(w, entryAssemblyName);
 			EmitRootCompleteBlock(w);
 			EmitRootSchemaBlock(w);
@@ -630,13 +631,13 @@ public sealed partial class CliParserGenerator
 			if (hasLeadingOptionPrefetch)
 				w.Line("if (!TryParseGlobalOptions(args, idx)) return 2;");
 
-			using (w.If("idx[0] < args.Length && (args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\")"))
+			using (w.If("idx[0] < args.Length && ArghNames.IsHelp(args[idx[0]])"))
 			{
 				w.Line("PrintRootHelp();");
 				w.Return("0");
 			}
 
-			using (w.If("idx[0] < args.Length && args[idx[0]] == \"--version\""))
+			using (w.If("idx[0] < args.Length && ArghNames.IsVersion(args[idx[0]])"))
 			{
 				w.Line("PrintVersion();");
 				w.Return("0");
@@ -882,31 +883,22 @@ public sealed partial class CliParserGenerator
 				}
 			}
 
-			using (w.If("args[idx[0]] == \"--help\" || args[idx[0]] == \"-h\""))
+			using (w.If("ArghNames.IsHelp(args[idx[0]])"))
 			{
 				w.Line(printHelp);
 				w.Return("0");
 			}
 
 			w.Line("var tok = args[idx[0]];");
-			foreach (var cmd in node.Commands)
+			EmitCommandNameSwitch(w, node, path, "tok", cmd =>
 			{
-				using (w.If($"string.Equals(tok, {Quote(cmd.CommandName)}, StringComparison.OrdinalIgnoreCase)"))
-				{
-					w.Line("idx[0]++;");
-					w.Line(ReturnRunTail(cmd.RunMethodName));
-				}
-			}
-
-			foreach (var ch in node.Children)
+				w.Line("idx[0]++;");
+				w.Line(ReturnRunTail(cmd.RunMethodName));
+			}, childPath =>
 			{
-				var childMethod = "DispatchCommandNamespace_" + CommandNamespacePathKey(AppendSegment(path, ch.Segment));
-				using (w.If($"string.Equals(tok, {Quote(ch.Segment)}, StringComparison.OrdinalIgnoreCase)"))
-				{
-					w.Line("idx[0]++;");
-					w.Return($"await {childMethod}(args, idx, ct).ConfigureAwait(false)");
-				}
-			}
+				w.Line("idx[0]++;");
+				w.Return($"await DispatchCommandNamespace_{CommandNamespacePathKey(childPath)}(args, idx, ct).ConfigureAwait(false)");
+			});
 
 			if ((node.RootCommand ?? node.RootAlias) is { } defaultCommand)
 			{
@@ -925,6 +917,98 @@ public sealed partial class CliParserGenerator
 
 			using (w.Block())
 				EmitFuzzyDispatchDefault(w, node, path, entryAssemblyName);
+		}
+	}
+
+	/// <summary>The list every name lookup in the generated type is registered in, for <see cref="CheckNameScopes"/>.</summary>
+	private const string NameScopesField = "s_nameScopes";
+
+	/// <summary>
+	/// Fails fast, before reading the command line, when the configured comparers make two commands, namespaces or flags in
+	/// one scope the same. Reading the list runs the type's static initializers, so every lookup is registered by then.
+	/// </summary>
+	private const string CheckNameScopes = "ArghNames.Check(" + NameScopesField + ");";
+
+	/// <summary>The <c>ArghCommandSet</c> static with the command and namespace names of the scope at <paramref name="path"/>.</summary>
+	private static string CommandSetFieldName(ImmutableArray<string> path) => "__names_" + CommandNamespacePathKey(path);
+
+	/// <summary><c>ArghNames.Register(s_nameScopes, value)</c>: a name lookup that <see cref="CheckNameScopes"/> checks.</summary>
+	private static string RegisteredNameScope(string value) => $"ArghNames.Register({NameScopesField}, {value})";
+
+	/// <summary>
+	/// The command and namespace names of <paramref name="node"/>, commands first, each once: a command, or the path of a
+	/// child namespace.
+	/// </summary>
+	private static List<(string Name, CommandModel? Command, ImmutableArray<string> ChildPath)> ScopeNames(RegistryNode node, ImmutableArray<string> path)
+	{
+		var seen = new HashSet<string>(StringComparer.Ordinal);
+		var names = new List<(string, CommandModel?, ImmutableArray<string>)>();
+		foreach (var cmd in node.Commands.Where(static c => !c.IsRootDefault))
+		{
+			if (seen.Add(cmd.CommandName))
+				names.Add((cmd.CommandName, cmd, default));
+		}
+
+		foreach (var ch in node.Children)
+		{
+			if (seen.Add(ch.Segment))
+				names.Add((ch.Segment, null, AppendSegment(path, ch.Segment)));
+		}
+
+		return names;
+	}
+
+	/// <summary>
+	/// The name-scope list, then one <c>ArghCommandSet</c> per scope (the app and each namespace), which matches a command
+	/// or namespace name with <c>ParserOptions.CommandStringComparer</c>.
+	/// </summary>
+	private static void EmitCommandSetFields(CodeWriter w, AppEmitModel app)
+	{
+		w.Line($"private static readonly List<ArghNameScope> {NameScopesField} = new List<ArghNameScope>();");
+
+		void Emit(RegistryNode node, ImmutableArray<string> path)
+		{
+			var names = ScopeNames(node, path).Select(static n => Quote(n.Name)).ToList();
+			var set = names.Count == 0 ? "new ArghCommandSet()" : CodeWriter.New("ArghCommandSet", names);
+			w.Line($"private static readonly ArghCommandSet {CommandSetFieldName(path)} = {RegisteredNameScope(set)};");
+		}
+
+		Emit(app.Root, ImmutableArray<string>.Empty);
+		foreach ((var node, var path) in EnumerateCommandNamespaceNodesWithPath(app.Root, ImmutableArray<string>.Empty))
+			Emit(node, path);
+	}
+
+	/// <summary>
+	/// <c>switch (__names_X.Find(token))</c> with a case per command (when <paramref name="command"/> is given) and per child
+	/// namespace (when <paramref name="childNamespace"/> is) of <paramref name="node"/>: <c>Find</c> gives the registered
+	/// name the token matches under the configured comparer, so each case compares that exact name. Each case returns;
+	/// control leaves the switch when nothing matches.
+	/// </summary>
+	private static void EmitCommandNameSwitch(
+		CodeWriter w,
+		RegistryNode node,
+		ImmutableArray<string> path,
+		string tokenExpr,
+		Action<CommandModel>? command,
+		Action<ImmutableArray<string>>? childNamespace)
+	{
+		var names = ScopeNames(node, path)
+			.Where(n => n.Command is not null ? command is not null : childNamespace is not null)
+			.ToList();
+		if (names.Count == 0)
+			return;
+		using (w.Switch($"{CommandSetFieldName(path)}.Find({tokenExpr})"))
+		{
+			foreach (var (name, cmd, childPath) in names)
+			{
+				using (w.CaseBlock(Quote(name)))
+				{
+					if (cmd is not null)
+						command!(cmd);
+					else
+						childNamespace!(childPath);
+				}
+			}
 		}
 	}
 }

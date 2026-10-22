@@ -12,7 +12,7 @@ public class SemVerParser : IArgumentParser<SemVer>
 }
 ```
 
-`options` holds the parser options set with `UseParserOptions` (see [Culture and styles](index.md#culture-and-styles)): `options.Culture`, `CultureInfo.InvariantCulture` by default, `options.NumberStyles`, `NumberStyles.Float` by default, and `options.DateTimeStyles`. Pass them to any culture-sensitive parsing, such as numbers or dates, so your type parses the same way as the built-in ones.
+`options` holds the [parser options](index.md#parser-options) set with `UseParserOptions`: `options.Culture`, `CultureInfo.InvariantCulture` by default, `options.NumberStyles`, `NumberStyles.Float` by default, and `options.DateTimeStyles`. Pass them to any culture-sensitive parsing, such as numbers or dates, so your type parses the same way as the built-in ones.
 
 ## Using the parser
 

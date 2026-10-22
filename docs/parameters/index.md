@@ -22,32 +22,46 @@ Nullean.Argh supports several parameter binding modes:
 | Collections | `List<T>`, `T[]` |
 | Parsable | Any type that implements `IParsable<T>` on .NET 7 and later, such as `Guid`, `short`, `char` or your own types (see [below](#iparsablet-types)) |
 
-### Culture and styles
+### Parser options
 
-Numbers, dates and times, and `TimeSpan` values are parsed with `CultureInfo.InvariantCulture` by default, so `--amount 1.5` and `--day 2024-06-15` work the same on every machine. To accept a specific culture's format instead, set it on the app or hosting builder:
+`UseParserOptions` on the app or hosting builder sets how Argh reads the command line: how values are parsed and how command and option names are matched. Every option has a default, so set only the ones you change:
+
+```csharp
+var app = new ArghApp().UseParserOptions(new ParserOptions
+{
+    Culture = CultureInfo.GetCultureInfo("en-GB"),                   // --day 15/06/2024
+    NumberStyles = NumberStyles.Float | NumberStyles.AllowThousands, // --count 1,000
+    DateTimeStyles = DateTimeStyles.AdjustToUniversal,
+    RepeatedScalarBehaviour = RepeatedScalarBehaviour.TakeLast,      // --env a --env b is b
+    CommandStringComparer = StringComparer.Ordinal,                  // DEPLOY isn't deploy
+    ArgumentStringComparer = StringComparer.OrdinalIgnoreCase,       // --NAME is --name
+});
+```
+
+| Option | Default | What it sets |
+|--------|---------|--------------|
+| `Culture` | `CultureInfo.InvariantCulture` | The format of numbers, dates and times, and `TimeSpan` values (see [Culture and styles](#culture-and-styles)). |
+| `NumberStyles` | `NumberStyles.Float` | What a number may contain, for every number type. |
+| `DateTimeStyles` | `RoundtripKind \| AllowWhiteSpaces` | How `DateTime` and `DateTimeOffset` values are read; `DateOnly` and `TimeOnly` take only its whitespace flags. |
+| `RepeatedScalarBehaviour` | `Reject` | What a flag that takes one value does when it's given more than once (see [A flag given more than once](flags.md#a-flag-given-more-than-once)). |
+| `CommandStringComparer` | `StringComparer.OrdinalIgnoreCase` | How command and namespace names match (see [Matching names](#matching-names)). |
+| `ArgumentStringComparer` | `StringComparer.Ordinal` | How long option names match. |
+
+The current options are `ArghRuntime.ParserOptions`, and [custom parsers](custom-parsers.md) receive them. `TryParseArgh` and `TryParseArghExact` have overloads that take `ParserOptions` for one call. `UseCulture` sets only the culture:
 
 ```csharp
 var app = new ArghApp().UseCulture(CultureInfo.GetCultureInfo("de-DE"));
 // myapp pay --amount 1,5 --day 15.06.2024
 ```
 
-`UseParserOptions` sets the culture and the styles together:
+#### Culture and styles
 
-```csharp
-app.UseParserOptions(new ParserOptions
-{
-    Culture = CultureInfo.GetCultureInfo("en-GB"),
-    NumberStyles = NumberStyles.Float | NumberStyles.AllowThousands, // --count 1,000
-    DateTimeStyles = DateTimeStyles.AdjustToUniversal,
-});
-```
+Numbers, dates and times, and `TimeSpan` values are parsed with `CultureInfo.InvariantCulture` by default, so `--amount 1.5` and `--day 2024-06-15` work the same on every machine. Set `Culture` to accept a specific culture's format instead.
 
-- `Culture`: `CultureInfo.InvariantCulture` by default.
 - `NumberStyles`: `Float` by default, for every number type: a leading sign, a decimal point, an exponent, and leading and trailing whitespace, so `1.5`, `-2` and `1e3` parse. Group separators are rejected, so `1,000` is an error; add `AllowThousands` to accept them. An integer takes a decimal point or an exponent only for a whole number: `--count 1e3` is `1000` and `--count 1.0` is `1`, but `--count 1.5` is an error.
-- `DateTimeStyles`: `RoundtripKind | AllowWhiteSpaces` by default, so `2024-06-15T14:30:00Z` stays UTC. It applies to `DateTime` and `DateTimeOffset`. `DateOnly` and `TimeOnly` get only its whitespace flags, because they fail on any other. `TimeSpan` doesn't use it (see [Durations](#durations)).
-- `RepeatedScalarBehaviour`: what a flag given more than once does, `Reject` by default (see [A flag given more than once](flags.md#a-flag-given-more-than-once)).
+- `DateTimeStyles`: `RoundtripKind | AllowWhiteSpaces` by default, so `2024-06-15T14:30:00Z` stays UTC. It applies to `DateTime` and `DateTimeOffset` as it is. `DateOnly` and `TimeOnly` throw on any style but whitespace, so they get only its whitespace flags (`AllowLeadingWhite`, `AllowTrailingWhite`, `AllowInnerWhite`): by default `--day " 2024-06-15 "` and `--at " 14:30 "` parse, and `AdjustToUniversal` changes nothing for them. `TimeSpan` doesn't use it (see [Durations](#durations)).
 
-The options apply to flag and positional values, environment-variable fallbacks, collection elements, `[AsParameters]` members and options classes, nullable or not, and they're passed to [custom parsers](custom-parsers.md). Numbers that Argh shows users use the culture too: `[default: …]` in help, the values of `[AllowedValues]` and `[DeniedValues]` and the bounds of `[Range]` in help and validation errors, and `[AllowedValues]` numbers offered by [completion](../features/completions.md), so a completed value parses back to the same number. The current options are `ArghRuntime.ParserOptions`. `TryParseArgh` and `TryParseArghExact` have overloads that take `ParserOptions` for one call. Command and option names, enum values, string allowed values and `__schema` stay invariant, and completion matches what's typed so far without the culture, as parsing does, so the Turkish `I` doesn't stop `--INFO` matching `--info`.
+The culture and styles apply to flag and positional values, environment-variable fallbacks, collection elements, `[AsParameters]` members and options classes, nullable or not. Numbers that Argh shows users use the culture too: `[default: …]` in help, the values of `[AllowedValues]` and `[DeniedValues]` and the bounds of `[Range]` in help and validation errors, and `[AllowedValues]` numbers offered by [completion](../features/completions.md), so a completed value parses back to the same number. Command and option names, enum values, string allowed values and `__schema` stay invariant, and completion matches what's typed so far without the culture, as parsing does, so the Turkish `I` doesn't stop `INFO` completing the enum value `info`.
 
 Things to know about cultures:
 
@@ -55,6 +69,27 @@ Things to know about cultures:
 - ISO 8601 dates such as `2024-06-15` parse under any culture with a Gregorian calendar. A culture with another default calendar reads them in that calendar: under `fa-IR`, `2024-06-15` is a Persian date (`1403/03/26` is 15 June 2024). Keep the invariant culture if you expect ISO dates.
 - .NET Framework uses Windows culture data (NLS), and .NET 5 and later use ICU, so some details differ. For example, ICU accepts the Unicode minus sign `−` under `sv-SE` and uses `٫` as the `fa-IR` decimal separator, where NLS rejects `−` and uses `/`.
 - With `InvariantGlobalization` enabled and `PredefinedCulturesOnly` set to `false`, every culture carries invariant data, so a configured culture has no effect.
+
+#### Matching names
+
+Command and namespace names ignore case by default, so `myapp DEPLOY` runs `deploy`. Long option names match case, as in clap and cobra, so `--NAME` is an unknown option:
+
+```
+$ myapp deploy --NAME web
+Error: unknown option '--NAME'.
+```
+
+`CommandStringComparer` and `ArgumentStringComparer` change that. They apply everywhere a name is matched: running and routing (`ArghParser.Route`), option names and their aliases, `--no-` forms, `--help` and `--version`, shell [completion](../features/completions.md) and the ["did you mean"](../features/fuzzy-matching.md) suggestions. With `StringComparer.Ordinal` for commands, `myapp DEPLOY` is an unknown command, as in clap and cobra; with `StringComparer.OrdinalIgnoreCase` for arguments, `--NAME` and `--Help` work. Any `StringComparer` works, such as `StringComparer.InvariantCultureIgnoreCase`.
+
+Short options always match case, whatever `ArgumentStringComparer` is, because `-v` and `-V` are commonly different flags. Values don't use the comparers: enum values ignore case, and `[AllowedValues]` strings match case.
+
+Two names in one scope that a comparer treats as the same, such as commands `Deploy` and `deploy` under the default `CommandStringComparer`, make the app fail at startup, before it reads the command line, with an `InvalidOperationException` that names both:
+
+```
+System.InvalidOperationException: ParserOptions.CommandStringComparer treats the commands or namespaces 'Deploy' and 'deploy' as the same name. Rename one, or use a comparer that tells them apart, such as StringComparer.Ordinal.
+```
+
+The generator warns about this with `AGH0041` when two commands or namespaces in one scope differ only in case. Two options of one command whose names differ only in case are already an error (`AGH0007`).
 
 ### Durations
 

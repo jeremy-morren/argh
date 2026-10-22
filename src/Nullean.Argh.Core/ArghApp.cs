@@ -55,8 +55,9 @@ public sealed partial class ArghApp : IArghRootBuilder
 	}
 
 	/// <summary>
-	/// Sets how argument and environment-variable values are parsed: the culture and the number styles. Unlike the other
-	/// builder methods this takes effect at runtime: it sets <see cref="ArghRuntime.ParserOptions"/>.
+	/// Sets how argument and environment-variable values are parsed, such as the culture and the number styles, and how
+	/// command and option names match. Unlike the other builder methods this takes effect at runtime: it sets
+	/// <see cref="ArghRuntime.ParserOptions"/>.
 	/// </summary>
 	public ArghApp UseParserOptions(Nullean.Argh.Parsing.ParserOptions options)
 	{
@@ -204,7 +205,7 @@ public sealed partial class ArghApp : IArghRootBuilder
 		{
 			if (a == "--")
 				return false;
-			if (a is "--help" or "-h" or "--version")
+			if (ArghNames.IsHelp(a) || ArghNames.IsVersion(a))
 				return true;
 		}
 

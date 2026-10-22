@@ -181,7 +181,7 @@ public sealed partial class CliParserGenerator
 
 			foreach (var a in p.Aliases)
 			{
-				if (string.Equals(a, p.CliLongName, StringComparison.OrdinalIgnoreCase))
+				if (string.Equals(a, p.CliLongName, StringComparison.Ordinal))
 					continue;
 				sb.Append("--").Append(a).Append(", ");
 			}

@@ -22,7 +22,7 @@ public sealed partial class CliParserGenerator
 			w.Line(runHintStatement);
 		}
 
-		w.Line($"var __matches = FuzzyMatch.FindClosest(flagName, __flagFuzzyCands, {FuzzyMaxDistance});");
+		w.Line($"var __matches = FuzzyMatch.FindClosest(flagName, __flagFuzzyCands, {FuzzyMaxDistance}, ArghNames.ArgumentComparer);");
 		using (w.If("__matches.Count == 0"))
 		{
 			w.Line(UnknownLongOptionError);
@@ -58,7 +58,7 @@ public sealed partial class CliParserGenerator
 
 	/// <summary>The fuzzy-match candidates for an unknown long option: each flag's long name once.</summary>
 	private static string FlagFuzzyCandidates(IEnumerable<ParameterModel> flags) =>
-		$"var __flagFuzzyCands = {InlineStringArray(flags.Select(static p => p.CliLongName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))};";
+		$"var __flagFuzzyCands = {InlineStringArray(flags.Select(static p => p.CliLongName).Distinct(StringComparer.Ordinal).OrderBy(static x => x, StringComparer.OrdinalIgnoreCase))};";
 
 	/// <summary>
 	/// The static that records the options flags the leading options parsers saw, by long name with the value given, for
@@ -728,14 +728,11 @@ public sealed partial class CliParserGenerator
 			FlagErrorLine(t, "value is not a valid email address."));
 	}
 
+	/// <summary>An absolute <c>http</c>, <c>https</c> or <c>ftp</c> URI, the same rule for a <c>string</c> and a <c>Uri</c>.</summary>
 	private static void EmitUrlConstraintCheck(CodeWriter w, ValidationTarget t)
 	{
-		// Validates absolute URL with http, https, or ftp scheme
 		var (nullGuard, v) = ReferenceCheckAccess(t, "url");
-		var check = CodeWriter.IndentLines(
-			$"(global::System.Uri.TryCreate({v}, global::System.UriKind.Absolute, out var __urlCheck_{t.VarName}) &&\n" +
-			$" (__urlCheck_{t.VarName}.Scheme == \"http\" || __urlCheck_{t.VarName}.Scheme == \"https\" || __urlCheck_{t.VarName}.Scheme == \"ftp\"))");
-		EmitValidationFailure(w, t, $"{nullGuard}!\n{check}", FlagErrorLine(t, "value is not a valid URL."));
+		EmitValidationFailure(w, t, $"{nullGuard}!global::Nullean.Argh.Runtime.ArghPathBinding.IsUrl({v})", FlagErrorLine(t, "value is not a valid URL."));
 	}
 
 	private static void EmitUriSchemeConstraintCheck(CodeWriter w, ValidationTarget t, UriSchemeConstraint us)

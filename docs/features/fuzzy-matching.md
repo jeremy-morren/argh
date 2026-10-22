@@ -28,4 +28,6 @@ Run 'myapp storage --help' for usage.
 
 The generator emits the full command tree at build time. When a token doesn't match any known command or namespace at a given level, the runtime computes edit distance against all valid candidates.
 
-If the closest match is within a reasonable threshold, it is suggested in the error message.
+If the closest match is within a reasonable threshold, it is suggested in the error message. Unknown options get the same treatment against the command's flags.
+
+Characters are compared as names are matched (see [Matching names](../parameters/index.md#matching-names)): commands ignore case by default, so `myapp STOARGE` suggests `storage`, and long options match case by default, so `--NAEM` suggests nothing until `ArgumentStringComparer` ignores case.

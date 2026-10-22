@@ -50,8 +50,8 @@ public interface IArghRootBuilder : IArghBuilder
 	IArghRootBuilder UseCulture(System.Globalization.CultureInfo culture);
 
 	/// <summary>
-	/// Sets how argument and environment-variable values are parsed: the culture and the number styles (see
-	/// <see cref="Parsing.ParserOptions"/>). Custom <see cref="Parsing.IArgumentParser{T}"/> implementations receive the same options.
+	/// Sets how argument and environment-variable values are parsed, such as the culture and the number styles, and how
+	/// command and option names match (see <see cref="Parsing.ParserOptions"/>). Custom <see cref="Parsing.IArgumentParser{T}"/> implementations receive the same options.
 	/// Unlike the other root options this is a runtime setting: it applies to every parse after the call.
 	/// </summary>
 	IArghRootBuilder UseParserOptions(Parsing.ParserOptions options);

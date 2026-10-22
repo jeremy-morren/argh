@@ -469,6 +469,7 @@ public sealed partial class CliParserGenerator
 		ValidateCommandNamespaceOptionsChain(context, app.Root, parentEffectiveOptionsMetadataName: app.GlobalOptionsModel?.TypeMetadataName);
 		if (!ValidateNamespaceSegmentSanitizationCollisions(context, app.Root))
 			return false;
+		ReportNamesDifferingOnlyInCase(context, app.Root);
 
 		// OptionsModels are already set from AIUseGlobalOptions / AIUseNamespaceOptions via ProcessAnalyzedInvocationsForNode.
 
@@ -478,7 +479,7 @@ public sealed partial class CliParserGenerator
 		if (flat.Count == 0)
 			return false;
 
-		var dedup = new Dictionary<string, CommandModel>(StringComparer.OrdinalIgnoreCase);
+		var dedup = new Dictionary<string, CommandModel>(StringComparer.Ordinal);
 		foreach (var c in flat)
 		{
 			var key = string.Join("/", c.RoutePrefix) + "/" + c.CommandName;
@@ -804,6 +805,29 @@ public sealed partial class CliParserGenerator
 		return dot >= 0 ? metadataName.Substring(dot + 1) : metadataName;
 	}
 
+	/// <summary>
+	/// AGH0041: two commands or namespaces in one scope whose names differ only in case. Generated code matches names with
+	/// the runtime's <c>CommandStringComparer</c>; under its default, <c>OrdinalIgnoreCase</c>, they collide.
+	/// </summary>
+	private static void ReportNamesDifferingOnlyInCase(SourceProductionContext context, RegistryNode node)
+	{
+		var names = node.Commands.Where(static c => !c.IsRootDefault)
+			.Select(static c => (Name: c.CommandName, Location: c.HandlerSpanInfo.ToLocation()))
+			.Concat(node.Children.Select(static ch => (Name: ch.Segment, ch.Location)))
+			.ToList();
+		var first = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var (name, location) in names)
+		{
+			if (!first.TryGetValue(name, out var earlier))
+				first.Add(name, name);
+			else if (!string.Equals(earlier, name, StringComparison.Ordinal))
+				context.ReportDiagnostic(Diagnostic.Create(CommandNamesDifferOnlyInCase, location, earlier, name));
+		}
+
+		foreach (var child in node.Children)
+			ReportNamesDifferingOnlyInCase(context, child.Node);
+	}
+
 	private static bool ValidateNamespaceSegmentSanitizationCollisions(SourceProductionContext context, RegistryNode node)
 	{
 		var seen = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -920,7 +944,7 @@ public sealed partial class CliParserGenerator
 			RegistryNode.NamedCommandNamespaceChild? found = null;
 			foreach (var ch in current.Children)
 			{
-				if (string.Equals(ch.Segment, seg, StringComparison.OrdinalIgnoreCase))
+				if (string.Equals(ch.Segment, seg, StringComparison.Ordinal))
 				{
 					found = ch;
 					break;

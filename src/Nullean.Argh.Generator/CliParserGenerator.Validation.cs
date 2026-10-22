@@ -318,10 +318,8 @@ public sealed partial class CliParserGenerator
 					builder.Add(new EmailConstraint());
 					break;
 				case "global::System.ComponentModel.DataAnnotations.UrlAttribute":
-					if (fsKind == CliScalarKind.Uri)
-						builder.Add(new UriSchemeConstraint(ImmutableArray.Create("http", "https")));
-					else
-						builder.Add(new UrlConstraint());
+					// UrlAttribute's rule (http, https or ftp) for a string and a Uri alike, and for each element of a collection.
+					builder.Add(new UrlConstraint());
 					break;
 				case "global::System.ComponentModel.DataAnnotations.FileExtensionsAttribute":
 				{

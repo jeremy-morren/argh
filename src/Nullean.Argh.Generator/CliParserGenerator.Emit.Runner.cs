@@ -658,10 +658,10 @@ public sealed partial class CliParserGenerator
 	/// </summary>
 	private static void EmitFlagSetField(CodeWriter w, string field, IEnumerable<ParameterModel> parameters)
 	{
-		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var seen = new HashSet<string>(StringComparer.Ordinal);
 		var flags = parameters.Where(p => IsEmittedFlagLike(p.Kind) && seen.Add(p.CliLongName)).Select(FlagSpec).ToList();
 		var value = flags.Count == 0 ? $"new {ArghFlagSetFq}()" : CodeWriter.New(ArghFlagSetFq, flags);
-		w.Line($"private static readonly {ArghFlagSetFq} {field} = {value};");
+		w.Line($"private static readonly {ArghFlagSetFq} {field} = {RegisteredNameScope(value)};");
 		w.Line();
 	}
 
@@ -679,7 +679,7 @@ public sealed partial class CliParserGenerator
 			args.Add($"shortName: '{c}'");
 		var aliases = p.Aliases
 			.Select(static a => a.TrimStart('-'))
-			.Where(a => a.Length > 0 && !string.Equals(a, p.CliLongName, StringComparison.OrdinalIgnoreCase))
+			.Where(a => a.Length > 0 && !string.Equals(a, p.CliLongName, StringComparison.Ordinal))
 			.ToList();
 		if (aliases.Count > 0)
 			args.Add($"aliases: new[] {{ {string.Join(", ", aliases.Select(Quote))} }}");
@@ -1176,7 +1176,7 @@ public sealed partial class CliParserGenerator
 			RegistryNode.NamedCommandNamespaceChild? found = null;
 			foreach (var c in current.Children)
 			{
-				if (string.Equals(c.Segment, seg, StringComparison.OrdinalIgnoreCase))
+				if (string.Equals(c.Segment, seg, StringComparison.Ordinal))
 				{
 					found = c;
 					break;

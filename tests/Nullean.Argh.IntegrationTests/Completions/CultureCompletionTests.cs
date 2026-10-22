@@ -14,9 +14,11 @@ public class CultureCompletionTests
 	private static Dictionary<string, string>? Culture(string? name) =>
 		name is null ? null : new() { ["ARGH_TEST_CULTURE"] = name };
 
-	private static string Complete(string? culture, params string[] words)
+	private static string Complete(string? culture, params string[] words) => Complete(Culture(culture), words);
+
+	private static string Complete(Dictionary<string, string>? env, params string[] words)
 	{
-		var result = CliHostRunner.Run(Culture(culture), ["__complete", "bash", "--", .. words]);
+		var result = CliHostRunner.Run(env, ["__complete", "bash", "--", .. words]);
 		result.ExitCode.Should().Be(0, CliHostRunner.StderrText(result));
 		return CliHostRunner.StdoutText(result);
 	}
@@ -77,10 +79,12 @@ public class CultureCompletionTests
 		schema.Should().Contain("\"1.5\"").And.Contain("\"9.5\"").And.NotContain("\"1,5\"");
 	}
 
-	// Turkish I: matching ignores case without the culture, so `I` still finds `information` and `--RA` finds `--rate`.
+	// Turkish I: matching ignores case without the culture, so `I` still finds `information`, and `--RATI` finds `--ratio`
+	// when option names ignore case.
 	[Theory]
-	[InlineData(new[] { "culture-choices", "--RA" }, "--rate\n--ratio\n")]
+	[InlineData(new[] { "culture-choices", "--RATI" }, "--ratio\n")]
 	[InlineData(new[] { "hello", "--severity", "I" }, "information\n")]
 	public void Matching_ignores_case_without_the_culture(string[] words, string expected) =>
-		Complete("tr-TR", words).Should().Be(expected);
+		Complete(new Dictionary<string, string> { ["ARGH_TEST_CULTURE"] = "tr-TR", ["ARGH_TEST_ARGUMENT_COMPARER"] = "OrdinalIgnoreCase" }, words)
+			.Should().Be(expected);
 }

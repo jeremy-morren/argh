@@ -84,7 +84,7 @@ myapp deploy --env prod --env dev     ✗  Error: the argument --env cannot be u
 myapp -v deploy -v                    ✗  (the same for -v given before and after the command)
 ```
 
-Set `RepeatedScalarBehaviour` in the [parser options](index.md#culture-and-styles) to change it for every flag, and `[RepeatedScalar]` on a parameter or property to change it for one flag, which wins:
+Set `RepeatedScalarBehaviour` in the [parser options](index.md#parser-options) to change it for every flag, and `[RepeatedScalar]` on a parameter or property to change it for one flag, which wins:
 
 | `RepeatedScalarBehaviour` | `--env prod --env dev` | `--env prod --env prod` |
 |---|---|---|

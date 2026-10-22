@@ -169,12 +169,15 @@ public class UseParserOptionsTests
 			new ArghApp().UseParserOptions(new ParserOptions
 			{
 				NumberStyles = NumberStyles.Integer | NumberStyles.AllowThousands, DateTimeStyles = DateTimeStyles.AdjustToUniversal,
+				CommandStringComparer = StringComparer.Ordinal, ArgumentStringComparer = StringComparer.OrdinalIgnoreCase,
 			});
 			new ArghApp().UseCulture(CultureInfo.GetCultureInfo("de-DE"));
 
 			ArghRuntime.ParserOptions.Culture.Name.Should().Be("de-DE");
 			ArghRuntime.ParserOptions.NumberStyles.Should().Be(NumberStyles.Integer | NumberStyles.AllowThousands);
 			ArghRuntime.ParserOptions.DateTimeStyles.Should().Be(DateTimeStyles.AdjustToUniversal);
+			ArghRuntime.ParserOptions.CommandStringComparer.Should().BeSameAs(StringComparer.Ordinal);
+			ArghRuntime.ParserOptions.ArgumentStringComparer.Should().BeSameAs(StringComparer.OrdinalIgnoreCase);
 		}
 		finally
 		{

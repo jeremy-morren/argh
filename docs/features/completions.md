@@ -90,7 +90,7 @@ Windows PowerShell 5.1:
 
 ## How it works
 
-The generator emits completion lookup tables alongside routing and help printers. When the shell invokes `__complete`, the handler walks the command tree using the provided context words and returns candidates that start with the partial word, ignoring case, one per line. Lines end in `\n` on every OS, so no shell sees a stray carriage return.
+The generator emits completion lookup tables alongside routing and help printers. When the shell invokes `__complete`, the handler walks the command tree using the provided context words and returns candidates that start with the partial word, one per line. Names match as the parser matches them (see [Matching names](../parameters/index.md#matching-names)): command and namespace names ignore case by default, long option names match case by default, short options always match case, and values ignore case. Lines end in `\n` on every OS, so no shell sees a stray carriage return.
 
 Completions cover:
 
