@@ -55,6 +55,9 @@ internal static class Registration
 #if BUG21
 		Bug21.Register(app);
 #endif
+#if BUG55
+		Bug55.Register(app);
+#endif
 #if BUG59
 		Bug59.Register(app);
 #endif
