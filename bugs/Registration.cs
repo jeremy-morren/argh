@@ -55,9 +55,6 @@ internal static class Registration
 #if BUG21
 		Bug21.Register(app);
 #endif
-#if BUG55
-		Bug55.Register(app);
-#endif
 #if BUG59
 		Bug59.Register(app);
 #endif
@@ -115,13 +112,11 @@ internal static class Registration
 #if BUG82
 		Bug82.Register(app);
 #endif
-		Bug83.Register(app);
 
 		// Found while building range-unbounded (#90)
 		Bug88.Register(app);
 		Bug91.Register(app);
 		Bug94.Register(app);
-		Bug99.Register(app);
 #if BUG98
 		Bug98.Register(app);
 #endif
