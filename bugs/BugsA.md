@@ -7,7 +7,7 @@ Wrong results when reading argv and environment variables. The parser is generat
 | # | Bug | Severity | Scratch file |
 |---|---|---|---|
 | 76 | [A bare number is a `TimeSpan` in days, and the compact format is undocumented and incomplete](#76-a-bare-number-is-a-timespan-in-days-and-the-compact-format-is-undocumented-and-incomplete) | Misleading | `bug76.cs` |
-| 83 | [Command names and long flags are matched case-insensitively](#83-command-names-and-long-flags-are-matched-case-insensitively) | Minor | `bug83.cs` |
+| 83 | [Command names are case-insensitive but flags aren't](#83-command-names-are-case-insensitive-but-flags-arent) | Minor | `bug83.cs` |
 | 99 | [`[Url]` on a `Uri` accepts only http and https, on a `string` also ftp](#99-url-on-a-uri-accepts-only-http-and-https-on-a-string-also-ftp) | Wrong result | `bug99.cs` |
 
 ## Background
@@ -58,7 +58,7 @@ When working:
 
 Separate PR: Implement feature-equivalent to `humantime` or `time.ParseDuration` (whichever is more popular or understood): Expose as a public method `HumanTime.Parse/TryParse(CultureInfo)`, with the same feature set (so that users could use just this part of the library, and document this in documentation). Then use that in parsing TimeSpan.
 
-### 83. Command names and long flags are matched case-insensitively
+### 83. Command names are case-insensitive but flags aren't
 
 `HELLO` routes to `hello`, but `--NAME` is an unknown option. `-V` before the command gives `unknown short option '-V'`; after it, `missing value for short flag '-V'`, which is misleading.
 
@@ -67,8 +67,6 @@ Separate PR: Implement feature-equivalent to `humantime` or `time.ParseDuration`
 Dev note: separate PR: add CommandStringComparer (default to OrdinalIgnoreCase) and ArgumentStringComparer (default to Ordinal) to parser options. These should be used for all matching. Analyzer warning if 2 commands are defined that are case-insensitive equal. Ensure parser options are documented in docs/, including the dateonly and timeonly parts.
 
 **Partly fixed on `unmatched-args` (no PR yet):** `-V` now gives `unknown short option '-V'` before and after the command. Command names are still matched case-insensitively and flags case-sensitively.
-
-**Changed on `flag-tokens` (no PR yet):** long flags are now matched case-insensitively too (`hello --NAME x` and `bug83 --Name x` bind), because the new tokenizer's long-flag table uses `StringComparer.OrdinalIgnoreCase` (`src/Nullean.Argh.Core/Runtime/ArghFlagSet.cs:72` on that branch); short flags stay case-sensitive (`-V` is unknown). Commands and long flags now follow one rule, but clap and cobra are case-sensitive for both, and the dev note asks for `Ordinal` by default.
 
 ### 99. `[Url]` on a `Uri` accepts only http and https, on a `string` also ftp
 
